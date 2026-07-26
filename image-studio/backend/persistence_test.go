@@ -30,6 +30,7 @@ func TestImportsDirUsesConfigRootOnNonWindows(t *testing.T) {
 	}
 	home := filepath.Join(t.TempDir(), "home")
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 
 	got, err := importsDir()
 	if err != nil {
