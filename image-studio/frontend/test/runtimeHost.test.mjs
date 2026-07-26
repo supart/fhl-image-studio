@@ -190,9 +190,29 @@ function loadRuntimeHost() {
   return import(`../src/platform/runtime/host.ts?runtime-host-test=${Date.now()}-${Math.random().toString(36).slice(2)}`);
 }
 
+function loadHostBindings() {
+  return import(`../src/platform/runtime/hostBindings.ts?host-bindings-test=${Date.now()}-${Math.random().toString(36).slice(2)}`);
+}
+
 function loadVirtualHostStore() {
   return import(`../src/lib/virtualHostStore.ts?virtual-host-test=${Date.now()}-${Math.random().toString(36).slice(2)}`);
 }
+
+test("hostBindings ignores a legacy Service-only Wails binding", async () => {
+  await withPatchedGlobals(async () => {
+    globalThis.window.go = {
+      backend: {
+        Service: {
+          Generate: async () => ({ jobId: "legacy-job" }),
+        },
+      },
+    };
+  }, async () => {
+    const hostBindings = await loadHostBindings();
+    assert.equal(hostBindings.getService(), null);
+    assert.equal(hostBindings.hasServiceMethod("Generate"), false);
+  });
+});
 
 test("runtimeHost remote mode emits job lifecycle events", async () => {
   await withPatchedGlobals(async () => {
@@ -404,7 +424,391 @@ test("runtimeHost ChooseBatchInputDir avoids unstable browser directory inputs",
   });
 });
 
-test("runtimeHost ChooseDirectory uses the local preview directory picker endpoint", async () => {
+test("runtimeHost OpenImagesDialog falls back when E2E native multi-select is unavailable", async () => {
+  let serviceCalled = false;
+
+  await withPatchedGlobals(async () => {
+    globalThis.window.location = {
+      href: "http://127.0.0.1:9230/",
+      origin: "http://127.0.0.1:9230",
+      hostname: "127.0.0.1",
+    };
+    globalThis.window.__IMAGE_STUDIO_E2E_BOOTSTRAP = { enabled: true, e2eOnly: true };
+    globalThis.window.go = {
+      backend: {
+        DesktopAPI: {
+          OpenImagesDialog: async () => {
+            serviceCalled = true;
+            return { files: [] };
+          },
+        },
+      },
+    };
+    globalThis.FileReader = class MockFileReader {
+      constructor() {
+        this.result = null;
+        this.error = null;
+        this.onload = null;
+        this.onerror = null;
+      }
+
+      readAsDataURL(file) {
+        Promise.resolve(typeof file?.arrayBuffer === "function" ? file.arrayBuffer() : new Uint8Array())
+          .then((buffer) => {
+            const base64 = Buffer.from(buffer).toString("base64");
+            this.result = `data:${file?.type || "image/png"};base64,${base64}`;
+            this.onload?.();
+          })
+          .catch((error) => {
+            this.error = error;
+            this.onerror?.();
+          });
+      }
+    };
+
+    const pickedFiles = [
+      {
+        name: "batch-one.png",
+        type: "image/png",
+        size: 4,
+        async arrayBuffer() {
+          return Uint8Array.from([0x89, 0x50, 0x4e, 0x47]);
+        },
+      },
+      {
+        name: "batch-two.jpg",
+        type: "image/jpeg",
+        size: 3,
+        async arrayBuffer() {
+          return Uint8Array.from([0xff, 0xd8, 0xff]);
+        },
+      },
+    ];
+
+    const originalCreateElement = globalThis.document.createElement.bind(globalThis.document);
+    globalThis.document.createElement = (tag) => {
+      if (tag !== "input") return originalCreateElement(tag);
+      const listeners = new Map();
+      return {
+        type: "",
+        accept: "",
+        multiple: false,
+        style: {},
+        files: pickedFiles,
+        setAttribute() {},
+        addEventListener(name, handler) {
+          listeners.set(name, handler);
+        },
+        click() {
+          queueMicrotask(() => listeners.get("change")?.());
+        },
+        remove() {},
+      };
+    };
+
+    globalThis.fetch = async (url, init) => {
+      if (String(url).includes("/__image-studio-files/save-image")) {
+        const body = JSON.parse(String(init?.body || "{}"));
+        const name = String(body.name || "image.png");
+        return new Response(JSON.stringify({
+          path: `I:/preview/${body.subdir || "batch-inputs"}/${name}`,
+          name,
+          size: body.imageB64?.length || 1,
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    const result = await runtimeHost.OpenImagesDialog();
+    assert.equal(serviceCalled, true);
+    assert.equal(result.files.length, 2);
+    assert.equal(result.files[0].name, "batch-one.png");
+    assert.equal(result.files[1].name, "batch-two.jpg");
+  });
+});
+
+test("runtimeHost OpenImagesDialog keeps browser-selected files when project save fails", async () => {
+  await withPatchedGlobals(async () => {
+    globalThis.window.location = {
+      href: "http://127.0.0.1:9230/",
+      origin: "http://127.0.0.1:9230",
+      hostname: "127.0.0.1",
+    };
+    globalThis.window.__IMAGE_STUDIO_E2E_BOOTSTRAP = { enabled: false, e2eOnly: false };
+    globalThis.window.go = {};
+    globalThis.FileReader = class MockFileReader {
+      constructor() {
+        this.result = null;
+        this.error = null;
+        this.onload = null;
+        this.onerror = null;
+      }
+
+      readAsDataURL(file) {
+        Promise.resolve(typeof file?.arrayBuffer === "function" ? file.arrayBuffer() : new Uint8Array())
+          .then((buffer) => {
+            const base64 = Buffer.from(buffer).toString("base64");
+            this.result = `data:${file?.type || "image/png"};base64,${base64}`;
+            this.onload?.();
+          })
+          .catch((error) => {
+            this.error = error;
+            this.onerror?.();
+          });
+      }
+    };
+
+    const pickedFiles = [
+      {
+        name: "fallback-one.png",
+        type: "image/png",
+        size: 4,
+        async arrayBuffer() {
+          return Uint8Array.from([0x89, 0x50, 0x4e, 0x47]);
+        },
+      },
+      {
+        name: "fallback-two.webp",
+        type: "image/webp",
+        size: 4,
+        async arrayBuffer() {
+          return Uint8Array.from([0x52, 0x49, 0x46, 0x46]);
+        },
+      },
+    ];
+
+    const originalCreateElement = globalThis.document.createElement.bind(globalThis.document);
+    globalThis.document.createElement = (tag) => {
+      if (tag !== "input") return originalCreateElement(tag);
+      const listeners = new Map();
+      return {
+        type: "",
+        accept: "",
+        multiple: false,
+        style: {},
+        files: pickedFiles,
+        setAttribute() {},
+        addEventListener(name, handler) {
+          listeners.set(name, handler);
+        },
+        click() {
+          queueMicrotask(() => listeners.get("change")?.());
+        },
+        remove() {},
+      };
+    };
+
+    globalThis.fetch = async (url) => {
+      if (String(url).includes("/__image-studio-files/save-image")) {
+        throw new TypeError("Failed to fetch");
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    const result = await runtimeHost.OpenImagesDialog();
+    assert.equal(result.files.length, 2);
+    assert.match(result.files[0].path, /^memory:\/\/image\//);
+    assert.match(result.files[1].path, /^memory:\/\/image\//);
+    assert.equal(result.files[0].name, "fallback-one.png");
+    assert.equal(await runtimeHost.ReadImageAsBase64(result.files[0].path), "iVBORw==");
+  });
+});
+
+test("runtimeHost OpenImagesDialog rejects volatile browser files in E2E-only mode", async () => {
+  await withPatchedGlobals(async () => {
+    globalThis.window.location = {
+      href: "http://127.0.0.1:9230/",
+      origin: "http://127.0.0.1:9230",
+      hostname: "127.0.0.1",
+    };
+    globalThis.window.__IMAGE_STUDIO_E2E_BOOTSTRAP = { enabled: true, e2eOnly: true };
+    globalThis.window.go = {
+      backend: {
+        DesktopAPI: {
+          OpenImagesDialog: async () => ({ files: [] }),
+        },
+      },
+    };
+    globalThis.FileReader = class MockFileReader {
+      constructor() {
+        this.result = null;
+        this.error = null;
+        this.onload = null;
+        this.onerror = null;
+      }
+
+      readAsDataURL(file) {
+        Promise.resolve(typeof file?.arrayBuffer === "function" ? file.arrayBuffer() : new Uint8Array())
+          .then((buffer) => {
+            const base64 = Buffer.from(buffer).toString("base64");
+            this.result = `data:${file?.type || "image/png"};base64,${base64}`;
+            this.onload?.();
+          })
+          .catch((error) => {
+            this.error = error;
+            this.onerror?.();
+          });
+      }
+    };
+
+    const pickedFiles = [{
+      name: "fallback-one.png",
+      type: "image/png",
+      size: 4,
+      async arrayBuffer() {
+        return Uint8Array.from([0x89, 0x50, 0x4e, 0x47]);
+      },
+    }];
+
+    const originalCreateElement = globalThis.document.createElement.bind(globalThis.document);
+    globalThis.document.createElement = (tag) => {
+      if (tag !== "input") return originalCreateElement(tag);
+      const listeners = new Map();
+      return {
+        type: "",
+        accept: "",
+        multiple: false,
+        style: {},
+        files: pickedFiles,
+        setAttribute() {},
+        addEventListener(name, handler) {
+          listeners.set(name, handler);
+        },
+        click() {
+          queueMicrotask(() => listeners.get("change")?.());
+        },
+        remove() {},
+      };
+    };
+
+    globalThis.fetch = async (url) => {
+      if (String(url).includes("/__image-studio-files/save-image")) {
+        throw new TypeError("Failed to fetch");
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    await assert.rejects(
+      () => runtimeHost.OpenImagesDialog(),
+      /fallback-one\.png/,
+    );
+  });
+});
+
+test("runtimeHost OpenImagesDialog keeps saved E2E files when one browser file fails", async () => {
+  await withPatchedGlobals(async () => {
+    globalThis.window.location = {
+      href: "http://127.0.0.1:9230/",
+      origin: "http://127.0.0.1:9230",
+      hostname: "127.0.0.1",
+    };
+    globalThis.window.__IMAGE_STUDIO_E2E_BOOTSTRAP = { enabled: true, e2eOnly: true };
+    globalThis.window.go = {
+      backend: {
+        DesktopAPI: {
+          OpenImagesDialog: async () => ({ files: [] }),
+        },
+      },
+    };
+    globalThis.FileReader = class MockFileReader {
+      constructor() {
+        this.result = null;
+        this.error = null;
+        this.onload = null;
+        this.onerror = null;
+      }
+
+      readAsDataURL(file) {
+        Promise.resolve(typeof file?.arrayBuffer === "function" ? file.arrayBuffer() : new Uint8Array())
+          .then((buffer) => {
+            const base64 = Buffer.from(buffer).toString("base64");
+            this.result = `data:${file?.type || "image/png"};base64,${base64}`;
+            this.onload?.();
+          })
+          .catch((error) => {
+            this.error = error;
+            this.onerror?.();
+          });
+      }
+    };
+
+    const pickedFiles = [
+      {
+        name: "saved-one.png",
+        type: "image/png",
+        size: 4,
+        async arrayBuffer() {
+          return Uint8Array.from([0x89, 0x50, 0x4e, 0x47]);
+        },
+      },
+      {
+        name: "failed-two.png",
+        type: "image/png",
+        size: 4,
+        async arrayBuffer() {
+          return Uint8Array.from([0x89, 0x50, 0x4e, 0x47]);
+        },
+      },
+    ];
+
+    const originalCreateElement = globalThis.document.createElement.bind(globalThis.document);
+    globalThis.document.createElement = (tag) => {
+      if (tag !== "input") return originalCreateElement(tag);
+      const listeners = new Map();
+      return {
+        type: "",
+        accept: "",
+        multiple: false,
+        style: {},
+        files: pickedFiles,
+        setAttribute() {},
+        addEventListener(name, handler) {
+          listeners.set(name, handler);
+        },
+        click() {
+          queueMicrotask(() => listeners.get("change")?.());
+        },
+        remove() {},
+      };
+    };
+
+    globalThis.fetch = async (url, init) => {
+      if (String(url).includes("/__image-studio-files/save-image")) {
+        const body = JSON.parse(String(init?.body || "{}"));
+        const suggestedName = String(body.suggestedName || "image.png");
+        if (suggestedName === "failed-two.png") {
+          return new Response(JSON.stringify({ error: "disk write failed" }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({
+          path: `I:/preview/${body.subdir || "batch-inputs"}/${suggestedName}`,
+          name: suggestedName,
+          size: 4,
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    const result = await runtimeHost.OpenImagesDialog();
+    assert.equal(result.files.length, 1);
+    assert.equal(result.files[0].name, "saved-one.png");
+    assert.match(result.files[0].path, /saved-one\.png$/);
+  });
+});
+
+test("runtimeHost ChooseBatchOutputDir uses the local preview directory picker endpoint", async () => {
   let requestBody = null;
 
   await withPatchedGlobals(async () => {
@@ -426,7 +830,7 @@ test("runtimeHost ChooseDirectory uses the local preview directory picker endpoi
     };
   }, async () => {
     const runtimeHost = await loadRuntimeHost();
-    const chosen = await runtimeHost.ChooseDirectory("选择批处理输出目录");
+    const chosen = await runtimeHost.ChooseBatchOutputDir();
     assert.equal(chosen, "I:/AI/Image-Studio/output/batch-test");
     assert.deepEqual(requestBody, { title: "选择批处理输出目录" });
   });
@@ -772,7 +1176,7 @@ test("runtimeHost windows fallback uses persisted GPU-backed transform when desk
     });
     globalThis.window.go = {
       backend: {
-        Service: {
+        DesktopAPI: {
           ReadImageAsBase64: async () => "YWJj",
           ImportImageFromB64: async (_b64, _name) => ({ path: "C:/imports/flipped.png", imageB64: "YWJj" }),
         },
@@ -803,7 +1207,7 @@ test("runtimeHost linux fallback uses persisted GPU-backed transform when deskto
     });
     globalThis.window.go = {
       backend: {
-        Service: {
+        DesktopAPI: {
           ReadImageAsBase64: async () => "YWJj",
           ImportImageFromB64: async (_b64, _name) => ({ path: "/tmp/imports/cropped.png", imageB64: "YWJj" }),
         },
@@ -868,7 +1272,7 @@ test("runtimeHost probes upstream through Wails backend", async () => {
     const calls = [];
     globalThis.window.go = {
       backend: {
-        Service: {
+        DesktopAPI: {
           Generate: async () => ({ jobId: "job" }),
           Edit: async () => ({ jobId: "job" }),
           ProbeUpstream: async (payload) => {

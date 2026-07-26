@@ -24,6 +24,13 @@ export interface UpstreamProfile {
   imageModelID: string;
   // 0 = 不限。同一 profile 跨所有 workspace 共享并发计数。
   concurrencyLimit: number;
+  // 仅 Images profile 可加入桌面连续生成的自动分配池。
+  continuousPoolEnabled?: boolean;
+  // Stable 1..10 slot for the official FHL Images continuous-pool setup.
+  fhlImagesPoolSlot?: number;
+  // Sanitized last four characters of a pool key. This is display metadata,
+  // never a credential, and is only retained for an official Images pool slot.
+  fhlImagesPoolKeyHint?: string;
   imagesNewAPICompat?: boolean;
   createdAt: number;
   // 最近一次被 setActive / 提交生成 时更新;用于把最近使用过的 profile 在
@@ -201,6 +208,26 @@ export interface MaterialGroup {
   updatedAt: number;
 }
 
+export interface PSBridgeSourceMetadata {
+  order: number;
+  sourceKind: string;
+  displayName: string;
+  documentId?: string;
+  layerId?: string;
+  layerPath?: string;
+  trimMode?: string;
+  originalWidth?: number;
+  originalHeight?: number;
+  uploadWidth?: number;
+  uploadHeight?: number;
+}
+
+export interface PSBridgeHistoryMetadata {
+  jobId: string;
+  clientTaskId: string;
+  sources: PSBridgeSourceMetadata[];
+}
+
 export interface HistoryItem {
   id: string;
   imageId?: string;
@@ -240,6 +267,7 @@ export interface HistoryItem {
 
   savedPath?: string;
   rawPath?: string;
+  psBridge?: PSBridgeHistoryMetadata;
   panoramaRoundtrip?: PanoramaRoundtripRef;
   panoramaProject?: PanoramaProjectRef;
 }
@@ -294,6 +322,8 @@ export interface JobSlotSnapshot {
 
 export interface JobGroupSnapshot {
   groupId: string;
+  runId?: string;
+  clientTaskId?: string;
   workspaceId: string;
   createdAt: number;
   mode: Mode;
@@ -320,6 +350,7 @@ export interface JobGroupSnapshot {
 
 export interface BatchTaskRecord {
   id: string;
+  runId?: string;
   workspaceId: string;
   slotIndex: number;
   status: JobStatus;
@@ -329,6 +360,10 @@ export interface BatchTaskRecord {
   apiMode: APIMode;
   apiProfileId?: string;
   apiProfileName?: string;
+  // Captured when a continuous-pool task receives a profile. This is
+  // intentionally non-sensitive; credentials remain in the OS keyring.
+  apiBaseURL?: string;
+  continuousPoolTask?: boolean;
   prompt: string;
   size: SizeValue;
   quality: QualityValue;
@@ -347,6 +382,9 @@ export interface BatchTaskRecord {
   batchSourceSlotIndex?: number;
   autoAspectResolution?: Exclude<BatchProcessAutoAspectResolution, "">;
   maskB64?: string;
+  launchState?: "submitting";
+  launchAttempt?: number;
+  launchStartedAt?: number;
   jobId?: string;
   groupId?: string;
   historyItemId?: string;
@@ -360,7 +398,7 @@ export interface BatchTaskRecord {
   autoRetryCount?: number;
   autoRetryScheduledAt?: number;
   autoRetryReason?: string;
-  queuedReason?: "local_concurrency" | "batch_shared_concurrency";
+  queuedReason?: "local_concurrency" | "batch_shared_concurrency" | "continuous_pool";
   queuePriority?: number;
   batchOutputMode?: BatchProcessOutputMode;
   batchOutputDir?: string;

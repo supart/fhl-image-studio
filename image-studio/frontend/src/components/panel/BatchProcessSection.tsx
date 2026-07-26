@@ -1,3 +1,5 @@
+import { useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { CheckCheck, FolderOpen, Images, Trash2, X } from "lucide-react";
 import type { BatchProcessConfig, BatchProcessSourceImage, EditSourceMode } from "../../types/domain";
 import { Section, Seg, SegItem } from "./panelChrome";
@@ -34,7 +36,9 @@ export function BatchProcessSection({
   currentImageSavedPath,
   editSourceMode,
   batchProcess,
-  sharedConcurrencyLimit,
+  perAPIConcurrencyLimit,
+  enabledAPICount,
+  totalConcurrencyLimit,
   setEditSourceMode,
   setBatchProcess,
   onChooseInputDir,
@@ -45,7 +49,9 @@ export function BatchProcessSection({
   currentImageSavedPath?: string | null;
   editSourceMode: EditSourceMode;
   batchProcess: BatchProcessConfig;
-  sharedConcurrencyLimit: number;
+  perAPIConcurrencyLimit: number;
+  enabledAPICount: number;
+  totalConcurrencyLimit: number;
   setEditSourceMode: (mode: EditSourceMode) => void;
   setBatchProcess: (next: BatchProcessConfig) => void;
   onChooseInputDir: () => void;
@@ -60,6 +66,14 @@ export function BatchProcessSection({
   const surfaceClass = `border border-black/[0.06] bg-[var(--surface)] dark:border-white/[0.04] ${roundedClass}`;
   const selectedCount = selectedSourceCount(batchProcess);
   const totalCount = batchProcess.discoveredSources.length;
+  const sourceListRef = useRef<HTMLDivElement | null>(null);
+  const sourceVirtualizer = useVirtualizer({
+    count: totalCount,
+    getScrollElement: () => sourceListRef.current,
+    estimateSize: () => 60,
+    getItemKey: (index) => batchProcess.discoveredSources[index]?.path ?? index,
+    overscan: 4,
+  });
 
   function updateBatchSources(
     updater: (source: BatchProcessSourceImage, index: number) => BatchProcessSourceImage,
@@ -142,7 +156,7 @@ export function BatchProcessSection({
         {batchMode ? (
           <div className="space-y-3">
             <div className={`${surfaceClass} px-3 py-3 text-[11px] leading-5 text-zinc-500 dark:text-zinc-400`}>
-              批处理会把加入队列的每一张图都当作独立源图，复用同一套提示词和参数逐张执行图生图，并跟随上方共享并发推进。
+              批处理会把加入队列的每一张图都当作独立源图，复用同一套提示词和参数逐张执行图生图，并跟随上方每 API 并发推进。
             </div>
 
             <div className={`${surfaceClass} px-3 py-3`}>
@@ -223,8 +237,12 @@ export function BatchProcessSection({
                   <div className="flex items-center justify-between gap-3 text-[11px] text-zinc-500 dark:text-zinc-400">
                     <span>已选 {selectedCount} / {totalCount} 张</span>
                   </div>
-                  <div className={`max-h-[240px] space-y-2 overflow-y-auto pr-1 ${usesFluentUI ? "pb-1" : ""}`}>
-                    {batchProcess.discoveredSources.map((source, index) => {
+                  <div ref={sourceListRef} className={`h-[240px] overflow-y-auto pr-1 ${usesFluentUI ? "pb-1" : ""}`}>
+                    <div className="relative w-full" style={{ height: sourceVirtualizer.getTotalSize() }}>
+                    {sourceVirtualizer.getVirtualItems().map((virtualRow) => {
+                      const index = virtualRow.index;
+                      const source = batchProcess.discoveredSources[index];
+                      if (!source) return null;
                       const active = source.selected !== false;
                       return (
                         <button
@@ -232,11 +250,12 @@ export function BatchProcessSection({
                           type="button"
                           aria-pressed={active}
                           onClick={() => handleToggleSource(source.path)}
-                          className={`flex w-full items-center justify-between gap-3 border px-3 py-2 text-left transition-colors ${
+                          className={`absolute left-0 top-0 flex h-[52px] w-full items-center justify-between gap-3 border px-3 py-2 text-left transition-colors ${
                             active
                               ? "border-[color:var(--accent)]/28 bg-[var(--accent-soft)]/50 shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent)_16%,transparent)]"
                               : "border-black/[0.06] bg-white/72 hover:border-[color:var(--accent)]/24 hover:bg-[var(--accent-soft)]/20 dark:border-white/[0.06] dark:bg-white/[0.03]"
                           } ${roundedClass}`}
+                          style={{ transform: `translateY(${virtualRow.start}px)` }}
                           title={active ? "点击取消选择" : "点击选择这张"}
                         >
                           <span className="min-w-0 flex-1">
@@ -253,6 +272,7 @@ export function BatchProcessSection({
                         </button>
                       );
                     })}
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -317,13 +337,13 @@ export function BatchProcessSection({
                 <div className={`border border-[color:var(--accent)]/18 bg-[var(--accent-soft)]/55 px-3 py-3 dark:border-[color:var(--accent)]/20 ${roundedClass}`}>
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <div className="text-[12px] font-semibold text-zinc-900 dark:text-zinc-100">当前跟随共享并发：</div>
+                      <div className="text-[12px] font-semibold text-zinc-900 dark:text-zinc-100">当前跟随每 API 并发：</div>
                       <div className="mt-0.5 text-[11px] leading-5 text-zinc-500 dark:text-zinc-400">
-                        并发统一跟随上方共享并发设置，当前 {sharedConcurrencyLimit > 0 ? `${sharedConcurrencyLimit} 并发` : "尚未设置明确值"}。
+                        每个已启用 API 最多 {perAPIConcurrencyLimit} 张；已启用 {enabledAPICount} 个 API，总上限 {totalConcurrencyLimit}。
                       </div>
                     </div>
                     <span className={`shrink-0 border border-[color:var(--accent)]/25 bg-white/75 px-2.5 py-1 text-[11px] font-semibold text-[var(--accent)] dark:bg-white/10 ${usesFluentUI ? "rounded-[9px]" : "rounded-full"}`}>
-                      {sharedConcurrencyLimit > 0 ? `${sharedConcurrencyLimit} 并发` : "尚未设置"}
+                      {perAPIConcurrencyLimit}/API · 总 {totalConcurrencyLimit}
                     </span>
                   </div>
                 </div>

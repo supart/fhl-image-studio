@@ -2,7 +2,6 @@ import {
   WindowSetDarkTheme,
   WindowSetLightTheme,
   WindowSetSystemDefaultTheme,
-  RegisterTrustedOutputDir,
 } from "../platform/runtime/host";
 import type {
   Annotation,
@@ -20,11 +19,16 @@ import type {
   ThemeMode,
   Workspace,
 } from "../types/domain";
-import type { ModeConfig, Stroke } from "./studioStore.types";
-import { isWindows } from "../platform";
-import { ACTIVE_PROFILE_LS_KEY, PROFILES_LS_KEY, tryParseProfile } from "../lib/profiles";
+import { compactWorkspaceSessionTasks } from "./workspaceSessionTasks";
+import type { FHLTransportMode, ModeConfig, Stroke } from "./studioStore.types";
+import { isWindowsHost } from "../platform";
+import {
+  ACTIVE_PROFILE_LS_KEY,
+  PROFILES_LS_KEY,
+  normalizeFHLPoolPerAPIConcurrencyLimit,
+  tryParseProfile,
+} from "../lib/profiles";
 import type { UpstreamProfile } from "../types/domain";
-import { pruneHistoryStorage } from "../lib/storage";
 import { storageKey } from "../lib/storageNamespace.ts";
 import { getImageDimensionsFromBase64 } from "../lib/images";
 import {
@@ -41,10 +45,12 @@ export const EMPTY_MODE_CFG: ModeConfig = {
   concurrencyLimit: 0,
 };
 
-export const MAX_HISTORY_ITEMS = 120;
 export const WORKSPACE_SESSION_INTERRUPTED_MESSAGE = "页面已刷新，之前的进行中任务已中断。请重试或检查 output 目录。";
 
 const WORKSPACE_SESSION_LS_KEY = storageKey("gptcodex.workspaceSession.v1");
+export const FHL_TRANSPORT_MODE_LS_KEY = storageKey("gptcodex.fhlTransportMode.v1");
+export const FHL_POOL_PER_API_CONCURRENCY_LS_KEY = storageKey("gptcodex.fhlImagesPool.perApiConcurrencyLimit.v1");
+export const LEGACY_FHL_POOL_SHARED_CONCURRENCY_LS_KEY = storageKey("gptcodex.fhlImagesPool.sharedConcurrencyLimit.v1");
 
 let detachSystemThemeListener: (() => void) | null = null;
 
@@ -96,7 +102,7 @@ export function applyTheme(theme: ThemeMode) {
   unbindSystemThemeListener();
   document.documentElement.setAttribute("data-appearance", theme);
   writeResolvedTheme(resolvedTheme(theme));
-  if (isWindows) {
+  if (isWindowsHost) {
     if (theme === "system") WindowSetSystemDefaultTheme();
     else if (theme === "dark") WindowSetDarkTheme();
     else WindowSetLightTheme();
@@ -151,6 +157,51 @@ export function loadStoredProfiles(): UpstreamProfile[] {
 
 export function loadStoredActiveProfileId(): string {
   try { return localStorage.getItem(ACTIVE_PROFILE_LS_KEY) ?? ""; } catch { return ""; }
+}
+
+export function loadStoredFHLTransportMode(): FHLTransportMode {
+  try {
+    return localStorage.getItem(FHL_TRANSPORT_MODE_LS_KEY) === "responses" ? "responses" : "images";
+  } catch {
+    return "images";
+  }
+}
+
+export function persistFHLTransportMode(mode: FHLTransportMode): void {
+  try { localStorage.setItem(FHL_TRANSPORT_MODE_LS_KEY, mode); } catch {}
+}
+
+function normalizeStoredConcurrencyLimit(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.floor(n));
+}
+
+export function loadStoredFHLPoolPerAPIConcurrencyLimit(): number | null {
+  try {
+    const raw = localStorage.getItem(FHL_POOL_PER_API_CONCURRENCY_LS_KEY);
+    return raw === null ? null : normalizeFHLPoolPerAPIConcurrencyLimit(raw);
+  } catch {
+    return null;
+  }
+}
+
+export function loadLegacyFHLPoolSharedConcurrencyLimit(): number | null {
+  try {
+    const raw = localStorage.getItem(LEGACY_FHL_POOL_SHARED_CONCURRENCY_LS_KEY);
+    return raw === null ? null : normalizeStoredConcurrencyLimit(raw);
+  } catch {
+    return null;
+  }
+}
+
+export function persistFHLPoolPerAPIConcurrencyLimit(limit: number): void {
+  try {
+    localStorage.setItem(
+      FHL_POOL_PER_API_CONCURRENCY_LS_KEY,
+      String(normalizeFHLPoolPerAPIConcurrencyLimit(limit)),
+    );
+  } catch {}
 }
 
 export function clearLegacyModeLocalStorage() {
@@ -208,21 +259,12 @@ export function buildMaskPNGDataURL(strokes: Stroke[], dims: { w: number; h: num
   return hasWhite ? c.toDataURL("image/png") : null;
 }
 
-export async function registerTrustedOutputRoots(roots: string[]): Promise<void> {
-  for (const root of roots) {
-    if (!root.trim()) continue;
-    await RegisterTrustedOutputDir(root).catch(() => undefined);
-  }
-}
-
 export function trimHistory(items: HistoryItem[]): HistoryItem[] {
-  if (items.length <= MAX_HISTORY_ITEMS) return items;
-  return items.slice(0, MAX_HISTORY_ITEMS);
+  return items;
 }
 
 export function persistTrimmedHistory(items: HistoryItem[]): void {
-  const keptIDs = items.map((item) => item.id);
-  void pruneHistoryStorage(keptIDs);
+  void items;
 }
 
 function normalizeWorkspaceSize(value: unknown): SizeValue {
@@ -269,6 +311,10 @@ function sanitizeStoredPreviewUrl(value: unknown): string | undefined {
   return trimmed;
 }
 
+function isVolatileMemoryPath(value: unknown): boolean {
+  return typeof value === "string" && value.trim().startsWith("memory://");
+}
+
 function normalizeProgressInfo(value: unknown): ProgressInfo | null {
   if (!value || typeof value !== "object") return null;
   const stage = typeof (value as { stage?: unknown }).stage === "string"
@@ -288,7 +334,7 @@ function normalizeSourceImage(value: unknown): SourceImage | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Partial<SourceImage>;
   const path = typeof raw.path === "string" ? raw.path.trim() : "";
-  if (!path) return null;
+  if (!path || isVolatileMemoryPath(path)) return null;
   const name = typeof raw.name === "string" && raw.name.trim()
     ? raw.name.trim()
     : path.split(/[\\/]/).pop() ?? path;
@@ -301,6 +347,8 @@ function normalizeSourceImage(value: unknown): SourceImage | null {
     height: Number.isFinite(Number(raw.height)) ? Math.floor(Number(raw.height)) : undefined,
     previewUrl: sanitizeStoredPreviewUrl(raw.previewUrl),
     imageBlob: null,
+    panoramaRoundtrip: raw.panoramaRoundtrip,
+    panoramaProject: raw.panoramaProject,
   };
 }
 
@@ -338,7 +386,7 @@ function normalizeBatchProcessSourceImage(value: unknown): BatchProcessSourceIma
   if (!value || typeof value !== "object") return null;
   const raw = value as Partial<BatchProcessSourceImage>;
   const itemPath = typeof raw.path === "string" ? raw.path.trim() : "";
-  if (!itemPath) return null;
+  if (!itemPath || isVolatileMemoryPath(itemPath)) return null;
   const itemName = typeof raw.name === "string" && raw.name.trim()
     ? raw.name.trim()
     : itemPath.split(/[\\/]/).pop() ?? itemPath;
@@ -368,27 +416,33 @@ function toPersistedWorkspace(workspace: Workspace): Workspace {
     ...workspace,
     batchProcess: {
       ...workspace.batchProcess,
-      discoveredSources: workspace.batchProcess.discoveredSources.map((source) => ({
+      discoveredSources: workspace.batchProcess.discoveredSources
+        .filter((source) => !isVolatileMemoryPath(source.path))
+        .map((source) => ({
+          path: source.path,
+          name: source.name,
+          size: source.size,
+          width: source.width,
+          height: source.height,
+          previewUrl: sanitizeStoredPreviewUrl(source.previewUrl),
+          previewWidth: source.previewWidth,
+          previewHeight: source.previewHeight,
+          selected: source.selected !== false,
+        })),
+    },
+    sources: workspace.sources
+      .filter((source) => !isVolatileMemoryPath(source.path))
+      .map((source) => ({
         path: source.path,
         name: source.name,
         size: source.size,
         width: source.width,
-        height: source.height,
-        previewUrl: sanitizeStoredPreviewUrl(source.previewUrl),
-        previewWidth: source.previewWidth,
-        previewHeight: source.previewHeight,
-        selected: source.selected !== false,
-      })),
-    },
-    sources: workspace.sources.map((source) => ({
-      path: source.path,
-      name: source.name,
-      size: source.size,
-      width: source.width,
-      height: source.height,
-      previewUrl: sanitizeStoredPreviewUrl(source.previewUrl),
-      imageBlob: null,
-    })),
+          height: source.height,
+          previewUrl: sanitizeStoredPreviewUrl(source.previewUrl),
+          imageBlob: null,
+          panoramaRoundtrip: source.panoramaRoundtrip,
+          panoramaProject: source.panoramaProject,
+        })),
     editAutoAspectUserLocked: workspace.editAutoAspectUserLocked === true,
     selectedBatchTaskId: null,
     errorRawPath: workspace.errorRawPath ?? null,
@@ -410,6 +464,25 @@ function normalizeWorkspace(
   const hadRunningJobs = runningJobIds.length > 0;
   const streamPreviews = normalizeStreamPreviewMap(raw.streamPreviews);
   const streamPreview = normalizeStreamPreview(raw.streamPreview) ?? latestStreamPreview(streamPreviews);
+  const rawBatchSources = Array.isArray(raw.batchProcess?.discoveredSources)
+    ? raw.batchProcess.discoveredSources
+    : [];
+  const batchProcess = (() => {
+    const normalized = normalizeBatchProcessConfig(raw.batchProcess);
+    const fallback = defaultBatchProcessConfig();
+    const discoveredSources = rawBatchSources.length > 0
+      ? rawBatchSources
+          .map((item) => normalizeBatchProcessSourceImage(item))
+          .filter((item): item is BatchProcessSourceImage => !!item) ?? normalized.discoveredSources
+      : normalized.discoveredSources;
+    return {
+      ...fallback,
+      ...normalized,
+      discoveredSources,
+    };
+  })();
+  const droppedVolatileBatchState = isVolatileMemoryPath(raw.batchProcess?.inputDir)
+    || (rawBatchSources.length > 0 && batchProcess.discoveredSources.length < rawBatchSources.length);
   return {
     id,
     name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : "图片",
@@ -425,20 +498,7 @@ function normalizeWorkspace(
     batchCount: normalizeWorkspaceBatchCount(raw.batchCount),
     continuousGenerateTest: raw.continuousGenerateTest === true,
     editSourceMode: normalizeEditSourceMode(raw.editSourceMode),
-    batchProcess: (() => {
-      const normalized = normalizeBatchProcessConfig(raw.batchProcess);
-      const fallback = defaultBatchProcessConfig();
-      const discoveredSources = Array.isArray(raw.batchProcess?.discoveredSources)
-        ? raw.batchProcess?.discoveredSources
-            ?.map((item) => normalizeBatchProcessSourceImage(item))
-            .filter((item): item is BatchProcessSourceImage => !!item) ?? normalized.discoveredSources
-        : normalized.discoveredSources;
-      return {
-        ...fallback,
-        ...normalized,
-        discoveredSources,
-      };
-    })(),
+    batchProcess,
     editAutoAspectUserLocked: raw.editAutoAspectUserLocked === true,
     styleTag: normalizeWorkspaceStyleTag(raw.styleTag),
     sources: Array.isArray(raw.sources)
@@ -447,37 +507,39 @@ function normalizeWorkspace(
     currentImageId: typeof raw.currentImageId === "string" && raw.currentImageId.trim()
       ? raw.currentImageId.trim()
       : null,
-    batchResultIds: Array.isArray(raw.batchResultIds)
+    batchResultIds: !droppedVolatileBatchState && Array.isArray(raw.batchResultIds)
       ? raw.batchResultIds.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
       : [],
-    batchTaskIds: Array.isArray(raw.batchTaskIds)
+    batchTaskIds: !droppedVolatileBatchState && Array.isArray(raw.batchTaskIds)
       ? raw.batchTaskIds.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
       : [],
     clearedJobGroupsBefore: Number.isFinite(Number(raw.clearedJobGroupsBefore)) && Number(raw.clearedJobGroupsBefore) > 0
       ? Number(raw.clearedJobGroupsBefore)
       : undefined,
     selectedBatchTaskId: null,
-    batchSinglePreviewOpen: raw.batchSinglePreviewOpen === true,
-    resultGridOpen: !!raw.resultGridOpen,
+    batchSinglePreviewOpen: !droppedVolatileBatchState && raw.batchSinglePreviewOpen === true,
+    resultGridOpen: !droppedVolatileBatchState && !!raw.resultGridOpen,
     historyGalleryOpen: raw.historyGalleryOpen === true,
     historyGallerySinglePreviewId: typeof raw.historyGallerySinglePreviewId === "string" && raw.historyGallerySinglePreviewId.trim()
       ? raw.historyGallerySinglePreviewId.trim()
       : null,
     historyGallerySort: raw.historyGallerySort === "oldest" ? "oldest" : "newest",
     runningJobIds: [],
-    jobsTotal: hadRunningJobs ? 0 : (Number.isFinite(Number(raw.jobsTotal)) ? Number(raw.jobsTotal) : 0),
-    jobsCompleted: hadRunningJobs ? 0 : (Number.isFinite(Number(raw.jobsCompleted)) ? Number(raw.jobsCompleted) : 0),
-    jobsFailed: hadRunningJobs ? 0 : (Number.isFinite(Number(raw.jobsFailed)) ? Number(raw.jobsFailed) : 0),
-    progress: hadRunningJobs ? null : normalizeProgressInfo(raw.progress),
+    jobsTotal: hadRunningJobs || droppedVolatileBatchState ? 0 : (Number.isFinite(Number(raw.jobsTotal)) ? Number(raw.jobsTotal) : 0),
+    jobsCompleted: hadRunningJobs || droppedVolatileBatchState ? 0 : (Number.isFinite(Number(raw.jobsCompleted)) ? Number(raw.jobsCompleted) : 0),
+    jobsFailed: hadRunningJobs || droppedVolatileBatchState ? 0 : (Number.isFinite(Number(raw.jobsFailed)) ? Number(raw.jobsFailed) : 0),
+    progress: hadRunningJobs || droppedVolatileBatchState ? null : normalizeProgressInfo(raw.progress),
     streamPreview,
     streamPreviews,
     lastLogLine: hadRunningJobs
       ? "页面已刷新，之前的进行中任务已中断。"
       : (typeof raw.lastLogLine === "string" ? raw.lastLogLine : ""),
-    errorMessage: hadRunningJobs
+    errorMessage: droppedVolatileBatchState
+      ? null
+      : hadRunningJobs
       ? WORKSPACE_SESSION_INTERRUPTED_MESSAGE
       : (typeof raw.errorMessage === "string" ? raw.errorMessage : null),
-    errorRawPath: hadRunningJobs
+    errorRawPath: hadRunningJobs || droppedVolatileBatchState
       ? null
       : (typeof raw.errorRawPath === "string" && raw.errorRawPath.trim() ? raw.errorRawPath.trim() : null),
     lastPayload: null,
@@ -500,6 +562,7 @@ export function normalizeBatchTasks(value: unknown): Record<string, BatchTaskRec
       : "queued";
     out[id] = {
       id,
+      runId: typeof raw.runId === "string" && raw.runId.trim() ? raw.runId.trim() : undefined,
       workspaceId,
       slotIndex: Math.floor(slotIndex),
       status,
@@ -511,6 +574,8 @@ export function normalizeBatchTasks(value: unknown): Record<string, BatchTaskRec
         : "responses",
       apiProfileId: typeof raw.apiProfileId === "string" && raw.apiProfileId.trim() ? raw.apiProfileId.trim() : undefined,
       apiProfileName: typeof raw.apiProfileName === "string" && raw.apiProfileName.trim() ? raw.apiProfileName.trim() : undefined,
+      apiBaseURL: typeof raw.apiBaseURL === "string" && raw.apiBaseURL.trim() ? raw.apiBaseURL.trim() : undefined,
+      continuousPoolTask: raw.continuousPoolTask === true,
       prompt,
       size: normalizeWorkspaceSize(raw.size),
       autoAspectResolution: normalizeBatchTaskAutoAspectResolution(raw.autoAspectResolution),
@@ -526,9 +591,12 @@ export function normalizeBatchTasks(value: unknown): Record<string, BatchTaskRec
       sourceImagePaths: Array.isArray(raw.sourceImagePaths)
         ? raw.sourceImagePaths.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
         : undefined,
+      panoramaRoundtrip: raw.panoramaRoundtrip,
       batchSourcePath: typeof raw.batchSourcePath === "string" && raw.batchSourcePath.trim() ? raw.batchSourcePath.trim() : undefined,
       batchSourceSlotIndex: Number.isFinite(Number(raw.batchSourceSlotIndex)) ? Math.max(0, Math.floor(Number(raw.batchSourceSlotIndex))) : undefined,
       maskB64: typeof raw.maskB64 === "string" ? raw.maskB64 : undefined,
+      launchAttempt: Number.isFinite(Number(raw.launchAttempt)) ? Math.max(0, Math.floor(Number(raw.launchAttempt))) : undefined,
+      launchStartedAt: Number.isFinite(Number(raw.launchStartedAt)) ? Number(raw.launchStartedAt) : undefined,
       jobId: typeof raw.jobId === "string" ? raw.jobId : undefined,
       groupId: typeof raw.groupId === "string" ? raw.groupId : undefined,
       historyItemId: typeof raw.historyItemId === "string" ? raw.historyItemId : undefined,
@@ -539,7 +607,7 @@ export function normalizeBatchTasks(value: unknown): Record<string, BatchTaskRec
       errorMessage: typeof raw.errorMessage === "string" ? raw.errorMessage : undefined,
       lastLogLine: typeof raw.lastLogLine === "string" ? raw.lastLogLine : undefined,
       elapsedSec: Number.isFinite(Number(raw.elapsedSec)) ? Number(raw.elapsedSec) : undefined,
-      queuedReason: raw.queuedReason === "local_concurrency" || raw.queuedReason === "batch_shared_concurrency"
+      queuedReason: raw.queuedReason === "local_concurrency" || raw.queuedReason === "batch_shared_concurrency" || raw.queuedReason === "continuous_pool"
         ? raw.queuedReason
         : undefined,
       queuePriority: Number.isFinite(Number(raw.queuePriority)) ? Number(raw.queuePriority) : undefined,
@@ -567,7 +635,7 @@ export function persistWorkspaceSession(
       activeWorkspaceId,
       updatedAt: Date.now(),
       workspaces: workspaces.map(toPersistedWorkspace),
-      batchTasksById,
+      batchTasksById: compactWorkspaceSessionTasks(workspaces, batchTasksById),
     };
     localStorage.setItem(WORKSPACE_SESSION_LS_KEY, JSON.stringify(payload));
   } catch {}

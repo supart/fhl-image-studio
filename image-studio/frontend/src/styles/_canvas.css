@@ -404,9 +404,9 @@ html.dark .source-thumb-remove {
   position: absolute;
   z-index: 5;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
-  width: 174px;
+  width: 264px;
   height: 34px;
   pointer-events: auto;
 }
@@ -441,6 +441,12 @@ html.dark .source-thumb-remove {
 
 .canvas-panorama-pasteback-button:active {
   transform: translateY(0);
+}
+
+.canvas-panorama-pasteback-button:disabled {
+  transform: none;
+  opacity: 0.58;
+  cursor: wait;
 }
 
 .canvas-panorama-pasteback-button svg {
@@ -785,12 +791,24 @@ html.dark .stream-preview-badge {
 .batch-grid {
   flex: 1 1 auto;
   min-height: 0;
-  display: grid;
-  gap: 10px;
-  align-content: start;
-  justify-content: center;
+  position: relative;
+  display: block;
   overflow: auto;
   padding-right: 2px;
+}
+.batch-grid-virtual-spacer {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+.batch-grid-virtual-row {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  display: grid;
+  align-content: start;
+  max-width: 100%;
+  will-change: transform;
 }
 .batch-grid-tile {
   position: relative;

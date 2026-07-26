@@ -10,14 +10,24 @@ import {
   duplicateProfile as cloneProfile,
   FHL_BASE_URL,
   FHL_IMAGE_MODEL_ID,
+  FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT,
+  FHL_TEXT_MODEL_ID,
   genProfileId,
+  hasFHLImagesPoolSlotCapacity,
+  hasUpstreamProfileCapacity,
+  isFHLImagesPoolSlotAvailable,
+  isOfficialFHLImagesProfile,
   keyringUserFor,
   nextDefaultProfileName,
   normalizeAPIMartBaseURL,
+  normalizeFHLImagesPoolKeyHint,
+  normalizeFHLImagesPoolSlot,
   pickActiveProfile,
+  upstreamProfileLimitMessage,
 } from "../lib/profiles";
 import { normalizeAPIKeyInput } from "../lib/apiKey";
 import { syncCLIConfigQuietly, type CLIConfigSyncInput } from "../lib/cliConfigSync";
+import { isOfficialFHLProfile, ProviderPolicy } from "../lib/providerPolicy";
 import { cleanBaseURL } from "../lib/security";
 import { normalizeConcurrencyLimit } from "./workspaceRuntime";
 import { persistActiveProfileId, persistProfiles } from "./studioStore.shared";
@@ -33,7 +43,47 @@ function cleanProfileBaseURL(apiMode: APIMode, value: string): string {
 }
 
 function isFHLProfileConfig(profile: Pick<UpstreamProfile, "baseURL" | "imageModelID">): boolean {
-  return cleanBaseURL(profile.baseURL) === FHL_BASE_URL && profile.imageModelID.trim() === FHL_IMAGE_MODEL_ID;
+  return isOfficialFHLProfile({ apiMode: "images", baseURL: profile.baseURL })
+    && profile.imageModelID.trim() === ProviderPolicy.fhl.imageModelID;
+}
+
+function isOfficialFHLRuntimeProfile(
+  profile: Pick<UpstreamProfile, "apiMode" | "baseURL">,
+): boolean {
+  return isOfficialFHLProfile(profile);
+}
+
+type ActiveProfileRuntimePatch = Pick<
+  StudioState,
+  "apiMode" | "requestPolicy" | "baseURL" | "textModelID" | "imageModelID" | "imagesNewAPICompat"
+>;
+
+// FHL transport is a global runtime choice. Keep the saved slot as Images so
+// its key, stable slot number, and pool membership are never rewritten.
+export function activeProfileRuntimePatch(
+  profile: UpstreamProfile,
+  fhlTransportMode: StudioState["fhlTransportMode"],
+): ActiveProfileRuntimePatch {
+  if (!isOfficialFHLRuntimeProfile(profile)) {
+    return {
+      apiMode: profile.apiMode,
+      requestPolicy: profile.requestPolicy,
+      baseURL: profile.baseURL,
+      textModelID: profile.textModelID,
+      imageModelID: profile.imageModelID,
+      imagesNewAPICompat: profile.imagesNewAPICompat ?? false,
+    };
+  }
+
+  const apiMode = fhlTransportMode;
+  return {
+    apiMode,
+    requestPolicy: "openai",
+    baseURL: FHL_BASE_URL,
+    textModelID: apiMode === "responses" ? FHL_TEXT_MODEL_ID : profile.textModelID,
+    imageModelID: FHL_IMAGE_MODEL_ID,
+    imagesNewAPICompat: apiMode === "images" && profile.imagesNewAPICompat === true,
+  };
 }
 
 function cliConfigFromProfileState(
@@ -66,21 +116,42 @@ export function createProfileActions(store: StateAdapter) {
       textModelID?: string;
       imageModelID?: string;
       concurrencyLimit?: number;
+      continuousPoolEnabled?: boolean;
+      fhlImagesPoolSlot?: number;
+      fhlImagesPoolKeyHint?: string;
       imagesNewAPICompat?: boolean;
       apiKey?: string;
       setActive?: boolean;
     }) {
       const list = store.getState().profiles;
+      const baseURL = cleanProfileBaseURL(input.apiMode, input.baseURL ?? "");
+      const fhlImagesPoolSlot = isOfficialFHLImagesProfile({ apiMode: input.apiMode, baseURL })
+        ? normalizeFHLImagesPoolSlot(input.fhlImagesPoolSlot)
+        : undefined;
+      if (fhlImagesPoolSlot !== undefined) {
+        if (!hasFHLImagesPoolSlotCapacity(list, fhlImagesPoolSlot)) {
+          throw new Error(`FHL Images API 槽位 ${fhlImagesPoolSlot} 已被占用。`);
+        }
+      } else if (!hasUpstreamProfileCapacity(list)) {
+        throw new Error(upstreamProfileLimitMessage());
+      }
       const id = genProfileId();
       const rawProfile: UpstreamProfile = {
         id,
         name: input.name?.trim() || nextDefaultProfileName(list),
         apiMode: input.apiMode,
         requestPolicy: input.requestPolicy ?? "openai",
-        baseURL: cleanProfileBaseURL(input.apiMode, input.baseURL ?? ""),
+        baseURL,
         textModelID: (input.textModelID ?? "").trim(),
         imageModelID: (input.imageModelID ?? "").trim(),
-        concurrencyLimit: normalizeConcurrencyLimit(input.concurrencyLimit ?? DEFAULT_CONCURRENCY_LIMIT),
+        concurrencyLimit: fhlImagesPoolSlot !== undefined
+          ? FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT
+          : normalizeConcurrencyLimit(input.concurrencyLimit ?? DEFAULT_CONCURRENCY_LIMIT),
+        continuousPoolEnabled: input.apiMode === "images" && input.continuousPoolEnabled !== false,
+        fhlImagesPoolSlot,
+        fhlImagesPoolKeyHint: fhlImagesPoolSlot !== undefined
+          ? normalizeFHLImagesPoolKeyHint(input.fhlImagesPoolKeyHint ?? input.apiKey)
+          : undefined,
         imagesNewAPICompat: input.apiMode === "images" && input.imagesNewAPICompat === true,
         createdAt: Date.now(),
       };
@@ -113,19 +184,41 @@ export function createProfileActions(store: StateAdapter) {
       if (index < 0) return false;
       const current = list[index];
       const nextApiMode = patch.apiMode ?? current.apiMode;
+      const nextBaseURL = patch.baseURL !== undefined
+        ? cleanProfileBaseURL(nextApiMode, patch.baseURL)
+        : cleanProfileBaseURL(nextApiMode, current.baseURL);
+      const nextFHLImagesPoolSlot = isOfficialFHLImagesProfile({
+        apiMode: nextApiMode,
+        baseURL: nextBaseURL,
+      })
+        ? normalizeFHLImagesPoolSlot(patch.fhlImagesPoolSlot ?? current.fhlImagesPoolSlot)
+        : undefined;
+      const nextFHLImagesPoolKeyHint = nextFHLImagesPoolSlot !== undefined
+        ? normalizeFHLImagesPoolKeyHint(
+            patch.fhlImagesPoolKeyHint
+            ?? (patch.apiKey !== undefined ? patch.apiKey : current.fhlImagesPoolKeyHint),
+          )
+        : undefined;
       const rawNext: UpstreamProfile = {
         ...current,
         name: patch.name !== undefined ? patch.name.trim() : current.name,
         apiMode: nextApiMode,
         requestPolicy: patch.requestPolicy ?? current.requestPolicy,
-        baseURL: patch.baseURL !== undefined ? cleanProfileBaseURL(nextApiMode, patch.baseURL) : cleanProfileBaseURL(nextApiMode, current.baseURL),
+        baseURL: nextBaseURL,
         textModelID: patch.textModelID !== undefined ? patch.textModelID.trim() : current.textModelID,
         imageModelID: patch.imageModelID !== undefined ? patch.imageModelID.trim() : current.imageModelID,
-        concurrencyLimit: patch.concurrencyLimit !== undefined
-          ? normalizeConcurrencyLimit(patch.concurrencyLimit) : current.concurrencyLimit,
+        concurrencyLimit: nextFHLImagesPoolSlot !== undefined
+          ? FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT
+          : patch.concurrencyLimit !== undefined
+            ? normalizeConcurrencyLimit(patch.concurrencyLimit) : current.concurrencyLimit,
         imagesNewAPICompat: nextApiMode === "images"
           ? patch.imagesNewAPICompat ?? current.imagesNewAPICompat ?? false
           : false,
+        continuousPoolEnabled: nextApiMode === "images"
+          ? patch.continuousPoolEnabled ?? current.continuousPoolEnabled ?? true
+          : false,
+        fhlImagesPoolSlot: nextFHLImagesPoolSlot,
+        fhlImagesPoolKeyHint: nextFHLImagesPoolKeyHint,
         lastUsedAt: patch.lastUsedAt ?? current.lastUsedAt,
       };
       const next: UpstreamProfile = isFHLProfileConfig(rawNext)
@@ -135,6 +228,13 @@ export function createProfileActions(store: StateAdapter) {
             imagesNewAPICompat: rawNext.apiMode === "images" && rawNext.imagesNewAPICompat === true,
           }
         : rawNext;
+      if (
+        patch.fhlImagesPoolSlot !== undefined
+        && next.fhlImagesPoolSlot !== undefined
+        && !isFHLImagesPoolSlotAvailable(list, next.fhlImagesPoolSlot, id)
+      ) {
+        return false;
+      }
       const nextList = list.map((profile, idx) => (idx === index ? next : profile));
       persistProfiles(nextList);
       store.setState({ profiles: nextList });
@@ -147,12 +247,7 @@ export function createProfileActions(store: StateAdapter) {
       if (id === store.getState().activeProfileId) {
         const apiKey = patch.apiKey !== undefined ? normalizeAPIKeyInput(patch.apiKey) : store.getState().apiKey;
         store.setState({
-          apiMode: next.apiMode,
-          requestPolicy: next.requestPolicy,
-          baseURL: next.baseURL,
-          textModelID: next.textModelID,
-          imageModelID: next.imageModelID,
-          imagesNewAPICompat: next.imagesNewAPICompat ?? false,
+          ...activeProfileRuntimePatch(next, store.getState().fhlTransportMode),
           apiKey,
         });
         syncCLIConfigQuietly(cliConfigFromProfileState(store.getState(), next, apiKey));
@@ -161,9 +256,15 @@ export function createProfileActions(store: StateAdapter) {
     },
 
     async deleteProfile(id: string) {
-      const list = store.getState().profiles;
+      const currentState = store.getState();
+      const list = currentState.profiles;
       const index = list.findIndex((profile) => profile.id === id);
-      if (index < 0) return;
+      if (index < 0) return false;
+      const hasActiveAssignedTask = Object.values(currentState.batchTasksById).some((task) => (
+        task.apiProfileId === id
+        && (task.status === "queued" || task.status === "running")
+      ));
+      if (hasActiveAssignedTask) return false;
       const nextList = list.filter((_, i) => i !== index);
       persistProfiles(nextList);
       try { await DeleteStoredAPIKey(keyringUserFor(id)); }
@@ -193,11 +294,13 @@ export function createProfileActions(store: StateAdapter) {
           });
         }
       }
+      return true;
     },
 
     async duplicateProfile(id: string) {
       const current = store.getState().profiles.find((profile) => profile.id === id);
       if (!current) return null;
+      if (!hasUpstreamProfileCapacity(store.getState().profiles)) return null;
       const cloned = cloneProfile(current);
       try {
         const existingKey = await GetStoredAPIKey(keyringUserFor(id)).catch(() => "");
@@ -222,12 +325,7 @@ export function createProfileActions(store: StateAdapter) {
       store.setState({
         profiles: nextProfiles,
         activeProfileId: id,
-        apiMode: profile.apiMode,
-        requestPolicy: profile.requestPolicy,
-        baseURL: profile.baseURL,
-        textModelID: profile.textModelID,
-        imageModelID: profile.imageModelID,
-        imagesNewAPICompat: profile.imagesNewAPICompat ?? false,
+        ...activeProfileRuntimePatch(profile, before.fhlTransportMode),
         apiKey: "",
       });
       const apiKey = await GetStoredAPIKey(keyringUserFor(id)).catch(() => "");

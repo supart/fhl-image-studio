@@ -10,6 +10,7 @@ import {
   normalizeRequestPolicy,
 } from "../../../../../shared/kernel/requestModel.js";
 import { validateAPIKeyForHeader } from "../../lib/apiKey.ts";
+import { normalizeProviderBaseURL, ProviderPolicy } from "../../lib/providerPolicy.ts";
 import {
   canUseWebGLImageTransforms,
   cropVirtualImage,
@@ -44,8 +45,10 @@ import {
   openProjectMaterialSyncDir,
   readProjectImage,
   readProjectText,
+  registerProjectMedia,
   saveProjectImage,
   syncProjectMaterialGroup,
+  takeLastProjectImageSaveError,
 } from "./localProjectFiles.ts";
 import {
   clearLocalEvents,
@@ -55,6 +58,11 @@ import {
   setForcedKernelRuntimeMode,
 } from "./hostEvents.ts";
 import { isTransportishError } from "./remote-kernel/common.ts";
+import {
+  generationRequestForMode,
+  toRemoteGenerationPayload,
+  toWailsGenerationRequest,
+} from "./generationRequest.ts";
 import {
   canInvokeAndroidMethod,
   getRuntime,
@@ -85,13 +93,15 @@ import type {
 } from "./hostTypes.ts";
 
 const remoteJobControllers = new Map<string, AbortController>();
-const FHL_BASE_URL = "https://www.fhl.mom";
+const FHL_BASE_URL = ProviderPolicy.fhl.baseURL;
 const FHL_LOCAL_PROXY_PREFIX = "/__image-studio-fhl";
-const APIMART_BASE_URL = "https://api.apimart.ai";
-const APIMART_LEGACY_BASE_URL = "https://api.apib.ai";
+const APIMART_BASE_URL = ProviderPolicy.apimart.baseURL;
+const APIMART_LEGACY_BASE_URL = ProviderPolicy.apimart.legacyBaseURL;
 const APIMART_LOCAL_PROXY_PREFIX = "/__image-studio-apimart";
 const APIMART_LEGACY_LOCAL_PROXY_PREFIX = "/__image-studio-apimart-legacy";
 const APIMART_PROBE_TIMEOUT_MS = 15_000;
+
+type LocalInputImageLike = ImportedImageLike & { name?: string };
 
 function unsupportedMessage(method: string): string {
   const kind = detectHostKind();
@@ -110,13 +120,25 @@ function isLocalPreviewHost(): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }
 
-function normalizeProbeBaseURL(raw: string): string {
-  const normalizedRaw = normalizeSharedBaseURL(raw);
-  const normalized = normalizedRaw === `${APIMART_LEGACY_BASE_URL}/v1`
-    ? APIMART_LEGACY_BASE_URL
-    : normalizedRaw === `${APIMART_BASE_URL}/v1`
-      ? APIMART_BASE_URL
-      : normalizedRaw;
+function bootstrapAutomationStatus(): AutomationStatusLike | undefined {
+  return typeof window !== "undefined"
+    ? (window as Window & { __IMAGE_STUDIO_E2E_BOOTSTRAP?: AutomationStatusLike }).__IMAGE_STUDIO_E2E_BOOTSTRAP
+    : undefined;
+}
+
+function shouldFallbackFromEmptyNativeDialog(): boolean {
+  return bootstrapAutomationStatus()?.e2eOnly === true;
+}
+
+function shouldAvoidVolatileBrowserImages(): boolean {
+  return bootstrapAutomationStatus()?.e2eOnly === true;
+}
+
+function normalizeProbeBaseURL(
+  raw: string,
+  apiMode: "responses" | "images" | "apimart" | "runninghub" = "responses",
+): string {
+  const normalized = normalizeProviderBaseURL(apiMode, normalizeSharedBaseURL(raw));
   if (isLocalPreviewHost() && normalized === FHL_BASE_URL) {
     return `${window.location.origin}${FHL_LOCAL_PROXY_PREFIX}`;
   }
@@ -198,7 +220,7 @@ async function probeAPIMartFromBrowser(
   apiKey: string,
   signal?: AbortSignal,
 ): Promise<void> {
-  const normalizedBaseURL = normalizeProbeBaseURL(baseURL);
+  const normalizedBaseURL = normalizeProbeBaseURL(baseURL, "apimart");
   const headerAPIKey = validateAPIKeyForHeader(apiKey);
   if (!normalizedBaseURL) throw new Error("BASE_URL 不能为空");
   const probeOnce = async (probeBaseURL: string): Promise<void> => {
@@ -251,7 +273,7 @@ async function probeRunningHubFromBrowser(
   baseURL: string,
   signal?: AbortSignal,
 ): Promise<void> {
-  const normalizedBaseURL = normalizeProbeBaseURL(baseURL);
+  const normalizedBaseURL = normalizeProbeBaseURL(baseURL, "runninghub");
   if (!normalizedBaseURL) throw new Error("BASE_URL 不能为空");
   const configResponse = await fetch(`${normalizedBaseURL}/api/config`, {
     method: "GET",
@@ -335,15 +357,45 @@ async function materializeReadablePathAsVirtual(path: string): Promise<ImportedI
   });
 }
 
+async function persistBrowserImageToLocalInput(
+  imageB64: string,
+  suggestedName: string,
+  mimeType?: string | null,
+  options: { subdir?: string; preserveName?: boolean } = {},
+): Promise<LocalInputImageLike | null> {
+  const saved = await saveProjectImage("input", imageB64, suggestedName, mimeType, options);
+  if (saved?.path) {
+    return {
+      path: saved.path,
+      name: saved.name,
+    };
+  }
+  if (!hasServiceMethod("ImportImageFromB64")) return null;
+  return invokeService<ImportedImageLike>(unsupportedMessage, "ImportImageFromB64", imageB64, suggestedName)
+    .then((imported) => {
+      const importedPath = String(imported?.path || "").trim();
+      return importedPath && !isVirtualPath(importedPath) ? imported : null;
+    })
+    .catch((error) => {
+      if (typeof console !== "undefined") console.warn("native import fallback failed", error);
+      return null;
+    });
+}
+
 async function persistBrowserSelectedImage(res: SelectFileResponseLike): Promise<SelectFileResponseLike> {
   const selectedPath = String(res?.path || "").trim();
   const imageB64 = String(res?.imageB64 || "").trim();
   if (!selectedPath || !imageB64 || !isLocalPreviewHost() || !isVirtualPath(selectedPath)) return res;
-  const saved = await saveProjectImage("input", imageB64, fileNameFromPath(selectedPath));
-  if (!saved?.path) return res;
+  const imported = await persistBrowserImageToLocalInput(imageB64, fileNameFromPath(selectedPath));
+  if (!imported?.path) return res;
   return {
     ...res,
-    path: saved.path,
+    path: imported.path,
+    width: imported.width ?? res.width,
+    height: imported.height ?? res.height,
+    previewUrl: imported.previewUrl || res.previewUrl,
+    previewWidth: imported.previewWidth ?? res.previewWidth,
+    previewHeight: imported.previewHeight ?? res.previewHeight,
   };
 }
 
@@ -419,22 +471,58 @@ async function persistBrowserBatchFiles(
   subdir: string,
 ): Promise<BatchInputImageLike[]> {
   const savedFiles: BatchInputImageLike[] = [];
+  const failedFiles: string[] = [];
   for (const file of files) {
     if (!batchInputMimeMatch(file)) continue;
-    const imageB64 = await readFileAsBase64(file);
-    const saved = await saveProjectImage("input", imageB64, file.name, file.type || null, {
-      subdir,
-      preserveName: true,
-    });
-    if (!saved?.path) continue;
-    const dims = await readBrowserImageDimensions(file);
-    savedFiles.push({
-      path: saved.path,
-      name: file.name,
-      size: file.size,
-      width: dims.width,
-      height: dims.height,
-    });
+    try {
+      const imageB64 = await readFileAsBase64(file);
+      const imported = await persistBrowserImageToLocalInput(imageB64, file.name, file.type || null, {
+        subdir,
+        preserveName: true,
+      });
+      const fallbackVirtual = () => registerVirtualImage({
+        imageB64,
+        suggestedName: file.name,
+        mimeType: file.type || null,
+      });
+      const localFile = imported?.path
+        ? {
+          path: imported.path,
+          name: imported.name || file.name,
+          size: file.size,
+          width: imported.width,
+          height: imported.height,
+          previewUrl: imported.previewUrl,
+          previewWidth: imported.previewWidth,
+          previewHeight: imported.previewHeight,
+        }
+        : shouldAvoidVolatileBrowserImages()
+          ? null
+          : {
+          ...fallbackVirtual(),
+          size: file.size,
+        };
+      if (!localFile?.path) {
+        throw new Error(takeLastProjectImageSaveError() || "unable to persist local input image");
+      }
+      const dims = await readBrowserImageDimensions(file);
+      savedFiles.push({
+        path: localFile.path,
+        name: file.name,
+        size: file.size,
+        width: localFile.width ?? dims.width,
+        height: localFile.height ?? dims.height,
+        previewUrl: localFile.previewUrl,
+        previewWidth: localFile.previewWidth,
+        previewHeight: localFile.previewHeight,
+      });
+    } catch (error: any) {
+      failedFiles.push(`${file.name}: ${error?.message ?? error}`);
+      if (typeof console !== "undefined") console.warn("batch input image skipped", file.name, error);
+    }
+  }
+  if (savedFiles.length === 0 && failedFiles.length > 0) {
+    throw new Error(`无法写入本地输入图片: ${failedFiles.slice(0, 3).join("; ")}`);
   }
   return savedFiles;
 }
@@ -570,10 +658,10 @@ async function startRemoteJob(options: GenerateOptionsLike): Promise<JobStartedL
   remoteJobControllers.set(jobId, controller);
   void (async () => {
     try {
-      const result = await runRemoteImageJob({ payload: {
-        ...options,
-        requestPolicy: normalizeRequestPolicy(options.requestPolicy),
-      }, sourceImages: options.sourceImages }, {
+      const result = await runRemoteImageJob({
+        payload: toRemoteGenerationPayload(options),
+        sourceImages: options.sourceImages,
+      }, {
         signal: controller.signal,
         onLog: (line) => emitLocalEvent(`log:${jobId}`, line),
         onProgress: (stage, elapsed, bytes) => emitLocalEvent(`progress:${jobId}`, { stage, elapsed, bytes }),
@@ -625,11 +713,6 @@ async function startRemoteJob(options: GenerateOptionsLike): Promise<JobStartedL
   return { jobId };
 }
 
-function withoutRuntimeSourceImages(options: GenerateOptionsLike): GenerateOptionsLike {
-  const { sourceImages: _sourceImages, ...payload } = options;
-  return payload;
-}
-
 function mimeTypeForImageName(name: string): string {
   const lower = String(name || "").toLowerCase();
   if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
@@ -660,6 +743,7 @@ async function submitSingleAndroidJob(options: GenerateOptionsLike): Promise<Job
     sourceImagePaths: options.imagePaths || [],
     maskB64: options.maskB64 || "",
     apiKey: options.apiKey,
+    apiProfileId: options.apiProfileId,
     baseURL: options.baseURL,
     apiMode: "responses",
     requestPolicy: normalizeRequestPolicy(options.requestPolicy) as any,
@@ -766,29 +850,31 @@ export function WindowSetDarkTheme() {
 }
 
 export function Generate(options: GenerateOptionsLike): Promise<JobStartedLike> {
+  const request = generationRequestForMode(options, "generate");
   if (getForcedKernelRuntimeMode() === "local" && detectHostKind() !== "wails-desktop") {
     return Promise.reject(new Error("当前宿主不支持强制本地内核"));
   }
   if (getHostCapabilities().localGeneration) {
-    return invokeService<JobStartedLike>(unsupportedMessage, "Generate", withoutRuntimeSourceImages(options));
+    return invokeService<JobStartedLike>(unsupportedMessage, "Generate", toWailsGenerationRequest(request));
   }
-  if (shouldUseAndroidBackgroundJobs(options)) {
-    return submitSingleAndroidJob({ ...options, mode: "generate" });
+  if (shouldUseAndroidBackgroundJobs(request)) {
+    return submitSingleAndroidJob(request);
   }
-  return startRemoteJob({ ...options, mode: "generate" });
+  return startRemoteJob(request);
 }
 
 export function Edit(options: GenerateOptionsLike): Promise<JobStartedLike> {
+  const request = generationRequestForMode(options, "edit");
   if (getForcedKernelRuntimeMode() === "local" && detectHostKind() !== "wails-desktop") {
     return Promise.reject(new Error("当前宿主不支持强制本地内核"));
   }
   if (getHostCapabilities().localGeneration) {
-    return invokeService<JobStartedLike>(unsupportedMessage, "Edit", withoutRuntimeSourceImages(options));
+    return invokeService<JobStartedLike>(unsupportedMessage, "Edit", toWailsGenerationRequest(request));
   }
-  if (shouldUseAndroidBackgroundJobs(options)) {
-    return submitSingleAndroidJob({ ...options, mode: "edit" });
+  if (shouldUseAndroidBackgroundJobs(request)) {
+    return submitSingleAndroidJob(request);
   }
-  return startRemoteJob({ ...options, mode: "edit" });
+  return startRemoteJob(request);
 }
 
 export function OptimizePrompt(options: PromptOptimizeOptionsLike): Promise<string> {
@@ -872,14 +958,29 @@ export function OpenImageDialog(): Promise<SelectFileResponseLike> {
 
 export function OpenImagesDialog(): Promise<SelectFilesResponseLike> {
   if (hasServiceMethod("OpenImagesDialog")) {
-    return invokeService<SelectFilesResponseLike>(unsupportedMessage, "OpenImagesDialog");
+    return invokeService<SelectFilesResponseLike>(unsupportedMessage, "OpenImagesDialog")
+      .then((res) => {
+        if (shouldFallbackFromEmptyNativeDialog() && (!Array.isArray(res?.files) || res.files.length === 0)) {
+          return openImagesDialogFallback();
+        }
+        return res;
+      })
+      .catch(() => openImagesDialogFallback());
   }
   return openImagesDialogFallback();
 }
 
 export function ChooseBatchInputDir(): Promise<BatchInputDirectoryLike> {
   if (hasServiceMethod("ChooseBatchInputDir")) {
-    return invokeService<BatchInputDirectoryLike>(unsupportedMessage, "ChooseBatchInputDir");
+    return invokeService<BatchInputDirectoryLike>(unsupportedMessage, "ChooseBatchInputDir")
+      .then((res) => {
+        const images = Array.isArray(res?.images) ? res.images : [];
+        if (shouldFallbackFromEmptyNativeDialog() && !String(res?.directory || "").trim() && images.length === 0) {
+          return chooseBatchInputDirFallback();
+        }
+        return res;
+      })
+      .catch(() => chooseBatchInputDirFallback());
   }
   return chooseBatchInputDirFallback();
 }
@@ -905,9 +1006,7 @@ export function GetOutputDir(): Promise<string> {
 }
 
 export function GetAutomationStatus(): Promise<AutomationStatusLike> {
-  const bootstrapStatus = typeof window !== "undefined"
-    ? (window as Window & { __IMAGE_STUDIO_E2E_BOOTSTRAP?: AutomationStatusLike }).__IMAGE_STUDIO_E2E_BOOTSTRAP
-    : undefined;
+  const bootstrapStatus = bootstrapAutomationStatus();
   if (hasServiceMethod("GetAutomationStatus")) {
     return invokeService<AutomationStatusLike>(unsupportedMessage, "GetAutomationStatus")
       .catch(() => bootstrapStatus ?? { enabled: false });
@@ -1060,14 +1159,16 @@ export function RegisterMediaAsset(savedPath: string, thumbPath: string): Promis
   if (hasServiceMethod("RegisterMediaAsset")) {
     return invokeService<MediaAssetRefLike>(unsupportedMessage, "RegisterMediaAsset", savedPath, thumbPath);
   }
-  return Promise.resolve({ savedPath, thumbPath });
+  return registerProjectMedia(savedPath, thumbPath)
+    .then((ref) => ref ?? { savedPath, thumbPath });
 }
 
 export function RegisterImportedImageAsset(path: string): Promise<MediaAssetRefLike> {
   if (hasServiceMethod("RegisterImportedImageAsset")) {
     return invokeService<MediaAssetRefLike>(unsupportedMessage, "RegisterImportedImageAsset", path);
   }
-  return Promise.resolve({ savedPath: path });
+  return registerProjectMedia(path)
+    .then((ref) => ref ?? { savedPath: path });
 }
 
 export function ImportImageFromB64(imageB64: string, suggestedName: string): Promise<ImportedImageLike> {
@@ -1157,13 +1258,6 @@ export function ImportHistoryFromFile(): Promise<string> {
   return importHistoryFallback();
 }
 
-export function RegisterTrustedOutputDir(root: string): Promise<void> {
-  if (hasServiceMethod("RegisterTrustedOutputDir")) {
-    return invokeService<void>(unsupportedMessage, "RegisterTrustedOutputDir", root);
-  }
-  return Promise.resolve();
-}
-
 export function SetOutputDir(path: string): Promise<void> {
   if (hasServiceMethod("SetOutputDir")) {
     return invokeService<void>(unsupportedMessage, "SetOutputDir", path);
@@ -1187,19 +1281,19 @@ export function ChooseOutputDir(): Promise<string> {
   });
 }
 
-export function ChooseDirectory(title: string): Promise<string> {
-  if (hasServiceMethod("ChooseDirectory")) {
-    return invokeService<string>(unsupportedMessage, "ChooseDirectory", title);
+export function ChooseBatchOutputDir(): Promise<string> {
+  if (hasServiceMethod("ChooseBatchOutputDir")) {
+    return invokeService<string>(unsupportedMessage, "ChooseBatchOutputDir");
   }
   if (canInvokeAndroidMethod("ChooseDirectory")) {
-    return invokeAndroid<string>(unsupportedMessage, "ChooseDirectory", title);
+    return invokeAndroid<string>(unsupportedMessage, "ChooseDirectory", "选择批处理输出目录");
   }
   if (canInvokeAndroidMethod("ChooseOutputDir")) {
     return invokeAndroid<string>(unsupportedMessage, "ChooseOutputDir");
   }
-  return chooseProjectDirectory(title).then((chosen) => {
+  return chooseProjectDirectory("选择批处理输出目录").then((chosen) => {
     if (chosen !== null) return chosen;
-    throw new Error(unsupportedMessage("ChooseDirectory"));
+    throw new Error(unsupportedMessage("ChooseBatchOutputDir"));
   });
 }
 

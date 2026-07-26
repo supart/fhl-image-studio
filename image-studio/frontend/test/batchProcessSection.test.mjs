@@ -9,11 +9,15 @@ test("batch process section uses a switch and collapses the advanced batch contr
   assert.match(source, /aria-checked=\{batchMode\}/);
   assert.match(source, /continuous-test-switch/);
   assert.match(source, /continuous-test-switch-thumb/);
-  assert.match(source, /sharedConcurrencyLimit: number/);
+  assert.match(source, /perAPIConcurrencyLimit: number/);
+  assert.match(source, /enabledAPICount: number/);
+  assert.match(source, /totalConcurrencyLimit: number/);
   assert.match(source, /批量图生图开关/);
   assert.match(source, /需要时再打开，关闭后折叠全部批处理设置，不影响普通图生图/);
-  assert.match(source, /当前跟随共享并发：/);
-  assert.match(source, /并发统一跟随上方共享并发设置/);
+  assert.match(source, /当前跟随每 API 并发：/);
+  assert.match(source, /每个已启用 API 最多 \{perAPIConcurrencyLimit\} 张/);
+  assert.match(source, /总上限 \{totalConcurrencyLimit\}/);
+  assert.doesNotMatch(source, /跟随上方共享并发推进/);
   assert.match(source, /更换输出目录/);
   assert.match(source, /已选输出目录/);
   assert.match(source, /先选文件夹或直接加入多张图片；扫出来后可全选，也可点单张挑选/);

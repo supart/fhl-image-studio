@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import worker from "../src/index.js";
 
 const realFetch = globalThis.fetch;
@@ -225,47 +226,50 @@ test("prompt optimize endpoint forwards shared prompt-optimize payload", async (
   });
 });
 
-test("kernel generate keeps requestPolicy for shared payload building", async () => {
-  let captured = null;
-  await withPatchedGlobals(async () => {
-    globalThis.fetch = async (url, init) => {
-      captured = {
-        url: String(url),
-        body: JSON.parse(await readBodyText(init.body)),
+test("kernel generate follows the shared request contract fixtures", async () => {
+  const fixture = JSON.parse(await readFile(
+    new URL("../../shared/kernel/testdata/generation-request-contracts.json", import.meta.url),
+    "utf8",
+  ));
+
+  for (const entry of fixture.cases) {
+    let captured = null;
+    await withPatchedGlobals(async () => {
+      globalThis.fetch = async (url, init) => {
+        captured = {
+          url: String(url),
+          body: JSON.parse(await readBodyText(init.body)),
+        };
+        return new Response(
+          'data: {"type":"response.output_item.done","item":{"type":"image_generation_call","result":"abc"}}\n',
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
       };
-      return new Response(
-        'data: {"type":"response.output_item.done","item":{"type":"image_generation_call","result":"abc"}}\n',
-        {
-          status: 200,
-          headers: { "content-type": "text/event-stream" },
+    }, async () => {
+      const request = new Request("https://worker.example/kernel/generate", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer fixture-token-not-a-key",
+          "content-type": "application/json",
         },
+        body: JSON.stringify(entry.request),
+      });
+      const response = await worker.fetch(request, {
+        IMAGE_STUDIO_UPSTREAM_BASE_URL: "https://upstream.example",
+      });
+      assert.equal(response.status, entry.expected.workerStatus, entry.id);
+      if (entry.request.apiMode !== "responses") {
+        assert.equal(captured, null, entry.id);
+        return;
+      }
+      assert.equal(captured.url, "https://upstream.example/v1/responses", entry.id);
+      assert.equal(
+        captured.body.instructions.includes("VERBATIM"),
+        entry.expected.instructionMode === "verbatim",
+        entry.id,
       );
-    };
-  }, async () => {
-    const request = new Request("https://worker.example/kernel/generate", {
-      method: "POST",
-      headers: {
-        authorization: "Bearer test-key",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        apiMode: "responses",
-        requestPolicy: "compat",
-        prompt: "a red cat",
-        size: "1024x1024",
-        quality: "low",
-        outputFormat: "png",
-        seed: 123,
-        negativePrompt: "avoid blur",
-      }),
+      assert.equal("seed" in captured.body.tools[0], entry.expected.extendedParameters, entry.id);
+      assert.equal("negative_prompt" in captured.body.tools[0], entry.expected.extendedParameters, entry.id);
     });
-    const response = await worker.fetch(request, {
-      IMAGE_STUDIO_UPSTREAM_BASE_URL: "https://upstream.example",
-    });
-    assert.equal(response.status, 200);
-    assert.equal(captured.url, "https://upstream.example/v1/responses");
-    assert.ok(captured.body.instructions.includes("VERBATIM"));
-    assert.equal(captured.body.tools[0].seed, 123);
-    assert.equal(captured.body.tools[0].negative_prompt, "avoid blur");
-  });
+  }
 });

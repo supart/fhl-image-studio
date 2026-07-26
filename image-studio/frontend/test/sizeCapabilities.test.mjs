@@ -203,13 +203,22 @@ test("ratio stays independent from resolution preset", () => {
 });
 
 test("explicit aspect selection can leave Auto size", () => {
+  assert.equal(caps.DEFAULT_FHL_SIZE, "2048x2048");
   assert.equal(
     caps.buildAspectSizeSelection("9:16", "auto", {
       apiMode: "responses",
       requestPolicy: "openai",
       imageModelID: "gpt-image-2",
     }),
-    "864x1536",
+    "1152x2048",
+  );
+  assert.equal(
+    caps.buildAspectSizeSelection("9:16", "auto", {
+      apiMode: "apimart",
+      requestPolicy: "openai",
+      imageModelID: "gpt-image-2",
+    }),
+    "9:16@1k",
   );
 });
 

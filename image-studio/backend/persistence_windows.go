@@ -72,6 +72,9 @@ func WindowsWebviewUserDataPath() (string, error) {
 }
 
 func WindowsLegacyWebviewUserDataPaths() ([]string, error) {
+	if _, portable := portablePackageRoot(); portable {
+		return nil, nil
+	}
 	if override := strings.TrimSpace(os.Getenv(windowsLegacyWebviewDirEnvName)); override != "" {
 		return []string{override}, nil
 	}

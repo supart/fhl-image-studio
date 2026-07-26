@@ -10,6 +10,7 @@ export type KernelImageSource = {
 
 export type RemoteGeneratePayload = {
   apiKey: string;
+  apiProfileId?: string;
   mode: string;
   prompt: string;
   size: string;

@@ -3,7 +3,6 @@ package client
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -182,10 +181,12 @@ func apimartAPIWithRetries(
 		if reqErr == nil {
 			return result, rawPath, nil
 		}
+		if isResponseLimitError(reqErr) {
+			return ImageResult{}, rawPath, reqErr
+		}
 
 		lastErr = reqErr
-		rawBytes, _ := os.ReadFile(rawPath)
-		raw := string(rawBytes)
+		raw := readDiagnosticResponseFile(rawPath)
 		if attempt < MaxAttempts && (IsRetryable(raw) || isTransportishError(reqErr)) {
 			onLog(fmt.Sprintf("%v", reqErr))
 			onLog(fmt.Sprintf("Auto retrying in %d seconds...", RetryBackoffSeconds))
@@ -502,18 +503,18 @@ func apimartImageValueToBase64(ctx context.Context, httpClient *http.Client, val
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
 		return "", fmt.Errorf("APIMart image download failed: HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
 	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, 90*1024*1024))
+	encoded, err := readHTTPResponseBase64(response)
 	if err != nil {
 		return "", fmt.Errorf("read APIMart image: %w", err)
 	}
-	if len(data) == 0 {
+	if encoded == "" {
 		return "", errors.New("APIMart image download was empty")
 	}
-	return base64.StdEncoding.EncodeToString(data), nil
+	return encoded, nil
 }
 
 func readAPIMartJSONResponse(response *http.Response, rawSink io.Writer, label string) (map[string]any, error) {
-	rawBytes, err := io.ReadAll(response.Body)
+	rawBytes, err := readHTTPResponseBody(response)
 	if err != nil {
 		return nil, fmt.Errorf("read APIMart %s response: %w", label, err)
 	}

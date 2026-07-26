@@ -5,10 +5,11 @@ const realWindow = globalThis.window;
 const realDocument = globalThis.document;
 const realNavigator = globalThis.navigator;
 
-function installPlatformEnv({ width, height, userAgent, platform = "Linux armv8l", uaDataPlatform = "Android" }) {
+function installPlatformEnv({ width, height, userAgent, platform = "Linux armv8l", uaDataPlatform = "Android", search = "" }) {
   globalThis.window = {
     innerWidth: width,
     innerHeight: height,
+    location: { search },
     addEventListener() {},
     removeEventListener() {},
     visualViewport: {
@@ -135,10 +136,41 @@ test("macOS keeps the Apple UI family", async () => {
     assert.equal(state.usesAppleUI, true);
   });
 });
+
+test("macOS Windows parity keeps Mac host capabilities with Fluent presentation", async () => {
+  await withPlatformEnv({
+    width: 1440,
+    height: 900,
+    platform: "MacIntel",
+    uaDataPlatform: "macOS",
+    userAgent: "Mozilla/5.0 (Macintosh; Apple Silicon Mac OS X 13_0) AppleWebKit/605.1.15",
+    search: "?ui=windows-parity",
+  }, async () => {
+    const platform = await loadPlatformModule();
+    platform.applyPlatformAttributes(globalThis.document.documentElement);
+    const state = platform.readRuntimePlatformState();
+    assert.equal(state.hostPlatform, "macos");
+    assert.equal(state.presentationPlatform, "windows");
+    assert.equal(state.isMacHost, true);
+    assert.equal(state.isWindowsHost, false);
+    assert.equal(state.usesWindowsDesktopUI, true);
+    assert.equal(state.usesFluentUI, true);
+    assert.equal(platform.submitShortcutLabel, "⌘Enter");
+    assert.equal(globalThis.document.documentElement.dataset.platform, "macos");
+    assert.equal(globalThis.document.documentElement.dataset.presentationPlatform, "windows");
+  });
+});
 test("platform-vite enables Node env proxy for local preview upstream proxies", async () => {
   const { readFileSync } = await import("node:fs");
   const source = readFileSync(new URL("../scripts/platform-vite.mjs", import.meta.url), "utf8");
   assert.match(source, /NODE_USE_ENV_PROXY:\s*process\.env\.NODE_USE_ENV_PROXY\s*\|\|\s*"1"/);
   assert.match(source, /spawn\(process\.execPath/);
   assert.match(source, /env,/);
+});
+
+test("platform-vite keeps browser-backed dev profiles on one loopback origin", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(new URL("../scripts/platform-vite.mjs", import.meta.url), "utf8");
+  assert.match(source, /IMAGE_STUDIO_DEV_HOST\?\.trim\(\)\s*\|\|\s*"127\.0\.0\.1"/);
+  assert.match(source, /\["--mode", mode, "--host", devHost\]/);
 });

@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "responses-openai-verbatim",
+      "request": {
+        "apiProfileId": "profile-fixture-responses",
+        "apiMode": "responses",
+        "baseURL": "https://upstream.example",
+        "prompt": "fixture red square",
+        "size": "1024x1024",
+        "quality": "auto",
+        "outputFormat": "png",
+        "textModelID": "fixture-text-model",
+        "imageModelID": "fixture-image-model",
+        "requestPolicy": "openai",
+        "noPromptRevision": true,
+        "imagesNewAPICompat": false,
+        "seed": 41,
+        "negativePrompt": "fixture blur"
+      },
+      "expected": {
+        "normalizedRequestPolicy": "openai",
+        "instructionMode": "verbatim",
+        "extendedParameters": false,
+        "workerStatus": 200
+      }
+    },
+    {
+      "id": "responses-compat-adaptation",
+      "request": {
+        "apiProfileId": "profile-fixture-compat",
+        "apiMode": "responses",
+        "baseURL": "https://upstream.example",
+        "prompt": "fixture blue circle",
+        "size": "1024x1024",
+        "quality": "low",
+        "outputFormat": "png",
+        "textModelID": "fixture-text-model",
+        "imageModelID": "fixture-image-model",
+        "requestPolicy": "compat",
+        "noPromptRevision": false,
+        "imagesNewAPICompat": false,
+        "seed": 42,
+        "negativePrompt": "fixture noise"
+      },
+      "expected": {
+        "normalizedRequestPolicy": "compat",
+        "instructionMode": "adaptation",
+        "extendedParameters": true,
+        "workerStatus": 200
+      }
+    },
+    {
+      "id": "images-compat-b64",
+      "request": {
+        "apiProfileId": "profile-fixture-images",
+        "apiMode": "images",
+        "baseURL": "https://upstream.example",
+        "prompt": "fixture green triangle",
+        "size": "1024x1024",
+        "quality": "medium",
+        "outputFormat": "png",
+        "textModelID": "",
+        "imageModelID": "fixture-image-model",
+        "requestPolicy": "compat",
+        "noPromptRevision": true,
+        "imagesNewAPICompat": true,
+        "seed": 43,
+        "negativePrompt": "fixture artifacts"
+      },
+      "expected": {
+        "normalizedRequestPolicy": "compat",
+        "instructionMode": "verbatim",
+        "extendedParameters": true,
+        "workerStatus": 400
+      }
+    }
+  ]
+}

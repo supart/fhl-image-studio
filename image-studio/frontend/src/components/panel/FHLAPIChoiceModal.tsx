@@ -10,13 +10,16 @@ export function FHLAPIChoiceModal({
   open,
   onClose,
   onUseExistingAPI,
+  mode,
 }: {
   open: boolean;
   onClose: () => void;
   onUseExistingAPI: () => void | Promise<void>;
+  mode?: "desktopPool" | "legacy";
 }) {
-  const { usesFluentUI } = usePlatform();
+  const { isAndroid, usesFluentUI } = usePlatform();
   const pushToast = useStudioStore((state) => state.pushToast);
+  const useDesktopPool = (mode ?? (isAndroid ? "legacy" : "desktopPool")) === "desktopPool";
 
   async function handleGetAPI() {
     let opened = false;
@@ -48,12 +51,14 @@ export function FHLAPIChoiceModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="配置 FHL API" width={520}>
+    <Modal open={open} onClose={onClose} title={useDesktopPool ? "配置 FHL Images API" : "配置 FHL API"} width={520}>
       <div className="flex flex-col gap-3">
         <div className={`border border-amber-300/70 bg-amber-50 px-3 py-2 text-amber-900 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-100 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
           <div className="text-[13px] font-semibold tracking-[0]">请选择你的 API 状态</div>
           <div className="mt-1 text-[12px] leading-5">
-            已有 Key 的用户会先粘贴 1 个 API Key，再自动完成 `FHL-... Responses` 和 `FHL-... Images` 两套配置与连接验证；没有 Key 的用户先注册获取。
+            {useDesktopPool
+              ? "已有 Key 的用户可填写最多 10 个 FHL Images API。每个非空槽都是独立的连续生成 API，不会创建 Responses 配置或自动发起连接测试。"
+              : "已有 Key 的用户会先粘贴 1 个 API Key，再自动完成 `FHL-... Responses` 和 `FHL-... Images` 两套配置与连接验证；没有 Key 的用户先注册获取。"}
           </div>
         </div>
 
@@ -72,7 +77,11 @@ export function FHLAPIChoiceModal({
           >
             <KeyRound className="h-5 w-5" />
             <span className="text-[16px] font-bold tracking-[0]">已有 API</span>
-            <span className="text-[11px] leading-5 opacity-85">先输入 1 个 Key，再自动配置 Responses / Images 并连接验证。</span>
+            <span className="text-[11px] leading-5 opacity-85">
+              {useDesktopPool
+                ? "配置最多 10 个 Images API，由连续生成自动分配空闲 API。"
+                : "先输入 1 个 Key，再自动配置 Responses / Images 并连接验证。"}
+            </span>
           </button>
 
           <button

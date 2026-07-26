@@ -283,6 +283,9 @@ func RequestImagesAPIWithPartial(
 		return ImageResult{}, err
 	}
 	defer resp.Body.Close()
+	if err := enforceHTTPResponseLimit(resp); err != nil {
+		return ImageResult{}, fmt.Errorf("read Images API response: %w", err)
+	}
 
 	contentTypeHeader := strings.ToLower(resp.Header.Get("Content-Type"))
 	if strings.Contains(contentTypeHeader, "text/event-stream") {
@@ -303,6 +306,10 @@ func RequestImagesAPIWithPartial(
 			}
 		}
 		if err := scanner.Err(); err != nil {
+			err = normalizeSSEScannerError(err)
+			if isResponseLimitError(err) {
+				return ImageResult{}, fmt.Errorf("read Images API stream: %w", err)
+			}
 			if result, ok := extractor.result(); ok && result.ImageB64 != "" {
 				return result, nil
 			}
@@ -323,7 +330,13 @@ func RequestImagesAPIWithPartial(
 	var parsed imagesAPIResponse
 	dec := json.NewDecoder(teeReader)
 	if err := dec.Decode(&parsed); err != nil {
-		_, _ = io.Copy(io.MultiWriter(rawSink, preview), resp.Body)
+		_, drainErr := io.Copy(io.Discard, teeReader)
+		if isResponseLimitError(err) {
+			return ImageResult{}, fmt.Errorf("read Images API response: %w", err)
+		}
+		if isResponseLimitError(drainErr) {
+			return ImageResult{}, fmt.Errorf("read Images API response: %w", drainErr)
+		}
 		bodyPreview := preview.String()
 		if len(bodyPreview) > 400 {
 			bodyPreview = bodyPreview[:400] + "..."
@@ -332,6 +345,9 @@ func RequestImagesAPIWithPartial(
 			return ImageResult{}, fmt.Errorf("\u4e0a\u6e38\u8fd4\u56de HTTP %d: %s", resp.StatusCode, bodyPreview)
 		}
 		return ImageResult{}, fmt.Errorf("\u89e3\u6790 Images API \u8fd4\u56de\u5931\u8d25: %w", err)
+	}
+	if _, err := io.Copy(io.Discard, teeReader); err != nil {
+		return ImageResult{}, fmt.Errorf("read Images API response: %w", err)
 	}
 
 	// Non-2xx with JSON body 闂?decode has already captured the structured error.

@@ -46,20 +46,41 @@ func TestCreateContactSheetFallback(t *testing.T) {
 	}
 }
 
-func TestShouldFallbackEditToContactSheetForFHLBusy(t *testing.T) {
+func TestShouldNotFallbackFHLGPTImage2EditToContactSheet(t *testing.T) {
 	dir := t.TempDir()
 	raw := filepath.Join(dir, "raw.json")
 	if err := os.WriteFile(raw, []byte(`{"error":{"message":"无可用账号，请稍后重试","type":"upstream_error"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	opts := cliOptions{
-		mode:       client.ModeEdit,
-		apiMode:    client.APIModeImages,
-		imagePaths: []string{"a.png", "b.png"},
+		mode:         client.ModeEdit,
+		apiMode:      client.APIModeImages,
+		baseURL:      defaultBaseURL,
+		imageModelID: "gpt-image-2",
+		imagePaths:   []string{"a.png", "b.png"},
+	}
+	err := errors.New("上游返回 503:无可用账号，请稍后重试")
+	if shouldFallbackEditToContactSheet(opts, err, raw) {
+		t.Fatal("FHL gpt-image-2 must preserve native multi-reference semantics")
+	}
+}
+
+func TestShouldFallbackLegacyEditToContactSheetForFHLBusy(t *testing.T) {
+	dir := t.TempDir()
+	raw := filepath.Join(dir, "raw.json")
+	if err := os.WriteFile(raw, []byte(`{"error":{"message":"无可用账号，请稍后重试","type":"upstream_error"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts := cliOptions{
+		mode:         client.ModeEdit,
+		apiMode:      client.APIModeImages,
+		baseURL:      defaultBaseURL,
+		imageModelID: "legacy-image-model",
+		imagePaths:   []string{"a.png", "b.png"},
 	}
 	err := errors.New("上游返回 503:无可用账号，请稍后重试")
 	if !shouldFallbackEditToContactSheet(opts, err, raw) {
-		t.Fatal("expected contact sheet fallback")
+		t.Fatal("expected legacy contact sheet fallback")
 	}
 }
 

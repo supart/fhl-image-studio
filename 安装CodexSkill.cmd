@@ -3,7 +3,7 @@ setlocal
 
 set "SRC=%~dp0SKILL.md"
 set "PACKAGE_ROOT=%~dp0"
-set "SKILL_NAME=fhl-image-studio-v2-0-2-1"
+set "SKILL_NAME=fhl-image-studio-v2-0-3"
 set "DST=%USERPROFILE%\.codex\skills\%SKILL_NAME%"
 set "OLD1=%USERPROFILE%\.codex\skills\fhl-image-studio-cli"
 set "OLD2=%USERPROFILE%\.codex\skills\fhl-ty-v2"
@@ -54,7 +54,7 @@ echo Package root:
 echo   %PACKAGE_ROOT%
 echo.
 echo Package line:
-echo   V2.0.2.1 versioned skill entry, auto-detects CLI status via image-cli.cmd --status --json
+echo   V2.0.3 versioned skill entry, auto-detects CLI status via image-cli.cmd --status --json
 echo.
 echo Restart Codex or open a new Codex thread to let it discover the updated skill.
 pause

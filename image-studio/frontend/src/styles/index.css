@@ -856,6 +856,37 @@ html[data-ui-family="apple"] .select:focus {
   border-radius: var(--control-radius);
 }
 
+.fhl-transport-option {
+  border: 1px solid transparent;
+  background: transparent;
+  color: #71717a;
+}
+
+.fhl-transport-option:hover {
+  color: #18181b;
+}
+
+.fhl-transport-option[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: #18181b;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent),
+    0 1px 2px rgb(15 23 42 / 0.08);
+}
+
+html.dark .fhl-transport-option {
+  color: #a1a1aa;
+}
+
+html.dark .fhl-transport-option:hover {
+  color: #f4f4f5;
+}
+
+html.dark .fhl-transport-option[aria-pressed="true"] {
+  color: #fafafa;
+}
+
 .fhl-api-config-btn {
   box-sizing: border-box;
   height: 32px;

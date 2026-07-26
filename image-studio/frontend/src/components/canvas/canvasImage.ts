@@ -58,6 +58,7 @@ export function useImageFromSource(
   blob: Blob | null | undefined,
   b64: string | undefined,
   url?: string | null,
+  onError?: (src: string) => void,
 ): HTMLImageElement | null {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
 
@@ -71,15 +72,20 @@ export function useImageFromSource(
     const objectURL = blob ? URL.createObjectURL(blob) : b64 ? b64ToObjectURL(b64) : null;
     const src = objectURL || url || null;
     if (!src) return;
+    let cancelled = false;
     el.onload = () => setImg(el);
-    el.onerror = () => setImg(null);
+    el.onerror = () => {
+      setImg(null);
+      if (!cancelled) onError?.(src);
+    };
     el.src = src;
     return () => {
+      cancelled = true;
       el.onload = null;
       el.onerror = null;
       if (objectURL) URL.revokeObjectURL(objectURL);
     };
-  }, [blob, b64, url]);
+  }, [blob, b64, url, onError]);
 
   return img;
 }

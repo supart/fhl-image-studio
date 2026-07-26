@@ -1,32 +1,21 @@
 import { type MouseEvent, useState } from "react";
 import { Check, Clipboard, ExternalLink, KeyRound } from "lucide-react";
-import type { ChangeEvent } from "react";
-import { Settings } from "lucide-react";
 import { usePlatform } from "../../platform/context";
 import { useStudioStore } from "../../state/studioStore";
-import type { UpstreamProfile } from "../../types/domain";
-import { APIMART_IMAGE_MODEL_ID, apiModeRequiresDirectAPIKey, isAPIMartOfficialBaseURL } from "../../lib/profiles";
+import { hasUsableFHLConfiguration } from "../../lib/profiles";
 import { FHLQuickConfigModal } from "../panel/FHLQuickConfigModal";
 import { FHLAPIChoiceModal } from "../panel/FHLAPIChoiceModal";
 import { HitokotoStrip } from "./HitokotoStrip";
+import { FHLTransportToggle } from "./FHLTransportToggle";
+import { FHL_INVITE_CODE, FHL_REGISTER_URL } from "../../lib/fhlAPI";
 import { openExternalURLForPlatform } from "../../platform/android/bridge";
 import { OpenExternalURL } from "../../platform/runtime/host";
 
 const BRAND_TITLE = "FHL Image Studio 方汤圆版";
-const BRAND_VERSION = "V2.0.2.1";
+const BRAND_VERSION = "V2.0.3";
 const HEADER_LOGO_SRC = "favicon.png";
 const FHL_QQ_GROUP = "207550870";
 const FHL_QQ_PROMO = `FHL官方QQ交流群:${FHL_QQ_GROUP} 进群免费获取GPT image2生图福利！`;
-const FHL_INVITE_CODE = "LPUH6EEHGK3R";
-const FHL_REGISTER_URL = "https://www.fhl.mom/register?aff=LPUH6EEHGK3R";
-
-function apiProviderLabel(profile: Pick<UpstreamProfile, "apiMode" | "baseURL">): string {
-  if (profile.apiMode === "apimart" || isAPIMartOfficialBaseURL(profile.baseURL)) return "APIMart";
-  if (profile.apiMode === "runninghub") return "RunningHub";
-  if (profile.apiMode === "images") return "Images";
-  return "FHL";
-}
-
 async function copyText(text: string) {
   if (navigator.clipboard?.writeText) {
     try {
@@ -59,39 +48,24 @@ async function copyText(text: string) {
 }
 
 export function AppHeaderBrand() {
-  const { isAndroidPhone, isAndroidPad, usesFluentUI, isMac, isWindows, usesAndroidUI } = usePlatform();
+  const { isAndroidPhone, isAndroidPad, usesFluentUI, usesMacDesktopUI, usesWindowsDesktopUI, usesAndroidUI } = usePlatform();
+  const profiles = useStudioStore((state) => state.profiles);
   const apiKey = useStudioStore((state) => state.apiKey);
   const apiMode = useStudioStore((state) => state.apiMode);
   const baseURL = useStudioStore((state) => state.baseURL);
-  const imageModelID = useStudioStore((state) => state.imageModelID);
-  const profiles = useStudioStore((state) => state.profiles);
-  const activeProfileId = useStudioStore((state) => state.activeProfileId);
-  const setActiveProfile = useStudioStore((state) => state.setActiveProfile);
-  const openUpstreamConfig = useStudioStore((state) => state.openUpstreamConfig);
+  const fhlTransportMode = useStudioStore((state) => state.fhlTransportMode);
+  const setFHLTransportMode = useStudioStore((state) => state.setFHLTransportMode);
   const [copiedGroup, setCopiedGroup] = useState(false);
   const [copiedRegisterURL, setCopiedRegisterURL] = useState(false);
   const [fhlChoiceOpen, setFHLChoiceOpen] = useState(false);
   const [fhlQuickConfigOpen, setFHLQuickConfigOpen] = useState(false);
-  const [switchingProfileId, setSwitchingProfileId] = useState<string | null>(null);
-  const hasDirectKey = !apiModeRequiresDirectAPIKey(apiMode) || apiKey.trim().length > 0;
-  const isFHLAPIConfigured = hasDirectKey && apiMode !== "apimart" && apiMode !== "runninghub";
-  const isAPIMartConfigured = apiKey.trim().length > 0
-    && apiMode === "apimart"
-    && isAPIMartOfficialBaseURL(baseURL)
-    && (imageModelID.trim() || APIMART_IMAGE_MODEL_ID) === APIMART_IMAGE_MODEL_ID;
-  const isRunningHubConfigured = apiMode === "runninghub" && !!baseURL.trim();
-  const isCurrentAPIConfigured = isFHLAPIConfigured || isAPIMartConfigured || isRunningHubConfigured;
-  const configuredAPILabel = isAPIMartConfigured
-    ? "APIMart 已配置"
-    : apiMode === "images"
-      ? "Images API 已配置"
-      : "FHL API 已配置";
-  const effectiveConfiguredAPILabel = isRunningHubConfigured ? "RunningHub 已配置" : configuredAPILabel;
-  const activeProfile = profiles.find((profile) => profile.id === activeProfileId);
-  const activeProfileLabel = activeProfile
-    ? `${apiProviderLabel(activeProfile)} · ${activeProfile.name}`
-    : effectiveConfiguredAPILabel;
-  const showProfileSwitcher = profiles.length > 1 && isCurrentAPIConfigured;
+  const hasFHLConfiguration = hasUsableFHLConfiguration({
+    apiKey,
+    apiMode,
+    baseURL,
+    profiles,
+  });
+  const shouldPulseConfigButton = !hasFHLConfiguration;
 
   const copyQQGroup = async (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -140,7 +114,7 @@ export function AppHeaderBrand() {
   const openFHLAPIConfig = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    if (isCurrentAPIConfigured) {
+    if (hasFHLConfiguration) {
       useStudioStore.getState().openUpstreamConfig("app");
       return;
     }
@@ -150,21 +124,6 @@ export function AppHeaderBrand() {
   const useExistingFHLAPI = async () => {
     setFHLChoiceOpen(false);
     setFHLQuickConfigOpen(true);
-  };
-
-  const handleProfileSelect = async (event: ChangeEvent<HTMLSelectElement>) => {
-    const nextId = event.currentTarget.value;
-    if (nextId === "__manage__") {
-      openUpstreamConfig("app");
-      return;
-    }
-    if (!nextId || nextId === activeProfileId) return;
-    setSwitchingProfileId(nextId);
-    try {
-      await setActiveProfile(nextId);
-    } finally {
-      setSwitchingProfileId(null);
-    }
   };
 
   if (usesAndroidUI) {
@@ -196,7 +155,7 @@ export function AppHeaderBrand() {
     );
   }
 
-  if (isWindows) {
+  if (usesWindowsDesktopUI) {
     return (
       <>
         <div className="flex min-w-0 items-center gap-2.5">
@@ -258,60 +217,21 @@ export function AppHeaderBrand() {
               </button>
             </div>
             <div className="flex min-w-0 items-center gap-2 text-[10px] text-zinc-500 dark:text-zinc-400">
-              {showProfileSwitcher ? (
-                <div className="no-drag inline-flex h-8 shrink-0 items-center overflow-hidden rounded-[7px] border border-[color:var(--accent)]/24 bg-[var(--accent-soft)]/70 text-[var(--accent)]">
-                  <label className="inline-flex h-full items-center gap-1.5 px-2 text-[12px] font-bold tracking-[0]">
-                    <Check className="h-3.5 w-3.5" />
-                    <select
-                      value={switchingProfileId ?? activeProfileId}
-                      onChange={handleProfileSelect}
-                      disabled={!!switchingProfileId}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onMouseDown={(event) => event.stopPropagation()}
-                      className="max-w-[220px] bg-transparent text-[12px] font-bold tracking-[0] outline-none disabled:cursor-wait disabled:opacity-75"
-                      title={switchingProfileId ? "正在切换 API 配置..." : `当前 API：${activeProfileLabel}`}
-                      aria-label="切换当前 API 配置"
-                    >
-                      {profiles.map((profile) => (
-                        <option key={profile.id} value={profile.id}>
-                          {apiProviderLabel(profile)} · {profile.name}
-                        </option>
-                      ))}
-                      <option value="__manage__">管理配置...</option>
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    className="inline-flex h-full w-8 items-center justify-center border-l border-[color:var(--accent)]/18 transition-colors hover:bg-[var(--accent-soft)]"
-                    title="管理 API 配置"
-                    aria-label="管理 API 配置"
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onMouseDown={(event) => event.stopPropagation()}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      openUpstreamConfig("app");
-                    }}
-                  >
-                    <Settings className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  data-audit-id="fhl-config"
-                  className={`fhl-api-config-btn ${isCurrentAPIConfigured ? "is-configured" : "needs-config"} no-drag inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[7px] border px-2.5 text-[14px] font-bold tracking-[0] transition-colors`}
-                  title={isCurrentAPIConfigured ? `${configuredAPILabel}，点击可修改` : "一键配置 FHL API"}
-                  aria-label={isCurrentAPIConfigured ? `${configuredAPILabel}，点击可修改` : "一键配置 FHL API"}
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onMouseDown={(event) => event.stopPropagation()}
-                  onClick={openFHLAPIConfig}
-                >
-                  {isCurrentAPIConfigured ? <Check className="h-4 w-4" /> : <KeyRound className="h-4 w-4" />}
-                  <span className="whitespace-nowrap">{isCurrentAPIConfigured ? configuredAPILabel : "一键配置 FHL API"}</span>
-                </button>
-              )}
-              <div className="min-w-0">
+              <button
+                type="button"
+                data-audit-id="fhl-config"
+                className={`fhl-api-config-btn ${shouldPulseConfigButton ? "needs-config" : "is-configured"} no-drag inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[7px] border px-2.5 text-[14px] font-bold tracking-[0] transition-colors`}
+                title={hasFHLConfiguration ? "修改统一 FHL 配置" : "一键配置 FHL API"}
+                aria-label={hasFHLConfiguration ? "修改统一 FHL 配置" : "一键配置 FHL API"}
+                onPointerDown={(event) => event.stopPropagation()}
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={openFHLAPIConfig}
+              >
+                {hasFHLConfiguration ? <Check className="h-4 w-4" /> : <KeyRound className="h-4 w-4" />}
+                <span className="whitespace-nowrap">{hasFHLConfiguration ? "FHL API 配置" : "一键配置 FHL API"}</span>
+              </button>
+              <FHLTransportToggle mode={fhlTransportMode} onChange={setFHLTransportMode} />
+              <div className="min-w-0 flex-1">
                 <HitokotoStrip />
               </div>
             </div>
@@ -336,7 +256,7 @@ export function AppHeaderBrand() {
 
   return (
     <div className="flex min-w-0 items-center gap-3.5">
-      <span className={`inline-flex shrink-0 items-center justify-center border border-white/44 bg-white/70 text-[var(--accent)] shadow-[0_12px_32px_rgb(15_23_42_/_0.12)] dark:border-white/10 dark:bg-white/[0.06] ${usesFluentUI ? "h-8 w-8 rounded-[10px]" : isMac ? "h-10 w-10 rounded-[14px]" : "h-10 w-10 rounded-[13px]"}`}>
+      <span className={`inline-flex shrink-0 items-center justify-center border border-white/44 bg-white/70 text-[var(--accent)] shadow-[0_12px_32px_rgb(15_23_42_/_0.12)] dark:border-white/10 dark:bg-white/[0.06] ${usesFluentUI ? "h-8 w-8 rounded-[10px]" : usesMacDesktopUI ? "h-10 w-10 rounded-[14px]" : "h-10 w-10 rounded-[13px]"}`}>
         <img
           className={`object-cover ${usesFluentUI ? "h-7 w-7 rounded-[9px]" : "h-9 w-9 rounded-[12px]"}`}
           src={HEADER_LOGO_SRC}
@@ -350,7 +270,7 @@ export function AppHeaderBrand() {
             className={`android-header-title truncate text-zinc-900 dark:text-zinc-100 ${
               usesFluentUI
                 ? "font-[600] text-[14px] tracking-[0]"
-                : isMac
+                : usesMacDesktopUI
                   ? "text-[16px] font-semibold tracking-[0]"
                   : "text-[16px] font-semibold tracking-[0]"
             }`}
@@ -367,7 +287,7 @@ export function AppHeaderBrand() {
             {BRAND_VERSION}
           </span>
         </div>
-        {isMac ? (
+        {usesMacDesktopUI ? (
           <div className="mt-1 truncate text-[12px] leading-none text-zinc-500 dark:text-zinc-400">
             图像工作区
           </div>

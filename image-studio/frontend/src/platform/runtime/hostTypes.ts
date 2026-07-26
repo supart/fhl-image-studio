@@ -1,5 +1,6 @@
-export type GenerateOptionsLike = {
+export type GenerationRequest = {
   apiKey: string;
+  apiProfileId?: string;
   mode: string;
   prompt: string;
   size: string;
@@ -30,6 +31,8 @@ export type GenerateOptionsLike = {
     imageBlob?: Blob | null;
   }>;
 };
+
+export type GenerateOptionsLike = GenerationRequest;
 
 export type PromptOptimizeOptionsLike = {
   apiKey: string;

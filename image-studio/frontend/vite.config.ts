@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { createReadStream, existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { defineConfig, type Plugin } from "vite";
@@ -28,6 +29,7 @@ const publicRoot = path.resolve(process.env.IMAGE_STUDIO_PUBLIC_ROOT || repoRoot
 const inputDir = path.join(publicRoot, "input");
 const outputDir = path.join(publicRoot, "output");
 const intermediateDir = path.join(publicRoot, "intermediate");
+const projectThumbDir = path.join(outputDir, "thumbs");
 const batchInputExtensions = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 const logDir = path.join(outputDir, "log");
 const readableLogDirs = Array.from(new Set([
@@ -39,11 +41,24 @@ const configDir = path.join(repoRoot, "config");
 const cliEnvLocalPath = path.join(configDir, "cli.env.local");
 const localFHLAPIConfigPath = path.join(frontendDir, ".local", "fhl-api.local.json");
 const serviceInstanceId = `vite-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-const storageNamespace = (process.env.IMAGE_STUDIO_STORAGE_NAMESPACE || "fhl-image-studio-v2.0.2-dev-stable-20260608")
+const storageNamespace = (process.env.IMAGE_STUDIO_STORAGE_NAMESPACE || "fhl-image-studio-desktop-dev")
   .trim()
   .replace(/[^a-zA-Z0-9._-]+/g, "-")
   .replace(/^-+|-+$/g, "")
-  || "fhl-image-studio-v2.0.2-dev-stable-20260608";
+  || "fhl-image-studio-desktop-dev";
+const devCanonicalHost = process.env.IMAGE_STUDIO_DEV_HOST?.trim() || "127.0.0.1";
+const authorizedImageRoots = new Set<string>();
+const localMediaAssets = new Map<string, {
+  fullPath: string;
+  thumbPath: string;
+  width: number;
+  height: number;
+  previewWidth: number;
+  previewHeight: number;
+}>();
+const thumbnailRequests = new Map<string, Promise<void>>();
+let activeThumbnailJobs = 0;
+const thumbnailWaiters: Array<() => void> = [];
 
 function manualChunks(id: string) {
   if (id.includes("/wailsjs/")) return "wails-runtime";
@@ -278,6 +293,7 @@ async function resolveProjectSaveDir(kind: "input" | "output", body: any): Promi
       ? path.resolve(explicitDirectory)
       : path.resolve(publicRoot, explicitDirectory);
     await fs.mkdir(abs, { recursive: true });
+    authorizedImageRoots.add(normalizeContainmentPath(abs));
     return abs;
   }
   const root = kind === "input" ? inputDir : outputDir;
@@ -301,10 +317,88 @@ function isInsideDir(root: string, target: string): boolean {
 
 function assertProjectImagePath(filePath: string): string {
   const abs = path.resolve(String(filePath || ""));
-  if (![inputDir, outputDir, intermediateDir].some((root) => isInsideDir(root, abs))) {
+  const roots = [inputDir, outputDir, intermediateDir, ...authorizedImageRoots];
+  if (!roots.some((root) => isInsideDir(root, abs))) {
     throw new Error("path outside project image folders");
   }
   return abs;
+}
+
+async function withThumbnailSlot<T>(work: () => Promise<T>): Promise<T> {
+  if (activeThumbnailJobs >= 2) {
+    await new Promise<void>((resolve) => thumbnailWaiters.push(resolve));
+  }
+  activeThumbnailJobs += 1;
+  try {
+    return await work();
+  } finally {
+    activeThumbnailJobs -= 1;
+    thumbnailWaiters.shift()?.();
+  }
+}
+
+async function registerProjectMedia(filePath: string, preferredThumbPath = "") {
+  const fullPath = assertProjectImagePath(filePath);
+  const stat = await fs.stat(fullPath);
+  if (!stat.isFile()) throw new Error("media path is not a file");
+  const id = createHash("sha256")
+    .update(`${fullPath}\0${stat.size}\0${Math.floor(stat.mtimeMs)}`)
+    .digest("hex")
+    .slice(0, 32);
+  const requestedThumb = String(preferredThumbPath || "").trim();
+  let thumbPath = requestedThumb ? assertProjectImagePath(requestedThumb) : path.join(projectThumbDir, `${id}.avif`);
+  const sharpModule = await import("sharp");
+  const sharp = sharpModule.default;
+  const metadata = await sharp(fullPath).metadata();
+  const width = Number(metadata.width || 0);
+  const height = Number(metadata.height || 0);
+  let previewWidth = width;
+  let previewHeight = height;
+  const longest = Math.max(width, height);
+  if (longest > 384) {
+    const scale = 384 / longest;
+    previewWidth = Math.max(1, Math.round(width * scale));
+    previewHeight = Math.max(1, Math.round(height * scale));
+  }
+  const existingThumb = await fs.stat(thumbPath).then((value) => value.isFile()).catch(() => false);
+  if (!existingThumb) {
+    const cacheKey = `${id}:${thumbPath}`;
+    let request = thumbnailRequests.get(cacheKey);
+    if (!request) {
+      request = withThumbnailSlot(async () => {
+        await fs.mkdir(path.dirname(thumbPath), { recursive: true });
+        await sharp(fullPath)
+          .rotate()
+          .resize({ width: 384, height: 384, fit: "inside", withoutEnlargement: true })
+          .avif({ quality: 46, effort: 4 })
+          .toFile(thumbPath);
+      }).finally(() => thumbnailRequests.delete(cacheKey));
+      thumbnailRequests.set(cacheKey, request);
+    }
+    await request;
+  }
+  localMediaAssets.set(id, { fullPath, thumbPath, width, height, previewWidth, previewHeight });
+  return {
+    imageId: id,
+    savedPath: fullPath,
+    thumbPath,
+    previewUrl: `${projectFilesPrefix}/media/thumb/${id}`,
+    fullUrl: `${projectFilesPrefix}/media/full/${id}`,
+    width,
+    height,
+    previewWidth,
+    previewHeight,
+  };
+}
+
+function mediaContentType(filePath: string) {
+  switch (path.extname(filePath).toLowerCase()) {
+    case ".avif": return "image/avif";
+    case ".jpg":
+    case ".jpeg": return "image/jpeg";
+    case ".webp": return "image/webp";
+    default: return "image/png";
+  }
 }
 
 function assertOutputSubdir(filePath: string): string {
@@ -331,6 +425,7 @@ async function listBatchInputImages(directory: string) {
   const root = path.resolve(String(directory || "").trim());
   const info = await fs.stat(root);
   if (!info.isDirectory()) throw new Error("not a directory");
+  authorizedImageRoots.add(normalizeContainmentPath(root));
   const entries = await fs.readdir(root, { withFileTypes: true });
   const images = [];
   for (const entry of entries) {
@@ -461,9 +556,28 @@ function projectFilesPlugin(): Plugin {
       void fs.mkdir(outputDir, { recursive: true });
       void fs.mkdir(intermediateDir, { recursive: true });
       void fs.mkdir(logDir, { recursive: true });
+      void fs.mkdir(projectThumbDir, { recursive: true });
       server.middlewares.use(projectFilesPrefix, async (req, res, next) => {
         try {
           const url = new URL(req.url || "/", "http://localhost");
+          const mediaMatch = url.pathname.match(/^\/media\/(thumb|full)\/([a-f0-9]{32})$/);
+          if ((req.method === "GET" || req.method === "HEAD") && mediaMatch) {
+            const asset = localMediaAssets.get(mediaMatch[2]);
+            const mediaPath = mediaMatch[1] === "thumb" ? asset?.thumbPath : asset?.fullPath;
+            if (!asset || !mediaPath) {
+              sendJSON(res, 404, { error: "media not registered" });
+              return;
+            }
+            res.statusCode = 200;
+            res.setHeader("Content-Type", mediaContentType(mediaPath));
+            res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
+            if (req.method === "HEAD") {
+              res.end();
+              return;
+            }
+            createReadStream(mediaPath).on("error", () => res.destroy()).pipe(res);
+            return;
+          }
           if (req.method !== "POST") {
             sendJSON(res, 405, { error: "method not allowed" });
             return;
@@ -493,6 +607,14 @@ function projectFilesPlugin(): Plugin {
             const fullPath = assertProjectImagePath(String(body?.path || ""));
             const data = await fs.readFile(fullPath);
             sendJSON(res, 200, { imageB64: data.toString("base64") });
+            return;
+          }
+          if (url.pathname === "/register-media") {
+            const body = await readJSONBody(req, 1024 * 1024);
+            sendJSON(res, 200, await registerProjectMedia(
+              String(body?.savedPath || ""),
+              String(body?.thumbPath || ""),
+            ));
             return;
           }
           if (url.pathname === "/read-text") {
@@ -557,6 +679,20 @@ function localConfigPlugin(): Plugin {
       server.middlewares.use(localConfigPrefix, async (req, res, next) => {
         try {
           const url = new URL(req.url || "/", "http://localhost");
+          if (req.method === "DELETE" && url.pathname === "/api-library") {
+            await Promise.all([
+              fs.rm(cliEnvLocalPath, { force: true }),
+              fs.rm(localFHLAPIConfigPath, { force: true }),
+            ]);
+            const remaining = await Promise.all([
+              fs.access(cliEnvLocalPath).then(() => true).catch(() => false),
+              fs.access(localFHLAPIConfigPath).then(() => true).catch(() => false),
+            ]);
+            if (remaining.some(Boolean)) throw new Error("local API credential file still exists");
+            res.setHeader("Cache-Control", "no-store");
+            sendJSON(res, 200, { ok: true });
+            return;
+          }
           if (req.method === "POST" && url.pathname === "/cli-env") {
             const body = await readJSONBody(req, 256 * 1024);
             const previous = await readEnvFile(cliEnvLocalPath);
@@ -795,6 +931,7 @@ export default defineConfig({
     "import.meta.env.PACKAGE_VERSION": JSON.stringify(pkg.version),
     "import.meta.env.IMAGE_STUDIO_SERVICE_INSTANCE_ID": JSON.stringify(serviceInstanceId),
     "import.meta.env.IMAGE_STUDIO_STORAGE_NAMESPACE": JSON.stringify(storageNamespace),
+    "import.meta.env.IMAGE_STUDIO_DEV_CANONICAL_HOST": JSON.stringify(devCanonicalHost),
   },
   plugins: [
     projectFilesPlugin(),

@@ -9,8 +9,6 @@ import {
 } from "../../platform/runtime/host";
 import type { KernelRuntimeMode, ProxyMode } from "../../types/domain";
 import { Modal } from "../common/Modal";
-import { rememberTrustedOutputRoot } from "../../lib/storage";
-import { storageKey } from "../../lib/storageNamespace.ts";
 import { platformOutputRootLabel } from "../../platform";
 import { androidSaveHint, androidTarget, openExternalURLForPlatform, openOutputLocationForPlatform } from "../../platform/android/bridge";
 import { AndroidSettingsPanel } from "../../platform/android/settings/AndroidSettingsPanel";
@@ -54,7 +52,7 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
   const [apimartChoiceOpen, setAPIMartChoiceOpen] = useState(false);
   const [runningHubChoiceOpen, setRunningHubChoiceOpen] = useState(false);
   const [runningHubQuickConfigOpen, setRunningHubQuickConfigOpen] = useState(false);
-  const { isMac, usesFluentUI, isAndroid, isAndroidPad } = usePlatform();
+  const { usesMacDesktopUI, usesFluentUI, isAndroid, isAndroidPad } = usePlatform();
 
   useEffect(() => {
     if (!open) return;
@@ -180,7 +178,7 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
         bodyClassName={isAndroid ? "android-settings-modal-body" : ""}
       >
         {androidSettings ?? (
-        <div className={`flex flex-col ${androidTarget.isAndroid ? "gap-3" : isMac ? "gap-4" : "gap-3.5"}`}>
+        <div className={`flex flex-col ${androidTarget.isAndroid ? "gap-3" : usesMacDesktopUI ? "gap-4" : "gap-3.5"}`}>
           <div className={`border border-amber-300/70 bg-amber-50 px-3 py-2 text-amber-900 shadow-sm dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-100 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
@@ -236,7 +234,7 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
             <select
               value={kernelRuntimeMode}
               onChange={(e) => setField("kernelRuntimeMode", e.target.value as KernelRuntimeMode)}
-              className={`focus-ring w-full border border-black/[0.08] bg-[var(--surface)] px-3 ${isMac ? "min-h-[44px] py-3 text-[14px]" : "py-2.5 text-[12px]"} text-zinc-900 dark:border-white/[0.08] dark:text-zinc-100 ${usesFluentUI ? "rounded-[10px]" : "rounded-[16px]"}`}
+              className={`focus-ring w-full border border-black/[0.08] bg-[var(--surface)] px-3 ${usesMacDesktopUI ? "min-h-[44px] py-3 text-[14px]" : "py-2.5 text-[12px]"} text-zinc-900 dark:border-white/[0.08] dark:text-zinc-100 ${usesFluentUI ? "rounded-[10px]" : "rounded-[16px]"}`}
             >
               <option value="auto">auto(按宿主自动选择)</option>
               <option value="local">local(桌面 Go/Wails)</option>
@@ -264,7 +262,7 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
                 value={proxyURL}
                 onChange={(e) => setProxyConfig("custom", e.target.value)}
                 placeholder="http://127.0.0.1:7890"
-                className={`focus-ring mt-2 w-full border border-black/[0.08] bg-[var(--surface)] px-3 ${isMac ? "min-h-[42px] py-2.5 text-[13px]" : "py-2.5 text-[12px]"} font-mono-token text-zinc-900 placeholder:text-zinc-400 dark:border-white/[0.08] dark:text-zinc-100 ${usesFluentUI ? "rounded-[8px]" : "rounded-[14px]"}`}
+                className={`focus-ring mt-2 w-full border border-black/[0.08] bg-[var(--surface)] px-3 ${usesMacDesktopUI ? "min-h-[42px] py-2.5 text-[13px]" : "py-2.5 text-[12px]"} font-mono-token text-zinc-900 placeholder:text-zinc-400 dark:border-white/[0.08] dark:text-zinc-100 ${usesFluentUI ? "rounded-[8px]" : "rounded-[14px]"}`}
               />
             ) : null}
             <p className="mt-1 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-300">
@@ -273,8 +271,8 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
           </SettingsRow>
 
           <SettingsRow label={androidTarget.isAndroid ? "保存位置" : "输出目录"}>
-            <div className={`flex items-center gap-1 border border-black/[0.08] bg-[var(--surface)] px-3 ${isMac ? "py-3" : "py-2.5"} dark:border-white/[0.08] ${usesFluentUI ? "rounded-[10px]" : "rounded-[16px]"}`}>
-              <span title={outputDir} className={`flex-1 truncate font-mono-token text-zinc-700 dark:text-zinc-200 ${isMac ? "text-[13px]" : "text-[12px]"}`}>
+            <div className={`flex items-center gap-1 border border-black/[0.08] bg-[var(--surface)] px-3 ${usesMacDesktopUI ? "py-3" : "py-2.5"} dark:border-white/[0.08] ${usesFluentUI ? "rounded-[10px]" : "rounded-[16px]"}`}>
+              <span title={outputDir} className={`flex-1 truncate font-mono-token text-zinc-700 dark:text-zinc-200 ${usesMacDesktopUI ? "text-[13px]" : "text-[12px]"}`}>
                 {androidTarget.isAndroid ? platformOutputRootLabel() : (outputDir || "...")}
               </span>
               <button
@@ -294,8 +292,6 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
                     try {
                       const chosen = await ChooseOutputDir();
                       if (chosen) {
-                        try { localStorage.setItem(storageKey("gptcodex.outputDir"), chosen); } catch {}
-                        rememberTrustedOutputRoot(chosen);
                         setOutputDir(chosen);
                         pushToast(`输出目录已切换:${chosen}`, "success");
                       }
@@ -303,7 +299,7 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
                       pushToast(`切换失败:${e?.message ?? e}`, "error", 5000);
                     }
                   }}
-                  className={`flex-1 inline-flex min-h-[34px] items-center justify-center gap-1.5 border border-black/[0.08] px-3 ${isMac ? "py-2.5 text-[13px]" : "py-2 text-[12px]"} font-medium text-zinc-700 transition-colors hover:border-[color:var(--accent)]/35 hover:text-[var(--accent)] dark:border-white/[0.08] dark:text-zinc-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
+                  className={`flex-1 inline-flex min-h-[34px] items-center justify-center gap-1.5 border border-black/[0.08] px-3 ${usesMacDesktopUI ? "py-2.5 text-[13px]" : "py-2 text-[12px]"} font-medium text-zinc-700 transition-colors hover:border-[color:var(--accent)]/35 hover:text-[var(--accent)] dark:border-white/[0.08] dark:text-zinc-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
                 >
                   <FolderEdit className="w-3 h-3" /> 修改
                 </button>
@@ -311,9 +307,7 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
                   onClick={async () => {
                     try {
                       await SetOutputDir("");
-                      try { localStorage.removeItem(storageKey("gptcodex.outputDir")); } catch {}
                       const def = await GetOutputDir();
-                      rememberTrustedOutputRoot(def);
                       setOutputDir(def);
                       pushToast("已恢复默认输出目录", "success");
                     } catch (e: any) {
@@ -321,7 +315,7 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
                     }
                   }}
                   title={`清除自定义路径,回到 ${platformOutputRootLabel()}/images`}
-                  className={`inline-flex min-h-[34px] items-center gap-1 border border-black/[0.08] px-3 ${isMac ? "py-2.5 text-[13px]" : "py-2 text-[12px]"} font-medium text-zinc-500 transition-colors hover:border-[color:var(--accent)]/35 hover:text-[var(--accent)] dark:border-white/[0.08] dark:text-zinc-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
+                  className={`inline-flex min-h-[34px] items-center gap-1 border border-black/[0.08] px-3 ${usesMacDesktopUI ? "py-2.5 text-[13px]" : "py-2 text-[12px]"} font-medium text-zinc-500 transition-colors hover:border-[color:var(--accent)]/35 hover:text-[var(--accent)] dark:border-white/[0.08] dark:text-zinc-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
                 >
                   <RotateCw className="w-3 h-3" /> 默认
                 </button>
@@ -362,14 +356,14 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
             <button
               onClick={exportHistory}
               title="导出全部历史为 JSON"
-              className={`flex-1 inline-flex min-h-[34px] items-center justify-center gap-1.5 border border-black/[0.08] px-3 ${isMac ? "py-2.5 text-[13px]" : "py-2 text-[12px]"} font-medium text-zinc-700 transition-colors hover:border-[color:var(--accent)]/35 hover:text-[var(--accent)] dark:border-white/[0.08] dark:text-zinc-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
+              className={`flex-1 inline-flex min-h-[34px] items-center justify-center gap-1.5 border border-black/[0.08] px-3 ${usesMacDesktopUI ? "py-2.5 text-[13px]" : "py-2 text-[12px]"} font-medium text-zinc-700 transition-colors hover:border-[color:var(--accent)]/35 hover:text-[var(--accent)] dark:border-white/[0.08] dark:text-zinc-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
             >
               <Upload className="w-3 h-3" /> 导出历史
             </button>
             <button
               onClick={importHistory}
               title="从 JSON 文件导入"
-              className={`flex-1 inline-flex min-h-[34px] items-center justify-center gap-1.5 border border-black/[0.08] px-3 ${isMac ? "py-2.5 text-[13px]" : "py-2 text-[12px]"} font-medium text-zinc-700 transition-colors hover:border-[color:var(--accent)]/35 hover:text-[var(--accent)] dark:border-white/[0.08] dark:text-zinc-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
+              className={`flex-1 inline-flex min-h-[34px] items-center justify-center gap-1.5 border border-black/[0.08] px-3 ${usesMacDesktopUI ? "py-2.5 text-[13px]" : "py-2 text-[12px]"} font-medium text-zinc-700 transition-colors hover:border-[color:var(--accent)]/35 hover:text-[var(--accent)] dark:border-white/[0.08] dark:text-zinc-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
             >
               <Download className="w-3 h-3" /> 导入历史
             </button>
@@ -378,10 +372,10 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
           {/* 危险动作 */}
           <div className="flex gap-1.5">
             <button
-              onClick={clearAPIKey}
+              onClick={() => openUpstreamConfig("settings")}
               className={`flex-1 inline-flex min-h-[34px] items-center justify-center gap-1.5 border border-black/[0.08] px-3 py-2 text-[12px] font-medium text-zinc-500 transition-colors hover:border-red-400/40 hover:text-red-400 dark:border-white/[0.08] dark:text-zinc-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
             >
-              <KeyRound className="w-3 h-3" /> 清除 API Key
+              <KeyRound className="w-3 h-3" /> 管理 API 凭据
             </button>
             <button
               onClick={clearHistory}

@@ -179,6 +179,15 @@ test("resolves roundtrip metadata from either the history item or its source ima
   assert.deepEqual(direct, roundtrip);
   assert.deepEqual(fromSourceImages, roundtrip);
   assert.equal(panorama.hasPanoramaRoundtripRef({ panoramaRoundtrip: undefined, sourceImages: [] }), false);
+  assert.equal(panorama.hasPanoramaRoundtripRef({
+    panoramaProject: {
+      sourceHistoryId: source.id,
+      sourcePath: source.savedPath,
+      role: "pasted-panorama",
+    },
+    panoramaRoundtrip: roundtrip,
+    sourceImages: undefined,
+  }), false);
 });
 
 test("groups panorama outputs under the same source project", () => {

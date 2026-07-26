@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"embed"
 	"errors"
 	"fmt"
@@ -27,7 +26,7 @@ import (
 var assets embed.FS
 
 const (
-	packageVersion = "2.0.2.1"
+	packageVersion = "2.0.3"
 	defaultE2EPort = 9230
 )
 
@@ -40,12 +39,10 @@ type automationLaunchConfig struct {
 
 func main() {
 	automationConfig := parseAutomationLaunchConfig(os.Args[1:], os.Getenv)
-	svc := backend.NewService()
 	automationStatus := automationStatusFromConfig(automationConfig)
-	svc.SetAutomationStatus(automationStatus)
 
 	if automationConfig.Enabled {
-		server, url, port, err := startE2EServer(assets, svc, automationStatus)
+		server, url, port, err := startE2EServer(assets, automationStatus)
 		if err != nil {
 			println("Error:", err.Error())
 			return
@@ -53,16 +50,18 @@ func main() {
 		automationStatus.ServerURL = url
 		automationStatus.Port = port
 		automationStatus.BridgeMethods = append([]string(nil), e2eBridgeMethods...)
-		svc.SetAutomationStatus(automationStatus)
 		fmt.Printf("[FHL Studio E2E] %s\n", url)
 		defer server.Close()
 
 		if automationConfig.Only {
-			svc.Startup(context.Background())
 			waitForInterrupt()
 			return
 		}
 	}
+
+	svc := backend.NewService()
+	desktopAPI := backend.NewDesktopAPI(svc)
+	svc.SetAutomationStatus(automationStatus)
 
 	appOptions := &options.App{
 		Title:     "FHL Studio",
@@ -76,9 +75,10 @@ func main() {
 			Middleware: svc.MediaHandler,
 		},
 		BackgroundColour: &options.RGBA{R: 18, G: 20, B: 26, A: 1},
-		OnStartup:        svc.Startup,
+		OnStartup:        svc.StartupWithPSBridge,
+		OnShutdown:       svc.Shutdown,
 		Bind: []interface{}{
-			svc,
+			desktopAPI,
 		},
 	}
 

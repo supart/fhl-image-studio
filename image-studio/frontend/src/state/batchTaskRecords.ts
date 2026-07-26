@@ -18,12 +18,15 @@ import { normalizeRuntimeText } from "../lib/runtimeText.ts";
 import { latestContinuousSlotsByIndex } from "./browserJobs.ts";
 
 export type BatchTaskCreateInput = {
+  runId?: string;
   workspaceId: string;
   slotIndex: number;
   mode: Mode;
   apiMode: APIMode;
   apiProfileId?: string;
   apiProfileName?: string;
+  apiBaseURL?: string;
+  continuousPoolTask?: boolean;
   prompt: string;
   size: SizeValue;
   autoAspectResolution?: BatchProcessAutoAspectResolution;
@@ -61,6 +64,7 @@ export function createBatchTaskRecord(input: BatchTaskCreateInput): BatchTaskRec
   const now = input.createdAt ?? Date.now();
   return {
     id: makeBatchTaskId(input.workspaceId, input.slotIndex, now),
+    runId: input.runId,
     workspaceId: input.workspaceId,
     slotIndex: Math.max(0, Math.floor(input.slotIndex)),
     status: "queued",
@@ -70,6 +74,8 @@ export function createBatchTaskRecord(input: BatchTaskCreateInput): BatchTaskRec
     apiMode: input.apiMode,
     apiProfileId: input.apiProfileId,
     apiProfileName: input.apiProfileName,
+    apiBaseURL: input.apiBaseURL,
+    continuousPoolTask: input.continuousPoolTask === true,
     prompt: input.prompt,
     size: input.size,
     autoAspectResolution: normalizeTaskAutoAspectResolution(input.autoAspectResolution),
@@ -116,15 +122,44 @@ export function historyItemHasRenderableResult(
   );
 }
 
+export function minimalHistoryItemFromBatchTask(task: BatchTaskRecord): HistoryItem | null {
+  const savedPath = String(task.savedPath || "").trim();
+  if (task.status !== "succeeded" || !savedPath) return null;
+  return {
+    id: String(task.historyItemId || `task-result:${task.id}`),
+    prompt: task.prompt,
+    mode: task.mode,
+    apiMode: task.apiMode,
+    apiProfileId: task.apiProfileId,
+    apiProfileName: task.apiProfileName,
+    size: task.size,
+    quality: task.quality,
+    outputFormat: task.outputFormat,
+    createdAt: task.updatedAt || task.createdAt,
+    seed: task.seed,
+    negativePrompt: task.negativePrompt,
+    styleTag: task.styleTag,
+    batchIndex: task.slotIndex,
+    elapsedSec: task.elapsedSec,
+    sourceImages: task.sourceImages,
+    panoramaRoundtrip: task.panoramaRoundtrip,
+    parentId: task.batchSourcePath || task.sourceImagePaths?.[0],
+    savedPath,
+    rawPath: task.rawPath,
+    previewOnly: true,
+  };
+}
+
 export function batchTaskHasResult(
   task: Pick<BatchTaskRecord, "historyItemId" | "savedPath">,
   historyById?: ReadonlyMap<string, Pick<HistoryItem, "savedPath" | "imageId" | "imageB64" | "imageBlob" | "previewUrl" | "fullUrl">>,
 ) {
   const historyItemId = String(task.historyItemId || "").trim();
+  const savedPath = String(task.savedPath || "").trim();
   if (historyById && typeof historyById.get === "function") {
-    return historyItemId ? historyItemHasRenderableResult(historyById.get(historyItemId)) : false;
+    return !!savedPath || (historyItemId ? historyItemHasRenderableResult(historyById.get(historyItemId)) : false);
   }
-  return !!String(task.savedPath || historyItemId || "").trim();
+  return !!(savedPath || historyItemId);
 }
 
 export function isRetryableBatchTask(
@@ -220,9 +255,15 @@ export function findTaskForJobSlot(
   workspaceId: string,
   slotIndex: number,
   jobId?: string,
+  clientTaskId?: string,
 ) {
+  const cleanClientTaskId = String(clientTaskId || "").trim();
   const cleanJobId = String(jobId || "").trim();
   const tasks = sortedBatchTasksForWorkspace(workspaceId, taskIds, tasksById);
+  if (cleanClientTaskId) {
+    const matched = tasks.find((task) => task.id === cleanClientTaskId);
+    if (matched) return matched;
+  }
   if (cleanJobId) {
     const matched = tasks.find((task) => task.jobId === cleanJobId);
     if (matched) return matched;
@@ -298,9 +339,16 @@ export function updateTasksFromJobGroup(
   for (const slot of group.slots) {
     const slotIndex = slotIndexForGroupSlot(group, slot);
     if (!Number.isFinite(slotIndex) || slotIndex < 0) continue;
-    const task = findTaskForJobSlot(workspaceTaskIds, next, group.workspaceId, slotIndex, slot.jobId);
+    const task = findTaskForJobSlot(
+      workspaceTaskIds,
+      next,
+      group.workspaceId,
+      slotIndex,
+      slot.jobId,
+      group.clientTaskId,
+    );
     if (!task) continue;
-    if (task.status === "cancelled" && slot.status !== "succeeded") continue;
+    if (task.status === "cancelled") continue;
     const keepOptimisticRunning = task.status === "running" && !task.jobId && slot.status === "queued";
     const updated: BatchTaskRecord = {
       ...task,
@@ -310,6 +358,9 @@ export function updateTasksFromJobGroup(
         : (slot.updatedAt || Date.now()),
       apiProfileId: group.apiProfileId || task.apiProfileId,
       apiProfileName: group.apiProfileName || task.apiProfileName,
+      runId: group.runId || task.runId,
+      launchState: undefined,
+      launchStartedAt: undefined,
       queuedReason: undefined,
       queuePriority: undefined,
       groupId: group.groupId,
@@ -392,8 +443,9 @@ export function runningOrSubmittedTaskCountForWorkspace(
   const startingTaskIdsArg = apiProfileId && typeof apiProfileId !== "string" ? apiProfileId : startingTaskIds;
   const cleanProfileId = String(apiProfileIdArg || "").trim();
   return sortedBatchTasksForWorkspace(workspaceId, taskIds, tasksById)
-    .filter((task) => !apiMode || task.apiMode === apiMode)
-    .filter((task) => !cleanProfileId || task.apiProfileId === cleanProfileId)
+    // A task's assigned profile owns its capacity across transport changes.
+    // Keep the old API-mode filter only for legacy callers without a profile.
+    .filter((task) => cleanProfileId ? task.apiProfileId === cleanProfileId : (!apiMode || task.apiMode === apiMode))
     .filter((task) => (
       startingTaskIdsArg?.has(task.id)
       || task.status === "running"
@@ -409,6 +461,7 @@ export function updateTaskFromHistoryItem(
 ) {
   const task = findTaskForHistoryItem(workspaceTaskIds, current, workspaceId, item);
   if (!task) return current;
+  if (task.status === "cancelled") return current;
   return {
     ...current,
     [task.id]: {
@@ -437,6 +490,7 @@ export function updateTaskForSlot(
 ) {
   const task = findTaskForSlot(workspaceTaskIds, current, workspaceId, slotIndex);
   if (!task) return current;
+  if (task.status === "cancelled" && patch.status !== "cancelled") return current;
   return {
     ...current,
     [task.id]: {

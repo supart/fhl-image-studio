@@ -75,6 +75,30 @@ test("batch task records preserve API profile metadata", () => {
   assert.equal(updated[original.id].apiProfileName, "APIMart retry");
 });
 
+test("continuous pool task records retain their non-sensitive assignment snapshot", () => {
+  const record = createBatchTaskRecord({
+    workspaceId: "ws-1",
+    slotIndex: 2,
+    mode: "generate",
+    apiMode: "images",
+    apiProfileId: "images-a",
+    apiProfileName: "Images A",
+    apiBaseURL: "https://images-a.example/v1",
+    continuousPoolTask: true,
+    prompt: "pool task",
+    size: "1024x1024",
+    quality: "medium",
+    outputFormat: "png",
+    queuedReason: "continuous_pool",
+  });
+
+  assert.equal(record.continuousPoolTask, true);
+  assert.equal(record.apiProfileId, "images-a");
+  assert.equal(record.apiProfileName, "Images A");
+  assert.equal(record.apiBaseURL, "https://images-a.example/v1");
+  assert.equal(record.queuedReason, "continuous_pool");
+});
+
 test("batch task records preserve every submitted slot before results return", () => {
   const tasks = [task(0), task(2), task(1)];
   const byId = Object.fromEntries(tasks.map((entry) => [entry.id, entry]));
@@ -173,7 +197,7 @@ test("retryable batch tasks include missing final images but not completed resul
   assert.equal(isRetryableBatchTask(cancelled), false);
 });
 
-test("retryable batch tasks use visible history records to detect missing final images", () => {
+test("retryable batch tasks accept a durable task output path when history metadata is not loaded", () => {
   const missingHistoryItem = { ...task(5, "missing linked history"), status: "succeeded", historyItemId: "hist-missing" };
   const emptyHistoryItem = { ...task(6, "empty linked history"), status: "succeeded", historyItemId: "hist-empty" };
   const visibleHistoryItem = { ...task(7, "visible linked history"), status: "succeeded", historyItemId: "hist-visible" };
@@ -188,7 +212,7 @@ test("retryable batch tasks use visible history records to detect missing final 
   assert.equal(isRetryableBatchTask(emptyHistoryItem, historyById), true);
   assert.equal(isRetryableBatchTask(visibleHistoryItem, historyById), false);
   assert.equal(isRetryableBatchTask(pathOnlyTask), false);
-  assert.equal(isRetryableBatchTask(pathOnlyTask, historyById), true);
+  assert.equal(isRetryableBatchTask(pathOnlyTask, historyById), false);
 });
 test("current batch task view count prefers task records and falls back to legacy results", () => {
   const failed = { ...task(0, "failed"), status: "failed" };
@@ -381,7 +405,7 @@ test("ordinary multi-image groups append into the current session without overwr
   assert.equal(updated[second.id].errorMessage, "bad slot");
 });
 
-test("cancelled task records keep cancelled state unless a successful image arrives", () => {
+test("cancelled task records ignore every late job update", () => {
   const original = { ...task(3, "cancelled prompt"), status: "cancelled", jobId: "job-3", groupId: "group-3" };
   const runningUpdate = updateTasksFromJobGroup({ [original.id]: original }, [original.id], {
     groupId: "group-3",
@@ -436,8 +460,8 @@ test("cancelled task records keep cancelled state unless a successful image arri
     }],
     statusSummary: { queued: 0, running: 0, succeeded: 1, failed: 0, cancelled: 0, interrupted: 0 },
   });
-  assert.equal(successUpdate[original.id].status, "succeeded");
-  assert.equal(successUpdate[original.id].savedPath, "I:/tmp/success.png");
+  assert.equal(successUpdate[original.id].status, "cancelled");
+  assert.equal(successUpdate[original.id].savedPath, undefined);
 });
 
 test("successful history item links back to its task record", () => {
@@ -474,6 +498,17 @@ test("local queued tasks wait for a concurrency slot without counting as active"
   assert.deepEqual(localQueuedTasksForWorkspace("ws-1", ids, byId).map((entry) => entry.id), [waiting.id, batchWaiting.id]);
   assert.equal(runningOrSubmittedTaskCountForWorkspace("ws-1", ids, byId, "responses"), 2);
   assert.equal(runningOrSubmittedTaskCountForWorkspace("ws-1", ids, byId, "responses", new Set([waiting.id])), 3);
+});
+
+test("profile-scoped local capacity counts both FHL transport snapshots", () => {
+  const images = { ...task(0, "images"), apiMode: "images", apiProfileId: "fhl-slot-one", status: "running", jobId: "images-job" };
+  const responses = { ...task(1, "responses"), apiMode: "responses", apiProfileId: "fhl-slot-one", status: "running", jobId: "responses-job" };
+  const unrelated = { ...task(2, "unrelated"), apiMode: "responses", apiProfileId: "other-slot", status: "running", jobId: "other-job" };
+  const byId = Object.fromEntries([images, responses, unrelated].map((entry) => [entry.id, entry]));
+  const ids = [images.id, responses.id, unrelated.id];
+
+  assert.equal(runningOrSubmittedTaskCountForWorkspace("ws-1", ids, byId, "responses", "fhl-slot-one"), 2);
+  assert.equal(runningOrSubmittedTaskCountForWorkspace("ws-1", ids, byId, "responses"), 2);
 });
 
 test("local queued tasks use promotion priority without changing display order", () => {
@@ -661,7 +696,7 @@ test("ordinary multi-image groups append into the current session without overwr
   assert.equal(updated[second.id].errorMessage, "bad slot");
 });
 
-test("cancelled task records keep cancelled state unless a successful image arrives", () => {
+test("cancelled task records ignore every late job update after restore", () => {
   const original = { ...task(3, "cancelled prompt"), status: "cancelled", jobId: "job-3", groupId: "group-3" };
   const runningUpdate = updateTasksFromJobGroup({ [original.id]: original }, [original.id], {
     groupId: "group-3",
@@ -716,8 +751,8 @@ test("cancelled task records keep cancelled state unless a successful image arri
     }],
     statusSummary: { queued: 0, running: 0, succeeded: 1, failed: 0, cancelled: 0, interrupted: 0 },
   });
-  assert.equal(successUpdate[original.id].status, "succeeded");
-  assert.equal(successUpdate[original.id].savedPath, "I:/tmp/success.png");
+  assert.equal(successUpdate[original.id].status, "cancelled");
+  assert.equal(successUpdate[original.id].savedPath, undefined);
 });
 
 test("successful history item links back to its task record", () => {
@@ -830,4 +865,40 @@ test("current batch task view count keeps same-slot records", () => {
   const byId = Object.fromEntries([failedOld, queuedRetry, runningOther].map((entry) => [entry.id, entry]));
 
   assert.equal(currentBatchTaskViewCount("ws-1", [failedOld.id, queuedRetry.id, runningOther.id], byId, 0, []), 3);
+});
+
+test("browser groups correlate by clientTaskId before slot position", () => {
+  const first = { ...task(0, "first"), launchState: "submitting", launchStartedAt: 100 };
+  const second = { ...task(0, "second"), launchState: "submitting", launchStartedAt: 100 };
+  const byId = Object.fromEntries([first, second].map((entry) => [entry.id, entry]));
+  const updated = updateTasksFromJobGroup(byId, [first.id, second.id], {
+    groupId: "group-client-task",
+    runId: "run-1",
+    clientTaskId: second.id,
+    workspaceId: "ws-1",
+    createdAt: 100,
+    mode: "generate",
+    apiMode: "images",
+    prompt: "second",
+    batchCount: 1,
+    size: "1024x1024",
+    quality: "medium",
+    outputFormat: "png",
+    slotIds: ["job-client-task"],
+    slots: [{
+      jobId: "job-client-task",
+      groupId: "group-client-task",
+      workspaceId: "ws-1",
+      batchIndex: 0,
+      status: "running",
+      createdAt: 100,
+      updatedAt: 101,
+    }],
+    statusSummary: { queued: 0, running: 1, succeeded: 0, failed: 0, cancelled: 0, interrupted: 0 },
+  });
+
+  assert.equal(updated[first.id].jobId, undefined);
+  assert.equal(updated[second.id].jobId, "job-client-task");
+  assert.equal(updated[second.id].launchState, undefined);
+  assert.equal(updated[second.id].runId, "run-1");
 });

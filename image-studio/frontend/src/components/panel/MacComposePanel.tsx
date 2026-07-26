@@ -29,7 +29,9 @@ export function MacComposePanel({
   currentImage,
   apiMode,
   requestPolicy,
-  sharedConcurrencyLimit,
+  perAPIConcurrencyLimit,
+  enabledAPICount,
+  totalConcurrencyLimit,
   imageModelID,
   selectBatchInputDir,
   selectBatchInputFiles,
@@ -65,7 +67,9 @@ export function MacComposePanel({
   currentImage: { savedPath?: string } | null;
   apiMode: APIMode;
   requestPolicy: RequestPolicy;
-  sharedConcurrencyLimit: number;
+  perAPIConcurrencyLimit: number;
+  enabledAPICount: number;
+  totalConcurrencyLimit: number;
   imageModelID: string;
   selectBatchInputDir: () => void;
   selectBatchInputFiles: () => void;
@@ -132,7 +136,9 @@ export function MacComposePanel({
               clearSources={clearSources}
               currentImageSavedPath={currentImage?.savedPath ?? null}
               editSourceMode={editSourceMode}
-              sharedConcurrencyLimit={sharedConcurrencyLimit}
+              perAPIConcurrencyLimit={perAPIConcurrencyLimit}
+              enabledAPICount={enabledAPICount}
+              totalConcurrencyLimit={totalConcurrencyLimit}
               selectBatchInputDir={selectBatchInputDir}
               selectBatchInputFiles={selectBatchInputFiles}
               selectSourceImage={selectSourceImage}

@@ -1,6 +1,6 @@
 ﻿import {
   ChooseBatchInputDir,
-  ChooseDirectory,
+  ChooseBatchOutputDir,
   ImportImageFromB64,
   ListBatchInputImages,
   OpenImageDialog,
@@ -55,6 +55,10 @@ function directoryFromPath(filePath: string): string {
 function commonDirectoryFromPaths(paths: string[]): string {
   const dirs = Array.from(new Set(paths.map(directoryFromPath).filter(Boolean)));
   return dirs.length === 1 ? dirs[0] : "";
+}
+
+function editSourceModeAfterReferenceUpdate(current: StudioState["editSourceMode"]): StudioState["editSourceMode"] {
+  return current === "batch" ? "batch" : "manual";
 }
 
 export function createImageActions(store: StateAdapter) {
@@ -125,9 +129,11 @@ export function createImageActions(store: StateAdapter) {
         const res = await OpenImageDialog();
         if (!res || !res.path) return;
         const baseName = res.name || res.path.split(/[\\/]/).pop() || res.path;
-        const existing = store.getState().sources;
+        const currentState = store.getState();
+        const existing = currentState.sources;
+        const editSourceMode = editSourceModeAfterReferenceUpdate(currentState.editSourceMode);
         if (existing.some((source) => source.path === res.path)) {
-          store.setState({ mode: "edit", editSourceMode: "manual", errorMessage: null, errorRawPath: null });
+          store.setState({ mode: "edit", editSourceMode, errorMessage: null, errorRawPath: null });
           return;
         }
         store.setState({
@@ -142,7 +148,7 @@ export function createImageActions(store: StateAdapter) {
             previewUrl: res.previewUrl,
           }],
           mode: "edit",
-          editSourceMode: "manual",
+          editSourceMode,
           errorMessage: null,
           errorRawPath: null,
         });
@@ -227,7 +233,7 @@ export function createImageActions(store: StateAdapter) {
 
     async chooseBatchOutputDir() {
       try {
-        const chosen = await ChooseDirectory("选择批处理输出目录");
+        const chosen = await ChooseBatchOutputDir();
         if (!String(chosen || "").trim()) return;
         store.setState((state) => ({
           batchProcess: {
@@ -254,7 +260,8 @@ export function createImageActions(store: StateAdapter) {
         const ref = await RegisterImportedImageAsset(result.path).catch(() => null);
         const previewUrl = ref?.previewUrl || result.previewUrl;
         const legacyB64 = previewUrl ? "" : (result.imageB64 || b64);
-        const existing = store.getState().sources;
+        const currentState = store.getState();
+        const existing = currentState.sources;
         const alreadyIn = existing.some((source) => source.path === result.path);
         store.setState({
           sources: alreadyIn
@@ -270,7 +277,7 @@ export function createImageActions(store: StateAdapter) {
                 previewUrl,
               }],
           mode: "edit",
-          editSourceMode: "manual",
+          editSourceMode: editSourceModeAfterReferenceUpdate(currentState.editSourceMode),
           errorMessage: null,
           errorRawPath: null,
         });
@@ -337,8 +344,13 @@ export function createImageActions(store: StateAdapter) {
     },
 
     removeSource(index: number) {
-      const next = store.getState().sources.filter((_, i) => i !== index);
-      store.setState({ sources: next, mode: next.length > 0 ? "edit" : "generate", editSourceMode: "manual" });
+      const currentState = store.getState();
+      const next = currentState.sources.filter((_, i) => i !== index);
+      store.setState({
+        sources: next,
+        mode: "edit",
+        editSourceMode: editSourceModeAfterReferenceUpdate(currentState.editSourceMode),
+      });
       if (next.length === 0) {
         setSharedEditAutoAspectLock(store, false);
       } else {
@@ -347,7 +359,12 @@ export function createImageActions(store: StateAdapter) {
     },
 
     clearSources() {
-      store.setState({ sources: [], mode: "generate", editSourceMode: "manual" });
+      const currentState = store.getState();
+      store.setState({
+        sources: [],
+        mode: "edit",
+        editSourceMode: editSourceModeAfterReferenceUpdate(currentState.editSourceMode),
+      });
       setSharedEditAutoAspectLock(store, false);
     },
 
@@ -378,7 +395,7 @@ export function createImageActions(store: StateAdapter) {
       const alreadyIn = existing.some((source) => source.path === savedPath);
       store.setState((state) => ({
         mode: "edit",
-        editSourceMode: "manual",
+        editSourceMode: editSourceModeAfterReferenceUpdate(state.editSourceMode),
         currentImage: toPreviewOnlyHistoryItem(localItem),
         resultGridOpen: false,
         historyGalleryOpen: false,
@@ -554,7 +571,7 @@ export function createImageActions(store: StateAdapter) {
           resultGridOpen: isPanoramaImport,
           historyGalleryOpen: false,
           mode: "edit",
-          editSourceMode: "manual",
+          editSourceMode: editSourceModeAfterReferenceUpdate(state.editSourceMode),
           sources: alreadyIn
             ? existingSources
             : [...existingSources, {

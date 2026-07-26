@@ -97,7 +97,13 @@ loop:
 		}
 	}
 
+	if limitErr := collector.limitError(); limitErr != nil {
+		return ImageResult{}, limitErr
+	}
 	if streamErr != nil {
+		if isResponseLimitError(streamErr) {
+			return ImageResult{}, streamErr
+		}
 		// If the stream ends after the final image event was already received,
 		// prefer the collected result instead of surfacing a late transport error.
 		if result, perr := collector.result(); perr == nil && result.ImageB64 != "" {
@@ -178,8 +184,17 @@ var stableFHLImagesSizeOverrides = map[string]string{
 }
 
 func routeFHLImagesOptions(opts Options, onLog func(string)) Options {
-	if opts.APIMode != APIModeImages || !isFHLBaseURL(opts.BaseURL) || isGPTImage2Model(opts.ImageModelID) {
+	if opts.APIMode != APIModeImages || !isFHLBaseURL(opts.BaseURL) {
 		return opts
+	}
+	if isGPTImage2Model(opts.ImageModelID) {
+		if opts.Mode != ModeEdit || !hasMultipleEditSources(opts) {
+			return opts
+		}
+		next := opts
+		next.Quality = "auto"
+		next.ImagesNewAPICompat = true
+		return next
 	}
 	next := opts
 	if stable := stableFHLImagesSize(next); stable != strings.TrimSpace(next.Size) {
@@ -191,6 +206,19 @@ func routeFHLImagesOptions(opts Options, onLog func(string)) Options {
 		next.APIMode = APIModeResponses
 	}
 	return next
+}
+
+func hasMultipleEditSources(opts Options) bool {
+	pathCount := 0
+	for _, path := range opts.ImagePaths {
+		if strings.TrimSpace(path) != "" {
+			pathCount++
+		}
+	}
+	if pathCount > 0 {
+		return pathCount > 1
+	}
+	return len(opts.EffectiveImageDataURLs()) > 1
 }
 
 func isFHLBaseURL(raw string) bool {
@@ -271,9 +299,11 @@ func responsesAPIWithRetries(
 		if reqErr == nil {
 			return result, rawPath, nil
 		}
+		if isResponseLimitError(reqErr) {
+			return ImageResult{}, rawPath, reqErr
+		}
 
-		rawBytes, _ := os.ReadFile(rawPath)
-		raw := string(rawBytes)
+		raw := readDiagnosticResponseFile(rawPath)
 
 		if errors.Is(reqErr, ErrNoImageInResponse) {
 			lastErr = reqErr
@@ -423,9 +453,11 @@ func imagesAPIWithRetries(
 		if reqErr == nil {
 			return result, rawPath, nil
 		}
+		if isResponseLimitError(reqErr) {
+			return ImageResult{}, rawPath, reqErr
+		}
 
-		rawBytes, _ := os.ReadFile(rawPath)
-		raw := string(rawBytes)
+		raw := readDiagnosticResponseFile(rawPath)
 
 		lastErr = reqErr
 		if attempt < MaxAttempts && (IsRetryable(raw) || isTransportishError(reqErr)) {

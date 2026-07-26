@@ -1,212 +1,139 @@
-# 安装与构建
+# 构建与发布
 
-## 下载预编译版本
+本文档以当前桌面版 `V2.0.3` 源码树为准。正式交付目标包括 Windows 10/11 x64 Portable 与 macOS 13+ Apple Silicon DMG；本源码树不包含 `android-shell/`，不能直接构建 APK。
 
-稳定版本到 [Releases](https://github.com/supart/fhl-image-studio/releases) 下载。
+## V2.0.3 交付形态
 
-| 平台 | 产物 | 说明 |
-|---|---|---|
-| Windows x64 | `fhl-studio-windows-amd64.exe` | 需要 WebView2 Runtime；Windows 10+ 通常已预装。 |
-| Windows ARM64 | `fhl-studio-windows-arm64.exe` | 面向 Windows on Arm 设备，release workflow 使用 GitHub ARM64 runner 原生编译。 |
-| macOS universal | `fhl-studio-macos-universal.zip` | 解压后如被 Gatekeeper 拦截，可执行 `xattr -dr com.apple.quarantine "FHL Studio.app"`，或右键打开。 |
-| Linux x64 | `fhl-studio-linux-amd64.tar.gz` | Ubuntu 24.04 / Debian 新版本使用 WebKitGTK 4.1 依赖。 |
-| Linux ARM64 | `fhl-studio-linux-arm64.tar.gz` | 面向 ARM64 Linux 桌面环境，依赖同 Linux x64。 |
-| Android | `fhl-studio-android-release.apk` | 单 APK，运行时自适应 phone/pad 布局。 |
+| 产物 | 定位 | 说明 |
+| --- | --- | --- |
+| GitHub 仓库与源码归档 | 主体 | AGPLv3 开源源码，是项目的主要交付和协作入口。 |
+| `FHL-Image-Studio-Desktop-V2.0.3-Windows-Portable.zip` | Windows 便利包 | 唯一预编译 Windows 包，解压后由包内启动脚本运行，数据默认保存在包内。 |
+| `FHL-Image-Studio-Desktop-V2.0.3-macOS-AppleSilicon.dmg` | Mac 成品包 | arm64 Wails App、CLI、Codex Skill 安装器与安装说明。 |
+| `FHL-Image-Studio-Desktop-V2.0.3-Source.zip` | 完整对应源码 | 排除 API、用户数据、日志、缓存和二进制的可重建源码。 |
 
-main 分支抢先测试包可从 [supart/fhl-image-studio Actions](https://github.com/supart/fhl-image-studio/actions) 下载最近成功 workflow 的 artifact。
+已发布版本从 [GitHub Releases](https://github.com/supart/fhl-image-studio/releases) 下载。项目不提供 Setup、MSI 或 MSIX；Windows 用户直接解压 Portable ZIP。
 
 ## 环境要求
 
-- Go 1.25.x。当前 `go.mod` 使用 `go 1.25.5` 与 `toolchain go1.26.3`。
-- Node.js 20 或更新版本。
-- Wails CLI v2.12.0。非 macOS release workflow 使用 `go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0`。
-- Android 构建需要 JDK 17、Android SDK 34、Build Tools 34.0.0、Gradle 8.7。
+- Windows 10/11 x64 或 macOS 13+ Apple Silicon。
+- Node.js 24.13.1。
+- Go 1.26.3。
+- Wails CLI v2.12.0。
 
-## 克隆源码
+## 克隆与启动源码
 
-```bash
+```powershell
 git clone https://github.com/supart/fhl-image-studio.git
 cd fhl-image-studio
+.\start-ui.cmd
 ```
 
-## 桌面开发模式
+直接使用 Wails 开发模式：
 
-```bash
-cd image-studio
+```powershell
+cd .\image-studio
 wails dev
 ```
 
-`image-studio/wails.json` 会执行:
+`image-studio/wails.json` 会调用前端安装、构建和开发脚本。前端按 `VITE_TARGET_PLATFORM` 选择 Windows、macOS、Linux 或 Android 主题与壳层。
 
-- `frontend:install`: `npm ci`
-- `frontend:build`: `npm run build`
-- `frontend:dev:watcher`: `npm run dev`
+## 前端开发与测试
 
-前端脚本会按宿主平台自动选择 `macos` / `windows` / `linux` 主题。
-
-## 前端独立预览
-
-```bash
-cd image-studio/frontend
+```powershell
+cd .\image-studio\frontend
 npm ci
-
-npm run dev
-npm run dev:macos
 npm run dev:windows
-npm run dev:linux
-npm run dev:android
-npm run dev:android-pad
-```
-
-打包静态资源:
-
-```bash
-npm run build
-npm run build:macos
+npm run typecheck
+npm run lint
+npm run test:node
+npm run test:ui
 npm run build:windows
-npm run build:linux
-npm run build:android
-npm run build:android-pad
 ```
 
-这些命令只切换 `VITE_TARGET_PLATFORM` 对应的主题和壳层，不改变主业务逻辑。
+可用的其他前端目标包括 `dev:macos`、`dev:linux`、`dev:android`、`dev:android-pad` 及对应的 `build:*` 命令。这些命令只生成前端资源；Android APK 仍需要外部 Android 壳层源码。
 
-## macOS 本地发布包
+## Windows 桌面 EXE
 
-```bash
-bash scripts/package-local-macos-app.sh
-```
-
-产物位于:
-
-```text
-image-studio/build/bin/FHL Studio.app
-```
-
-脚本会构建 arm64 与 amd64，再用 `lipo` 合成 universal 二进制，并执行本地自签。
-
-## Windows / Linux Wails 构建
-
-Wails v2 桌面端需要在目标平台原生构建。
-
-Windows:
-
-```bash
-cd image-studio
+```powershell
+cd .\image-studio
 wails build -platform windows/amd64 -clean
 ```
 
-Linux Ubuntu 24.04 / Debian 新版本:
+输出位于 `image-studio\build\bin`。这是开发和打包中间产物，不作为单独安装产品发布。
 
-```bash
-sudo apt-get update
-sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+## Windows Portable
 
-cd image-studio
-wails build -platform linux/amd64 -clean -tags webkit2_41
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\package-windows-portable-v2.0.3.ps1
 ```
 
-Ubuntu 22.04 系通常使用 `libwebkit2gtk-4.0-dev`，构建时不加 `webkit2_41` tag。
+Portable ZIP 解压后使用 `一键启动FHL Studio V2.0.3.cmd`。包内 `.fhl-studio-portable` 标记决定数据边界，GUI 输出位于 `output\images`，CLI 输出位于 `output`，WebView 数据位于 `config\webview`。
 
-## Android APK
+## 干净源码包
 
-```bash
-cd android-shell
-./gradlew assembleRelease
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\prepare-release-source-v2.0.3.ps1
 ```
 
-Gradle 会执行 `image-studio/frontend` 的 `npm run build:android`，然后把 `dist/` 拷贝进 APK assets。APK 内部运行同一个 Android 前端目标，phone/pad 布局由运行时窗口尺寸和方向决定。
+发布前继续运行安全检查：
 
-可选环境变量:
-
-| 变量 | 用途 |
-|---|---|
-| `IMAGE_STUDIO_ANDROID_VERSION_NAME` | Android `versionName`。 |
-| `IMAGE_STUDIO_ANDROID_VERSION_CODE` | Android `versionCode`。 |
-| `IMAGE_STUDIO_KEYSTORE_PATH` | release 签名 keystore。未提供时使用自动生成的 debug keystore。 |
-| `IMAGE_STUDIO_KEYSTORE_PASSWORD` | keystore 密码。 |
-| `IMAGE_STUDIO_KEY_ALIAS` | key alias。 |
-| `IMAGE_STUDIO_KEY_PASSWORD` | key 密码。 |
-| `IMAGE_STUDIO_ANDROID_USE_PREBUILT_FRONTEND` | 设为 `1` / `true` 时复用已有 `frontend/dist`。 |
-
-MuMu 模拟器调试流程见 [mumu-android-debug.md](./mumu-android-debug.md)。
-
-## 版本元数据
-
-Release workflow 先执行:
-
-```bash
-./scripts/compute-version.sh
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\check-release-safety.ps1 -ReleaseRoot "C:\path\to\portable" -ZipPath "C:\path\to\portable.zip"
+powershell -ExecutionPolicy Bypass -File .\scripts\check-compliance-package.ps1 -Root "C:\path\to\source"
 ```
 
-它会从 tag 或 `image-studio/wails.json` 计算桌面版本、前端版本、Android versionName/versionCode。随后 `scripts/sync-version-metadata.mjs` 同步:
+## 桌面 E2E
 
-- `image-studio/wails.json`
-- `image-studio/frontend/package.json`
-- `image-studio/frontend/package-lock.json`
-
-本地不要手动维护多份版本号，除非明确要改基准版本。
-
-## 验证入口
-
-常用验证:
-
-```bash
-cd image-studio/frontend
-npm run test
-npm run build
-
-cd ../..
-cd image-studio
-GOPATH="../.gopath" GOMODCACHE="../.gomodcache" GOCACHE="../.gocache" go test ./...
-
-cd ../go-cli
-GOPATH="../.gopath" GOMODCACHE="../.gomodcache" GOCACHE="../.gocache" go test ./...
+```cmd
+scripts\start-desktop-e2e.cmd
 ```
 
-跨平台内核本地全量验证:
+默认隔离端口为 `9230`。E2E 模式、模拟参数和媒体回归规则见 [desktop-e2e-test-mode.md](./desktop-e2e-test-mode.md)。自动验收不得擅自发起真实付费生图。
 
-```bash
-node scripts/verify-local-platform-kernel.mjs
+## Go 与 Worker 验证
+
+```powershell
+cd .\image-studio
+go test ./...
+go vet ./...
+
+cd ..\go-cli
+go test ./...
+go vet ./...
+
+cd ..\cloudflare-worker
+npm test
 ```
 
-该脚本会跑前端测试/构建、Worker 测试、本地 smoke、Android debug assemble、Go 测试和 macOS 发布包验证。它依赖本机 Android SDK/JDK 与 macOS 构建工具是否齐全。
+跨运行时模拟验证还可运行：
 
-其他入口:
+```powershell
+node .\scripts\verify-local-platform-kernel.mjs
+node .\scripts\local-smoke-check.mjs
+```
+
+`scripts/live-verify.mjs` 会访问真实上游，必须在明确授权并准备本机私有环境变量后单独运行。
+
+## macOS 与 Linux
+
+构建、临时签名并验证 Apple Silicon DMG：
 
 ```bash
+bash scripts/package-local-macos-app.sh
 node scripts/verify-local-macos-release.mjs
-node scripts/local-smoke-check.mjs
-node scripts/live-verify.mjs
+bash scripts/package-release-source.sh
+bash scripts/create-release-checksums.sh
 ```
 
-真实上游对比验证需要先按 `scripts/live-verify.env.example` 准备 `.env.live` 或 `.env.local`。
+Mac 构建固定使用 `VITE_TARGET_PLATFORM=macos` 和 `VITE_DESKTOP_UI_VARIANT=windows-parity`，数据位置遵循 macOS 标准目录。Linux 仍需要目标系统的 GTK/WebKitGTK 开发依赖。
 
-## CI
+## Android 说明
 
-### FHL V2.0.1 Android-first release
+当前目录没有 `android-shell/`、Gradle 工程或 APK 签名配置。`npm run build:android` 与 `npm run build:android-pad` 只能验证前端目标；`docs/android-v2.0.2.1-handoff.md` 和 `docs/mumu-android-debug.md` 是旧版本或外部 Android 项目的协作资料。
 
-V2.0.1 uses an Android-first release workflow at `.github/workflows/release.yml`.
-The workflow is rooted at `程序文件/`, keeps the FHL root-slim layout intact, and
-currently publishes:
+## 版本与 CI
 
-- `fhl-studio-2.0.1-android-release.apk.zip`
-
-The Android APK is side-load oriented and uses the built-in fallback debug
-keystore unless release keystore secrets are provided later. It must not bundle
-`cli.env.local`, `fhl-api.local.json`, browser job logs, audit logs, generated
-images, input images, or any `sk-...` API key pattern. Users still configure
-their own FHL API Key after first launch.
-
-Desktop multi-asset publishing can be added after Android is proven stable.
-
-当前 release workflow 在 `.github/workflows/release.yml`:
-
-- 并行构建 Windows、macOS、Linux 桌面产物。
-- 单独构建一个 Android release APK。
-- tag 为 `v*` 时将所有产物附加到 GitHub Release。
-
-平台内核验证 workflow:
-
-- `.github/workflows/verify-platform-kernel.yml`
-- `.github/workflows/live-verify-platform-kernel.yml`
+- `scripts/sync-version-metadata.mjs` 用于同步 Wails 和前端版本元数据。
+- `.github/workflows/ci.yml` 运行前端、Worker、Go、Windows Wails 构建和发布安全检查。
+- `.github/workflows/release.yml` 响应 `v2.0.3` 标签，构建 Windows Portable、Mac DMG、完整 Source ZIP 和 SHA256 校验文件。
+- 本地 V2.0.3 验收结果记录在 [V2.0.3_ACCEPTANCE_REPORT.md](../V2.0.3_ACCEPTANCE_REPORT.md)。

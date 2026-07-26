@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -133,6 +134,29 @@ func TestRequestImagesAPINewAPICompatOmitsStreamingFields(t *testing.T) {
 	}
 }
 
+func TestRequestImagesAPIRejectsDeclaredOversizedResponse(t *testing.T) {
+	for _, contentType := range []string{"application/json", "text/event-stream"} {
+		t.Run(contentType, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", contentType)
+				w.Header().Set("Content-Length", fmt.Sprintf("%d", maxHTTPResponseBytes+1))
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer srv.Close()
+
+			_, err := RequestImagesAPIWithPartial(context.Background(), Options{
+				APIKey:  "sk-test",
+				Prompt:  "cat",
+				BaseURL: srv.URL,
+				APIMode: APIModeImages,
+			}, io.Discard, nil, nil)
+			if !errors.Is(err, ErrHTTPResponseTooLarge) {
+				t.Fatalf("err = %v, want ErrHTTPResponseTooLarge", err)
+			}
+		})
+	}
+}
+
 func TestBuildEditsMultipartSetsMaskMimeType(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "source.png")
@@ -211,6 +235,70 @@ func TestBuildEditsMultipartOmitsMaskWhenEmpty(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), `name="mask"`) {
 		t.Fatal("multipart body should omit mask part when mask is empty")
+	}
+}
+
+func TestBuildEditsMultipartNewAPICompatUsesPluginContract(t *testing.T) {
+	dir := t.TempDir()
+	mainPath := filepath.Join(dir, "main.webp")
+	refPath := filepath.Join(dir, "ref.webp")
+	if err := os.WriteFile(mainPath, fakePNG, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(refPath, fakePNG, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	buf, contentType, err := buildEditsMultipart(
+		[]string{mainPath, refPath},
+		"",
+		"edit this",
+		"gpt-image-2",
+		"2048x1152",
+		"auto",
+		"png",
+		"",
+		0,
+		RequestPolicyOpenAI,
+		2,
+		true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, params, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := multipart.NewReader(buf, params["boundary"])
+	fields := map[string][]string{}
+	for {
+		part, nextErr := reader.NextPart()
+		if nextErr == io.EOF {
+			break
+		}
+		if nextErr != nil {
+			t.Fatal(nextErr)
+		}
+		value, readErr := io.ReadAll(part)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		fields[part.FormName()] = append(fields[part.FormName()], string(value))
+	}
+
+	if len(fields["image"]) != 1 || len(fields["image[]"]) != 1 {
+		t.Fatalf("image fields = %#v, want one image and one image[]", fields)
+	}
+	if got := fields["quality"]; len(got) != 1 || got[0] != "auto" {
+		t.Fatalf("quality = %#v, want auto", got)
+	}
+	if got := fields["response_format"]; len(got) != 1 || got[0] != "b64_json" {
+		t.Fatalf("response_format = %#v, want b64_json", got)
+	}
+	if len(fields["stream"]) != 0 || len(fields["partial_images"]) != 0 {
+		t.Fatalf("compat fields include stream/partial_images: %#v", fields)
 	}
 }
 

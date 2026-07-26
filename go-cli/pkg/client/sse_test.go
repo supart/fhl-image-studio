@@ -1,7 +1,6 @@
 package client
 
 import (
-	"bufio"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -166,7 +165,46 @@ func TestNewSSEScannerHandlesLargePartialImageLine(t *testing.T) {
 	if got := scanner.Text(); len(got) != len(strings.TrimSuffix(line, "\n")) {
 		t.Fatalf("scanner truncated line: got %d want %d", len(got), len(strings.TrimSuffix(line, "\n")))
 	}
-	if scanner.Err() != nil && scanner.Err() != bufio.ErrTooLong {
-		t.Fatalf("unexpected scanner err: %v", scanner.Err())
+	if scanner.Scan() {
+		t.Fatal("scanner returned an unexpected second line")
 	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("unexpected scanner err: %v", err)
+	}
+}
+
+func TestSSEScannerEnforcesConfiguredLineLimit(t *testing.T) {
+	if maxSSELineBytes != 128<<20 {
+		t.Fatalf("maxSSELineBytes = %d, want %d", maxSSELineBytes, 128<<20)
+	}
+
+	const testLimit = 64 << 10
+	t.Run("accepts exact limit with CRLF", func(t *testing.T) {
+		line := strings.Repeat("A", testLimit) + "\r\n"
+		scanner := newSSEScannerWithLimit(strings.NewReader(line), testLimit)
+		if !scanner.Scan() {
+			t.Fatalf("scanner rejected exact-limit line: %v", scanner.Err())
+		}
+		if len(scanner.Bytes()) != testLimit {
+			t.Fatalf("line length = %d, want %d", len(scanner.Bytes()), testLimit)
+		}
+		if scanner.Scan() {
+			t.Fatal("scanner returned an unexpected second line")
+		}
+		if err := scanner.Err(); err != nil {
+			t.Fatalf("unexpected scanner err: %v", err)
+		}
+	})
+
+	t.Run("rejects line over limit", func(t *testing.T) {
+		line := strings.Repeat("A", testLimit+1) + "\n"
+		scanner := newSSEScannerWithLimit(strings.NewReader(line), testLimit)
+		if scanner.Scan() {
+			t.Fatal("scanner accepted an over-limit line")
+		}
+		err := normalizeSSEScannerError(scanner.Err())
+		if !errors.Is(err, ErrSSELineTooLarge) {
+			t.Fatalf("err = %v, want ErrSSELineTooLarge", err)
+		}
+	})
 }

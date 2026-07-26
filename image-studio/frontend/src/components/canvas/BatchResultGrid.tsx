@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type { HistoryGallerySort, HistoryItem } from "../../types/domain";
-import { historyFullSrc, historyPreviewSrc, useBlobURL } from "../../lib/images";
+import { dataURLFromBase64, historyPreviewSrc, useBlobURL } from "../../lib/images";
 import { ImagePixelSizeBadge } from "../common/ImagePixelSizeBadge";
 import { sourceToDataURL } from "../../lib/virtualHostStore";
 import type { BatchPendingStatus } from "../../state/batchGridStatus";
@@ -10,7 +11,8 @@ import { Modal } from "../common/Modal";
 import { HistoryApiSourceBadge } from "../history/HistoryApiSourceBadge";
 import type { HistoryApiSource } from "../history/historyApiSource";
 import { RawResponseModal } from "../history/RawResponseModal";
-import { sortBatchGridSlotsForDisplay } from "./batchGridDisplayOrder";
+import { RECENT_BATCH_SUCCESS_PIN_MS, sortBatchGridSlotsForDisplay } from "./batchGridDisplayOrder";
+import { ReadImageAsBase64, RegisterMediaAsset } from "../../platform/runtime/host";
 
 export type BatchGridSourcePreview = {
   path: string;
@@ -49,13 +51,24 @@ export type BatchGridSlot =
       status?: BatchPendingStatus;
       taskId?: string;
       prompt?: string;
-      queuedReason?: "local_concurrency" | "batch_shared_concurrency";
+      queuedReason?: "local_concurrency" | "batch_shared_concurrency" | "continuous_pool";
       canPromote?: boolean;
       apiSource?: HistoryApiSource | null;
       sourcePreview?: BatchGridSourcePreview | null;
       apimartRecoverable?: boolean;
       apimartRecoveryLabel?: string;
     };
+
+async function sourcePreviewToDataURL(sourcePreview: BatchGridSourcePreview): Promise<string> {
+  const dataURL = await sourceToDataURL({
+    path: sourcePreview.path,
+    name: sourcePreview.name,
+    imageB64: sourcePreview.imageB64 ?? undefined,
+  }).catch(() => "");
+  if (dataURL || !sourcePreview.path) return dataURL;
+  const imageB64 = await ReadImageAsBase64(sourcePreview.path).catch(() => "");
+  return imageB64 ? dataURLFromBase64(imageB64) : "";
+}
 
 type FailedRetryTarget = { groupId: string; jobId: string };
 type TaskRetryTarget = { taskId: string };
@@ -141,9 +154,10 @@ function TaskSourcePreviewAnchor({
   const [focused, setFocused] = useState(false);
   const [popoverStyle, setPopoverStyle] = useState<React.CSSProperties | null>(null);
   const [resolvedPreviewURL, setResolvedPreviewURL] = useState("");
+  const [previewUrlFailed, setPreviewUrlFailed] = useState(false);
   const [loadState, setLoadState] = useState<"idle" | "loading" | "ready" | "error">(immediatePreviewURL ? "ready" : "idle");
   const open = hovered || focused;
-  const previewSrc = immediatePreviewURL || resolvedPreviewURL;
+  const previewSrc = resolvedPreviewURL || (!previewUrlFailed && immediatePreviewURL ? immediatePreviewURL : "");
 
   useEffect(() => {
     if (!open) return;
@@ -172,39 +186,41 @@ function TaskSourcePreviewAnchor({
   }, [open]);
 
   useEffect(() => {
-    if (immediatePreviewURL) {
-      setLoadState("ready");
-      return;
-    }
     if (!open) {
       setLoadState("idle");
       return;
     }
+    if (resolvedPreviewURL) {
+      setLoadState("ready");
+      return;
+    }
     if (!sourcePreview.path) {
-      setLoadState("error");
+      setLoadState(immediatePreviewURL && !previewUrlFailed ? "ready" : "error");
       return;
     }
     let cancelled = false;
-    setLoadState("loading");
-    sourceToDataURL({
-      path: sourcePreview.path,
-      name: sourcePreview.name,
-      imageB64: sourcePreview.imageB64 ?? undefined,
-    }).then((dataURL) => {
+    setLoadState(immediatePreviewURL && !previewUrlFailed ? "ready" : "loading");
+    sourcePreviewToDataURL(sourcePreview).then((dataURL) => {
       if (cancelled) return;
       if (dataURL) {
         setResolvedPreviewURL(dataURL);
         setLoadState("ready");
         return;
       }
-      setLoadState("error");
+      setLoadState(immediatePreviewURL && !previewUrlFailed ? "ready" : "error");
     }).catch(() => {
-      if (!cancelled) setLoadState("error");
+      if (!cancelled) setLoadState(immediatePreviewURL && !previewUrlFailed ? "ready" : "error");
     });
     return () => {
       cancelled = true;
     };
-  }, [open, immediatePreviewURL, sourcePreview.imageB64, sourcePreview.name, sourcePreview.path, sourcePreview.previewUrl]);
+  }, [open, immediatePreviewURL, previewUrlFailed, resolvedPreviewURL, sourcePreview.imageB64, sourcePreview.name, sourcePreview.path, sourcePreview.previewUrl]);
+
+  useEffect(() => {
+    setPreviewUrlFailed(false);
+    setResolvedPreviewURL("");
+    setLoadState(immediatePreviewURL ? "ready" : "idle");
+  }, [immediatePreviewURL, sourcePreview.path]);
 
   const popover = open && popoverStyle ? createPortal(
     <span
@@ -220,6 +236,12 @@ function TaskSourcePreviewAnchor({
           className="batch-grid-source-popover-image"
           decoding="async"
           draggable={false}
+          onError={() => {
+            if (immediatePreviewURL && previewSrc === immediatePreviewURL) {
+              setPreviewUrlFailed(true);
+              setLoadState("loading");
+            }
+          }}
         />
       ) : (
         <span className="batch-grid-source-popover-empty">
@@ -281,6 +303,9 @@ export function BatchResultGrid({
   gallerySort = "newest",
   onGallerySortChange,
   preserveSlotOrder = false,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
 }: {
   items: HistoryItem[];
   slots?: BatchGridSlot[];
@@ -304,10 +329,17 @@ export function BatchResultGrid({
   gallerySort?: HistoryGallerySort;
   onGallerySortChange?: (value: HistoryGallerySort) => void;
   preserveSlotOrder?: boolean;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }) {
-  const gridSlots: BatchGridSlot[] = slots ?? items.map((item) => ({ type: "result", item }) satisfies BatchGridSlot);
+  const gridSlots = useMemo<BatchGridSlot[]>(
+    () => slots ?? items.map((item) => ({ type: "result", item }) satisfies BatchGridSlot),
+    [items, slots],
+  );
   const { ref: gridRef, size: gridSize } = useElementSize<HTMLDivElement>();
   const [manualColumns, setManualColumns] = useState<ManualColumnsState>(null);
+  const [recentSuccessClock, setRecentSuccessClock] = useState(() => Date.now());
   const autoLayout = useMemo(
     () => planBatchGridLayout(gridSlots.length, gridSize.width, gridSize.height),
     [gridSlots.length, gridSize.width, gridSize.height],
@@ -336,11 +368,33 @@ export function BatchResultGrid({
   const preserveDisplayOrder = onGallerySortChange
     ? gallerySort === "oldest"
     : preserveSlotOrder;
+  useEffect(() => {
+    if (variant === "historyGallery") return;
+    const now = Date.now();
+    const nextExpiry = gridSlots.reduce((earliest, slot) => {
+      if (slot.type !== "result") return earliest;
+      const completedAt = Number(slot.updatedAt || 0);
+      const expiresAt = completedAt > 0 ? completedAt + RECENT_BATCH_SUCCESS_PIN_MS : 0;
+      return expiresAt > now && expiresAt < earliest ? expiresAt : earliest;
+    }, Number.POSITIVE_INFINITY);
+    if (!Number.isFinite(nextExpiry)) return;
+    const timer = window.setTimeout(
+      () => setRecentSuccessClock(Date.now()),
+      Math.max(0, nextExpiry - now) + 20,
+    );
+    return () => window.clearTimeout(timer);
+  }, [gridSlots, recentSuccessClock, variant]);
   const displaySlots = useMemo(() => {
-    const mapped = gridSlots.map((slot, index) => ({ slot, originalIndex: index }));
+    const mapped = gridSlots.map((slot, index) => ({
+      slot,
+      originalIndex: index,
+      recentSuccessUntil: slot.type === "result" && Number(slot.updatedAt || 0) > 0
+        ? Number(slot.updatedAt) + RECENT_BATCH_SUCCESS_PIN_MS
+        : undefined,
+    }));
     if (variant === "historyGallery") return mapped;
-    return sortBatchGridSlotsForDisplay(mapped, preserveDisplayOrder);
-  }, [gridSlots, preserveDisplayOrder, variant]);
+    return sortBatchGridSlotsForDisplay(mapped, preserveDisplayOrder, Math.max(recentSuccessClock, Date.now()));
+  }, [gridSlots, preserveDisplayOrder, recentSuccessClock, variant]);
   const slotIndexBase = useMemo(() => {
     if (variant === "historyGallery") return null;
     const indexes = gridSlots
@@ -348,6 +402,37 @@ export function BatchResultGrid({
       .filter((index): index is number => index !== null);
     return indexes.length > 0 ? Math.min(...indexes) : null;
   }, [gridSlots, variant]);
+  const rowCount = Math.ceil(displaySlots.length / Math.max(1, layout.columns));
+  const rowStride = layout.tileHeight + layout.gap;
+  const virtualizer = useVirtualizer({
+    count: rowCount,
+    getScrollElement: () => gridRef.current,
+    estimateSize: () => rowStride,
+    initialRect: {
+      width: Math.max(1, gridSize.width),
+      height: Math.max(1, gridSize.height),
+    },
+    overscan: 3,
+  });
+  const virtualRows = virtualizer.getVirtualItems();
+  const previousLayoutRef = useRef({ columns: layout.columns, rowStride });
+
+  useEffect(() => {
+    if (variant !== "historyGallery" || !hasMore || loadingMore || rowCount === 0) return;
+    const lastVisibleRow = virtualRows[virtualRows.length - 1]?.index ?? -1;
+    if (lastVisibleRow >= rowCount - 3) onLoadMore?.();
+  }, [hasMore, loadingMore, onLoadMore, rowCount, variant, virtualRows]);
+
+  useLayoutEffect(() => {
+    const element = gridRef.current;
+    const previous = previousLayoutRef.current;
+    if (element && previous.columns !== layout.columns) {
+      const topItemIndex = Math.floor(element.scrollTop / Math.max(1, previous.rowStride)) * previous.columns;
+      element.scrollTop = Math.floor(topItemIndex / Math.max(1, layout.columns)) * rowStride;
+    }
+    previousLayoutRef.current = { columns: layout.columns, rowStride };
+    virtualizer.measure();
+  }, [layout.columns, rowStride, virtualizer]);
 
   return (
     <div className="batch-grid-overlay" data-variant={variant}>
@@ -425,65 +510,81 @@ export function BatchResultGrid({
         className="batch-grid"
         data-density={layout.density}
         onWheel={(event) => event.stopPropagation()}
-        style={{
-          gridTemplateColumns: `repeat(${layout.columns}, minmax(0, ${layout.tileWidth}px))`,
-          gridAutoRows: `${layout.tileHeight}px`,
-          gap: `${layout.gap}px`,
-        }}
       >
-        {displaySlots.map(({ slot, originalIndex }) => {
-          const displayIndex = visibleBatchIndex(slot, originalIndex, slotIndexBase);
-          if (slot.type === "pending") {
+        <div className="batch-grid-virtual-spacer" style={{ height: virtualizer.getTotalSize() }}>
+          {virtualRows.map((virtualRow) => {
+            const rowStart = virtualRow.index * layout.columns;
+            const rowSlots = displaySlots.slice(rowStart, rowStart + layout.columns);
             return (
-              <PendingGridTile
-                key={slot.id}
-                index={displayIndex}
-                slot={slot}
-                selected={!!slot.taskId && slot.taskId === selectedTaskId}
-                onSelectTask={onSelectTask}
-                onRetryTask={onRetryTask}
-                onCancelTask={onCancelTask}
-                onPromoteTask={onPromoteTask}
-                onRecoverAPIMart={onRecoverAPIMart}
-              />
+              <div
+                key={virtualRow.key}
+                className="batch-grid-virtual-row"
+                data-row-index={virtualRow.index}
+                style={{
+                  width: `${layout.columns * layout.tileWidth + Math.max(0, layout.columns - 1) * layout.gap}px`,
+                  height: `${layout.tileHeight}px`,
+                  gridTemplateColumns: `repeat(${layout.columns}, minmax(0, ${layout.tileWidth}px))`,
+                  gridAutoRows: `${layout.tileHeight}px`,
+                  gap: `${layout.gap}px`,
+                  transform: `translate(-50%, ${virtualRow.start}px)`,
+                }}
+              >
+                {rowSlots.map(({ slot, originalIndex }) => {
+                  const displayIndex = visibleBatchIndex(slot, originalIndex, slotIndexBase);
+                  if (slot.type === "pending") {
+                    return (
+                      <PendingGridTile
+                        key={slot.id}
+                        index={displayIndex}
+                        slot={slot}
+                        selected={!!slot.taskId && slot.taskId === selectedTaskId}
+                        onSelectTask={onSelectTask}
+                        onRetryTask={onRetryTask}
+                        onCancelTask={onCancelTask}
+                        onPromoteTask={onPromoteTask}
+                        onRecoverAPIMart={onRecoverAPIMart}
+                      />
+                    );
+                  }
+                  if (slot.type === "failed") {
+                    return (
+                      <FailedGridTile
+                        key={slot.id}
+                        index={displayIndex}
+                        slot={slot}
+                        selected={!!slot.taskId && slot.taskId === selectedTaskId}
+                        onSelectTask={onSelectTask}
+                        onRetryFailed={onRetryFailed}
+                        onRetryTask={onRetryTask}
+                        onRecoverRunningHub={onRecoverRunningHub}
+                        onRecoverAPIMart={onRecoverAPIMart}
+                      />
+                    );
+                  }
+                  return (
+                    <BatchGridTile
+                      key={slot.item.id}
+                      item={slot.item}
+                      index={displayIndex}
+                      active={slot.type === "result" && slot.item.id === currentId}
+                      preview={slot.type === "preview"}
+                      sourcePreview={slot.sourcePreview}
+                      onOpenItemContextMenu={onOpenItemContextMenu}
+                      onSelect={onSelect}
+                      onPreview={onPreview}
+                    />
+                  );
+                })}
+              </div>
             );
-          }
-          if (slot.type === "failed") {
-            return (
-              <FailedGridTile
-                key={slot.id}
-                index={displayIndex}
-                slot={slot}
-                selected={!!slot.taskId && slot.taskId === selectedTaskId}
-                onSelectTask={onSelectTask}
-                onRetryFailed={onRetryFailed}
-                onRetryTask={onRetryTask}
-                onRecoverRunningHub={onRecoverRunningHub}
-                onRecoverAPIMart={onRecoverAPIMart}
-              />
-            );
-          }
-          return (
-            <BatchGridTile
-              key={slot.item.id}
-              item={slot.item}
-              index={displayIndex}
-                active={slot.type === "result" && slot.item.id === currentId}
-                preview={slot.type === "preview"}
-                sourcePreview={slot.sourcePreview}
-                onOpenItemContextMenu={onOpenItemContextMenu}
-                onSelect={onSelect}
-                onPreview={onPreview}
-                lazy={variant === "historyGallery"}
-            />
-          );
-        })}
+          })}
+        </div>
       </div>
     </div>
   );
 }
 
-function BatchGridTile({
+const BatchGridTile = memo(function BatchGridTile({
   item,
   index,
   active,
@@ -492,7 +593,6 @@ function BatchGridTile({
   onOpenItemContextMenu,
   onSelect,
   onPreview,
-  lazy,
 }: {
   item: HistoryItem;
   index: number;
@@ -502,11 +602,23 @@ function BatchGridTile({
   onOpenItemContextMenu?: (item: HistoryItem, x: number, y: number) => void;
   onSelect: (item: HistoryItem) => void | Promise<void>;
   onPreview?: (item: HistoryItem) => void | Promise<void>;
-  lazy?: boolean;
 }) {
   const previewURL = useBlobURL(item.imageBlob ?? item.previewBlob ?? null, item.imageB64 ?? null);
-  const src = historyPreviewSrc(item, previewURL);
-  const fullSrc = historyFullSrc(item, previewURL);
+  const [registeredPreviewURL, setRegisteredPreviewURL] = useState("");
+  const src = historyPreviewSrc(
+    registeredPreviewURL ? { ...item, previewUrl: registeredPreviewURL } : item,
+    previewURL,
+  );
+  useEffect(() => {
+    if (src || !item.savedPath || item.savedPath.startsWith("memory://")) return;
+    let cancelled = false;
+    void RegisterMediaAsset(item.savedPath, item.thumbPath || "")
+      .then((ref) => {
+        if (!cancelled && ref.previewUrl) setRegisteredPreviewURL(ref.previewUrl);
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [item.savedPath, item.thumbPath, src]);
   return (
     <button
       type="button"
@@ -528,7 +640,7 @@ function BatchGridTile({
         <img
           src={src}
           alt={item.prompt || `batch result ${index + 1}`}
-          loading={lazy ? "lazy" : "eager"}
+          loading="lazy"
           decoding="async"
           draggable={false}
         />
@@ -536,14 +648,14 @@ function BatchGridTile({
       {sourcePreview ? <TaskSourcePreviewAnchor sourcePreview={sourcePreview} index={index} /> : null}
       <span className="batch-grid-index">{index + 1}</span>
       <HistoryApiSourceBadge source={item} className="batch-grid-api-source rounded-[6px]" />
-      {!preview ? <ImagePixelSizeBadge width={item.width} height={item.height} src={fullSrc || src} className="batch-grid-pixel-size" /> : null}
+      {!preview ? <ImagePixelSizeBadge width={item.width} height={item.height} className="batch-grid-pixel-size" /> : null}
       {preview ? (
         <span className="batch-grid-preview-wait">生成中预览，不是最终结果</span>
       ) : null}
       {!preview && item.elapsedSec ? <span className="batch-grid-meta">{item.elapsedSec}s</span> : null}
     </button>
   );
-}
+});
 
 const PENDING_STATUS_VIEW: Record<BatchPendingStatus, {
   label: string;
@@ -565,6 +677,13 @@ const PENDING_STATUS_VIEW: Record<BatchPendingStatus, {
     loading: false,
     badge: "未提交",
     badgeTone: "queued",
+  },
+  submitting: {
+    label: "正在提交",
+    title: "任务已预留 API 并发位，正在批量注册独立后台任务。",
+    loading: true,
+    badge: "提交中",
+    badgeTone: "processing",
   },
   queued: {
     label: "等待生成",
@@ -604,8 +723,8 @@ const PENDING_STATUS_VIEW: Record<BatchPendingStatus, {
 };
 
 const SHARED_BATCH_LOCAL_QUEUE_VIEW = {
-  label: "等待共享并发空位",
-  title: "这张批量图还在共享并发队列里，等连续生成或批量图生图腾出空闲并发位后才会开始。绿色卡片表示它还没有提交给上游。",
+  label: "等待 API 并发空位",
+  title: "这张批量图还在 API 并发队列里，等连续生成或批量图生图腾出空闲并发位后才会开始。绿色卡片表示它还没有提交给上游。",
   loading: false,
   badge: "未提交",
   badgeTone: "queued",
@@ -635,11 +754,15 @@ function PendingGridTile({
     ? SHARED_BATCH_LOCAL_QUEUE_VIEW
     : PENDING_STATUS_VIEW[status];
   const canRetry = !!slot.taskId && (status === "cancelled" || status === "succeeded_no_image");
-  const canCancel = !!slot.taskId && !!onCancelTask && (status === "queued" || status === "local_queued" || status === "running");
+  const canCancel = !!slot.taskId && !!onCancelTask && (status === "queued" || status === "local_queued" || status === "submitting" || status === "running");
   const canPromote = !!slot.taskId && !!onPromoteTask && slot.canPromote === true;
   const canRecoverAPIMart = !!(slot.taskId && slot.apimartRecoverable && onRecoverAPIMart && (status === "cancelled" || status === "succeeded_no_image"));
-  const selectable = !!onSelectTask && !!slot.taskId && (status === "queued" || status === "local_queued" || status === "running" || status === "cancelled");
-  const cancelTitle = status === "running" ? "尽力取消这个运行任务；可能已计费" : "取消这个排队任务";
+  const selectable = !!onSelectTask && !!slot.taskId && (status === "queued" || status === "local_queued" || status === "submitting" || status === "running" || status === "cancelled");
+  const cancelTitle = status === "running"
+    ? "尽力取消这个运行任务；可能已计费"
+    : status === "submitting"
+      ? "取消这个正在提交的任务"
+      : "取消这个排队任务";
   return (
     <div
       className={`batch-grid-tile pending pending-${status} ${canCancel ? "can-cancel" : ""} ${canPromote ? "can-promote" : ""} ${selected ? "task-selected" : ""} ${selectable ? "task-selectable" : ""}`}

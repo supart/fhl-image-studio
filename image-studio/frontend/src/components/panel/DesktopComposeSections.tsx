@@ -42,7 +42,9 @@ export function DesktopComposeSections({
   pushToast,
   quality,
   requestPolicy,
-  sharedConcurrencyLimit,
+  perAPIConcurrencyLimit,
+  enabledAPICount,
+  totalConcurrencyLimit,
   selectBatchInputDir,
   selectBatchInputFiles,
   selectSourceImage,
@@ -74,7 +76,9 @@ export function DesktopComposeSections({
   pushToast: (text: string, kind?: "info" | "success" | "error" | "warn", ttl?: number) => void;
   quality: QualityValue;
   requestPolicy: RequestPolicy;
-  sharedConcurrencyLimit: number;
+  perAPIConcurrencyLimit: number;
+  enabledAPICount: number;
+  totalConcurrencyLimit: number;
   selectBatchInputDir: () => void;
   selectBatchInputFiles: () => void;
   selectSourceImage: () => void;
@@ -316,7 +320,9 @@ export function DesktopComposeSections({
             currentImageSavedPath={currentImageSavedPath}
             editSourceMode={editSourceMode}
             batchProcess={batchProcess}
-            sharedConcurrencyLimit={sharedConcurrencyLimit}
+            perAPIConcurrencyLimit={perAPIConcurrencyLimit}
+            enabledAPICount={enabledAPICount}
+            totalConcurrencyLimit={totalConcurrencyLimit}
             setEditSourceMode={setEditSourceMode}
             setBatchProcess={setBatchProcess}
             onChooseInputDir={selectBatchInputDir}

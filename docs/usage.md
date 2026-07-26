@@ -2,14 +2,14 @@
 
 ## 首次启动
 
-首次启动会自动打开「上游配置」。也可以之后从设置里重新打开。
+首次启动会自动打开「上游配置」。也可以之后从设置里重新打开。普通 Profile 使用以下字段；桌面 FHL 的专用文本 API 和 Images 连续池按下一节分别配置。
 
 需要填写:
 
 1. API 形态:Responses API 或 Images API。
 2. BASE_URL:你自己的 OpenAI 兼容中转站地址。
 3. API Key。
-4. 文本模型 ID:Responses API 与 prompt 优化会用到，默认 `gpt-5.5`。
+4. 文本模型 ID：普通 Responses Profile 的文本能力使用；FHL 专用文本区固定为 `gpt-5.5`。
 5. 图像模型 ID:两种 API 形态都会用到，默认 `gpt-image-2`。
 6. 测试连接:保存前建议先点一次。
 
@@ -19,11 +19,24 @@
 
 设置页和「上游配置」里提供一键配置入口：
 
-- FHL：先选择 `已有 API` 或 `获取 API`。已有 Key 时粘贴一次 Key，会自动创建 Responses / Images 两套配置并分别验证。
+- FHL：文本 API 与 Images 连续池分开配置和测试；Images Key 不会被 AI 优化或图片反推复用。
 - APIMart：先选择 `已有 API` 或 `获取 API`。已有 Key 时会切到 APIMart 异步 profile，并移动到 API Key 输入位置。
 - RH：先选择 `已有 API` 或 `获取 API`。已有 API 时默认使用本地桥接地址 `http://127.0.0.1:8117`，并创建 `RH-1 全能图像2`、`RH-1 全能图像G2` 两套配置。获取 API 会打开并复制完整 RunningHub 链接。
 
 RH 的 API Key 真源在 8117 桥接模块里，不走桌面版常规 keyring。桌面版只负责代填桥接地址、代写桥接 Key、创建 profile 和验证能力矩阵。
+
+## FHL 桌面专用配置
+
+桌面配置窗口在 10 个 Images 槽上方提供独立的 `FHL 文本 API`：
+
+- 文本区固定使用 FHL Responses 和 `gpt-5.5`，服务 `AI 优化` 与图片反推。
+- 文本 Key 只保存到系统安全存储；界面只保存是否配置、脱敏提示和测试状态，不回填明文。
+- `保存并测试文本 API` 只测试文本响应，不触发生图，也不测试 Images 池。
+- Images 区固定显示 10 个独立 Key 槽，`保存并测试 Images 池` 只验证生图 Key。
+- 每 API 并发可设为 `1–5/API`；总容量是所有已启用 Key 的有效容量之和。例如 10 个 Key 选择 `4/API` 时总上限为 40。
+- 普通单图生成固定使用第一个已启用 FHL Images API；批量任务按 API1→API10 轮询，并为每张图保存独立任务 ID、API 来源和结果。
+
+设置中的 API 凭据库只展示脱敏状态。“一键清空 API”会真实删除当前及兼容命名空间、系统凭据和本地配置副本，临时电脑使用时应确认不再需要这些凭据后再执行。
 
 ## API 形态怎么选
 
@@ -128,9 +141,10 @@ RH 的 API Key 真源在 8117 桥接模块里，不走桌面版常规 keyring。
 
 ## 输出与历史
 
-- 生成图片默认落到输出目录的 `images/` 子目录。
-- 原始响应和排错日志默认落到输出目录的 `log/` 子目录。
-- 历史元数据保存在 IndexedDB。
+- Portable 桌面 GUI 默认把图片保存到包内 `output\images`，原始响应保存到 `output\log`。
+- Portable CLI/Codex 默认输出到包内 `output`；源码工作流可通过 `IMAGE_STUDIO_PUBLIC_ROOT` 显式指定同样的数据根目录。
+- 历史元数据保存在 WebView 的 IndexedDB；V2.0.3 不再自动删除超过 120 条的旧历史，并按 48 条分页读取。
+- 批量网格和历史相册使用缩略图及虚拟滚动，双击大图、编辑、复制或导出时才读取原图。
 - 历史可以导出为 JSON，也可以重新导入。
 
 具体路径见 [troubleshooting.md](./troubleshooting.md)。

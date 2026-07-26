@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { ChevronLeft, ChevronRight, RotateCw, Upload } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
+import { ChevronLeft, ChevronRight, RotateCw, Upload, WandSparkles } from "lucide-react";
 import { Stage, Layer, Image as KonvaImage, Line, Rect, Arrow } from "react-konva";
 import Konva from "konva";
 import { useStudioStore } from "../../state/studioStore";
@@ -17,12 +18,16 @@ import { AnnotationShape } from "./AnnotationShape";
 import { useCanvasShortcuts } from "./useCanvasShortcuts";
 import { StreamPreviewBadge } from "./StreamPreviewBadge";
 import { streamPreviewItemsFromPreviews } from "../../state/studioStore.streamPreview";
-import { historyFullSrc, isTransientPreviewItem } from "../../lib/images";
+import { historyFullSrc, isTransientPreviewItem, mediaFullUrlFromImageId } from "../../lib/images";
 import { extractAPIMartTaskIdFromText } from "../../lib/apimartAPI";
 import { latestContinuousSlotsByIndex } from "../../state/browserJobs";
 import { displayStatusFromContinuousSlot } from "../../state/batchGridStatus";
 import { isTemporarySourceCompareItem } from "../../state/compareSourceSelection";
-import { sortedBatchTasksForCurrentView, sortedBatchTasksForWorkspace } from "../../state/batchTaskRecords";
+import {
+  minimalHistoryItemFromBatchTask,
+  sortedBatchTasksForCurrentView,
+  sortedBatchTasksForWorkspace,
+} from "../../state/batchTaskRecords";
 import { sortHistoryGalleryItems } from "./historyGallerySort";
 import { RawResponseModal } from "../history/RawResponseModal";
 import { HistoryApiSourceBadge } from "../history/HistoryApiSourceBadge";
@@ -32,6 +37,8 @@ import { sortBatchGridSlotsForDisplay } from "./batchGridDisplayOrder";
 import { PanoramaViewerModal } from "../panorama/PanoramaViewerModal";
 import { PanoramaPastebackAlignModal } from "../panorama/PanoramaPastebackAlignModal";
 import { hasPanoramaRoundtripRef } from "../../panorama/core";
+import { recoverPanoramaItemMetadataFromTask } from "../../state/panoramaRoundtripRecovery";
+import { ImportImagePath, ReadImageAsBase64 } from "../../platform/runtime/host";
 
 function sourceFileName(filePath: string) {
   return filePath.split(/[\\/]/).pop() || "source.png";
@@ -171,6 +178,7 @@ export function CanvasStage() {
     toggleFullscreen,
     batchResults, resultGridOpen, selectBatchGridItem, selectBatchResult, closeResultGrid,
     history, historyHasMore, historyLoading, historyGalleryOpen, historyGallerySort,
+    loadMoreHistory,
     selectHistoryGalleryGridItem, selectHistoryGalleryResult, closeHistoryGallery, closeHistoryGalleryToEmpty, setHistoryGallerySort,
     selectedBatchTaskId,
     selectBatchTask,
@@ -185,6 +193,7 @@ export function CanvasStage() {
     applyHistoryParams,
     regenerateFromHistory,
     reuseAsSource,
+    repastePanoramaRoundtrip,
     openPanoramaPastebackAligner,
     importExternalPanoramaPastebackImage,
     saveHistoryItemAs,
@@ -197,10 +206,87 @@ export function CanvasStage() {
     canvasViewResetTick,
     apiMode,
     activeProfileId,
-  } = useStudioStore();
-  const { isMac } = usePlatform();
+  } = useStudioStore(useShallow((state) => ({
+    currentImage: state.currentImage,
+    tool: state.tool,
+    brushSize: state.brushSize,
+    brushMode: state.brushMode,
+    annotationKind: state.annotationKind,
+    annotationColor: state.annotationColor,
+    selectedAnnotationId: state.selectedAnnotationId,
+    annotations: state.annotations,
+    addAnnotation: state.addAnnotation,
+    removeAnnotation: state.removeAnnotation,
+    clearAnnotations: state.clearAnnotations,
+    setMaskDataURL: state.setMaskDataURL,
+    strokes: state.strokes,
+    pushStroke: state.pushStroke,
+    undoStack: state.undoStack,
+    redoStack: state.redoStack,
+    undo: state.undo,
+    redo: state.redo,
+    compareB: state.compareB,
+    compareMode: state.compareMode,
+    compareSplit: state.compareSplit,
+    setCompareSplit: state.setCompareSplit,
+    setCompareB: state.setCompareB,
+    isRunning: state.isRunning,
+    cancel: state.cancel,
+    errorMessage: state.errorMessage,
+    setField: state.setField,
+    streamPreview: state.streamPreview,
+    streamPreviews: state.streamPreviews,
+    runningJobs: state.runningJobs,
+    jobsTotal: state.jobsTotal,
+    jobsCompleted: state.jobsCompleted,
+    toggleFullscreen: state.toggleFullscreen,
+    batchResults: state.batchResults,
+    resultGridOpen: state.resultGridOpen,
+    selectBatchGridItem: state.selectBatchGridItem,
+    selectBatchResult: state.selectBatchResult,
+    closeResultGrid: state.closeResultGrid,
+    history: state.history,
+    historyHasMore: state.historyHasMore,
+    historyLoading: state.historyLoading,
+    historyGalleryOpen: state.historyGalleryOpen,
+    historyGallerySort: state.historyGallerySort,
+    loadMoreHistory: state.loadMoreHistory,
+    selectHistoryGalleryGridItem: state.selectHistoryGalleryGridItem,
+    selectHistoryGalleryResult: state.selectHistoryGalleryResult,
+    closeHistoryGallery: state.closeHistoryGallery,
+    closeHistoryGalleryToEmpty: state.closeHistoryGalleryToEmpty,
+    setHistoryGallerySort: state.setHistoryGallerySort,
+    selectedBatchTaskId: state.selectedBatchTaskId,
+    selectBatchTask: state.selectBatchTask,
+    pushToast: state.pushToast,
+    retryFailedJob: state.retryFailedJob,
+    retryBatchTask: state.retryBatchTask,
+    cancelBatchTask: state.cancelBatchTask,
+    promoteBatchTask: state.promoteBatchTask,
+    recoverRunningHubResult: state.recoverRunningHubResult,
+    recoverAPIMartResult: state.recoverAPIMartResult,
+    openResultDetail: state.openResultDetail,
+    applyHistoryParams: state.applyHistoryParams,
+    regenerateFromHistory: state.regenerateFromHistory,
+    reuseAsSource: state.reuseAsSource,
+    repastePanoramaRoundtrip: state.repastePanoramaRoundtrip,
+    openPanoramaPastebackAligner: state.openPanoramaPastebackAligner,
+    importExternalPanoramaPastebackImage: state.importExternalPanoramaPastebackImage,
+    saveHistoryItemAs: state.saveHistoryItemAs,
+    shareHistoryItem: state.shareHistoryItem,
+    deleteHistoryItem: state.deleteHistoryItem,
+    jobGroupsByWorkspace: state.jobGroupsByWorkspace,
+    batchTasksById: state.batchTasksById,
+    workspaces: state.workspaces,
+    activeWorkspaceId: state.activeWorkspaceId,
+    canvasViewResetTick: state.canvasViewResetTick,
+    apiMode: state.apiMode,
+    activeProfileId: state.activeProfileId,
+  })));
+  const { isMacHost } = usePlatform();
   const panoramaPastebackImportInputRef = useRef<HTMLInputElement>(null);
   const [panoramaPastebackImportAnchor, setPanoramaPastebackImportAnchor] = useState<HistoryItem | null>(null);
+  const [panoramaQuickPastebackBusy, setPanoramaQuickPastebackBusy] = useState(false);
   const streamPreviewItems = streamPreviewItemsFromPreviews(streamPreviews, {
     workspaceId: useStudioStore.getState().activeWorkspaceId,
     mode: useStudioStore.getState().mode,
@@ -222,6 +308,11 @@ export function CanvasStage() {
   for (const item of workspaceBatchResults) visibleBatchResultsById.set(item.id, item);
   for (const item of batchResults) visibleBatchResultsById.set(item.id, item);
   const visibleBatchResults = Array.from(visibleBatchResultsById.values());
+  const currentImageIsWorkspaceResult = !!currentImage
+    && visibleBatchResults.some((item) => (
+      item.id === currentImage.id
+      || (!!item.savedPath && item.savedPath === currentImage.savedPath)
+    ));
   const currentImageTask = currentImage
     ? batchTasks.find((task) => (
         task.historyItemId === currentImage.id
@@ -330,7 +421,9 @@ export function CanvasStage() {
   );
   for (const item of visibleBatchResults) {
     const index = typeof item.batchIndex === "number" ? item.batchIndex : liveBatchSlots.findIndex((slot) => slot.type === "pending");
-    if (index >= 0 && index < liveBatchSlots.length) liveBatchSlots[index] = { type: "result", item };
+    if (index >= 0 && index < liveBatchSlots.length) {
+      liveBatchSlots[index] = { type: "result", item, slotIndex: index, updatedAt: item.createdAt };
+    }
   }
   for (const item of streamPreviewItems) {
     const index = typeof item.batchIndex === "number" ? item.batchIndex : liveBatchSlots.findIndex((slot) => slot.type === "pending");
@@ -367,7 +460,8 @@ export function CanvasStage() {
         })()
   ));
   const taskDisplayBatchSlots: BatchGridSlot[] = displayBatchTasks.map((task) => {
-    const item = task.historyItemId ? historyById.get(task.historyItemId) : null;
+    const item = (task.historyItemId ? historyById.get(task.historyItemId) : null)
+      ?? minimalHistoryItemFromBatchTask(task);
     const sourcedItem = item ? itemWithTaskApiSource(item, task) : null;
     const sourcePreview = resolveSourcePreview(task.batchSourcePath || task.sourceImagePaths?.[0], sourcedItem?.sourceImages);
     const apiSource = apiSourceFromRecord(task);
@@ -458,7 +552,9 @@ export function CanvasStage() {
       prompt: task.prompt,
       queuedReason: task.queuedReason,
       canPromote: task.status === "queued" && task.queuedReason === "local_concurrency" && !task.jobId,
-      status: task.status === "running"
+      status: task.launchState === "submitting"
+        ? "submitting"
+        : task.status === "running"
         ? "running"
         : (task.queuedReason === "local_concurrency" || task.queuedReason === "batch_shared_concurrency") && !task.jobId
           ? "local_queued"
@@ -543,8 +639,77 @@ export function CanvasStage() {
   const maskLayerRef = useRef<Konva.Layer | null>(null);
   const roRef = useRef<ResizeObserver | null>(null);
 
-  const currentImageURL = historyFullSrc(currentImage, null);
-  const image = useImageFromSource(currentImage?.imageBlob ?? null, currentImage?.imageB64, currentImageURL);
+  const currentImageBlob = currentImage?.imageBlob ?? currentImage?.previewBlob ?? null;
+  const currentImageURL = currentImage?.previewUrl?.startsWith("blob:")
+    ? currentImage.previewUrl
+    : historyFullSrc(currentImage, null);
+  const handleCurrentImageLoadError = useCallback((failedSrc: string) => {
+    if (!currentImage?.savedPath || currentImage.imageB64 || currentImage.imageBlob) return;
+    const selectedId = currentImage.id;
+    const savedPath = currentImage.savedPath;
+    const originalFullUrl = currentImage.fullUrl || "";
+    const originalImageId = currentImage.imageId || "";
+
+    void (async () => {
+      const materialized = await useStudioStore.getState().materializeCurrentImage(currentImage).catch(() => null);
+      const latestAfterMaterialize = useStudioStore.getState().currentImage;
+      if (latestAfterMaterialize?.id !== selectedId) return;
+      if (materialized) {
+        const nextFullUrl = materialized.fullUrl || "";
+        const nextImageId = materialized.imageId || "";
+        setField("currentImage", materialized);
+        if (
+          materialized.imageB64
+          || materialized.imageBlob
+          || (nextFullUrl && nextFullUrl !== failedSrc && (nextFullUrl !== originalFullUrl || nextImageId !== originalImageId))
+        ) {
+          return;
+        }
+      }
+
+      const imported = await ImportImagePath(savedPath).catch(() => null);
+      if (imported?.path) {
+        const latest = useStudioStore.getState().currentImage;
+        if (latest?.id !== selectedId) return;
+        const importedFullUrl = mediaFullUrlFromImageId(imported.imageId);
+        const next = {
+          ...latest,
+          savedPath: imported.path,
+          imageId: imported.imageId || latest.imageId,
+          fullUrl: importedFullUrl || latest.fullUrl,
+          previewUrl: imported.previewUrl || latest.previewUrl,
+          imageB64: imported.imageB64 || latest.imageB64,
+          imageBlob: imported.imageB64 ? null : latest.imageBlob,
+          previewBlob: null,
+          previewOnly: false,
+          width: imported.width || latest.width,
+          height: imported.height || latest.height,
+        };
+        setField("currentImage", next);
+        if (importedFullUrl || imported.imageB64) return;
+      }
+
+      const readablePath = imported?.path || savedPath;
+      const imageB64 = await ReadImageAsBase64(readablePath).catch(() => "");
+      if (!imageB64) return;
+      const latest = useStudioStore.getState().currentImage;
+      if (latest?.id !== selectedId) return;
+      setField("currentImage", {
+        ...latest,
+        savedPath: readablePath,
+        imageB64,
+        imageBlob: null,
+        previewBlob: null,
+        previewOnly: false,
+      });
+    })();
+  }, [currentImage, setField]);
+  const image = useImageFromSource(
+    currentImageBlob,
+    currentImage?.imageB64,
+    currentImageURL,
+    handleCurrentImageLoadError,
+  );
   const isCurrentStreamPreview = isTransientPreviewItem(currentImage);
 
   useEffect(() => {
@@ -563,7 +728,14 @@ export function CanvasStage() {
 
   useEffect(() => {
     if (!currentImage?.previewOnly) return;
-    if (currentImage.fullUrl || currentImage.imageId || currentImage.imageB64 || currentImage.imageBlob) return;
+    if (
+      currentImage.fullUrl
+      || currentImage.imageId
+      || currentImage.imageB64
+      || currentImage.imageBlob
+      || currentImage.previewBlob
+    ) return;
+    if (currentImage.previewUrl?.startsWith("blob:")) return;
     if (currentImage.id.startsWith("preview-")) return;
 
     let cancelled = false;
@@ -584,6 +756,8 @@ export function CanvasStage() {
     currentImage?.imageId,
     currentImage?.imageB64,
     currentImage?.imageBlob,
+    currentImage?.previewBlob,
+    currentImage?.previewUrl,
     setField,
   ]);
 
@@ -687,14 +861,33 @@ export function CanvasStage() {
         },
       }
     : null;
-  const panoramaPastebackQuickWidth = 174;
+  const panoramaPastebackQuickWidth = 264;
   const panoramaPastebackQuickHeight = 34;
   const panoramaPastebackQuickInset = 12;
-  const canQuickPanoramaPasteback = !!currentImage
+  const currentPanoramaPastebackItem = useMemo(
+    () => {
+      if (!currentImage) return null;
+      const activeSources = currentImageIsWorkspaceResult && activeWorkspace?.mode === "edit"
+        ? activeWorkspace.sources
+        : [];
+      const recoveryTask = activeSources.length > 0
+        ? {
+            ...currentImageTask,
+            sourceImages: (currentImageTask?.sourceImages?.length ?? 0) > 0
+              ? currentImageTask?.sourceImages
+              : activeSources,
+            sourceImagePaths: currentImageTask?.sourceImagePaths ?? activeSources.map((source) => source.path),
+          }
+        : currentImageTask;
+      return recoverPanoramaItemMetadataFromTask(currentImage, recoveryTask, history);
+    },
+    [activeWorkspace?.mode, activeWorkspace?.sources, currentImage, currentImageIsWorkspaceResult, currentImageTask, history],
+  );
+  const canQuickPanoramaPasteback = !!currentPanoramaPastebackItem
     && !!currentImageBounds
     && !isCurrentStreamPreview
-    && !currentImage.id.startsWith("source-preview-")
-    && hasPanoramaRoundtripRef(currentImage);
+    && !currentPanoramaPastebackItem.id.startsWith("source-preview-")
+    && hasPanoramaRoundtripRef(currentPanoramaPastebackItem);
   const panoramaPastebackQuickBounds = canQuickPanoramaPasteback && currentImageBounds
     ? {
         left: clampCanvasOverlayValue(
@@ -862,9 +1055,19 @@ export function CanvasStage() {
   }
 
   function openCanvasMenu(e: Konva.KonvaEventObject<PointerEvent>) {
-    if (!currentImage) return;
+    if (!currentPanoramaPastebackItem) return;
     e.evt.preventDefault();
-    openMenu(currentImage, e.evt.clientX, e.evt.clientY);
+    openMenu(currentPanoramaPastebackItem, e.evt.clientX, e.evt.clientY);
+  }
+
+  async function autoPasteCurrentPanorama(item: HistoryItem) {
+    if (panoramaQuickPastebackBusy) return;
+    setPanoramaQuickPastebackBusy(true);
+    try {
+      await repastePanoramaRoundtrip(item, { selectAsCurrent: true });
+    } finally {
+      setPanoramaQuickPastebackBusy(false);
+    }
   }
 
   function openExternalPanoramaPastebackPicker(anchor: HistoryItem) {
@@ -1006,7 +1209,7 @@ export function CanvasStage() {
     },
     currentImage,
     errorMessage,
-    isMac,
+    isMac: isMacHost,
     isRunning,
     redo,
     removeAnnotation,
@@ -1052,6 +1255,10 @@ export function CanvasStage() {
       <div
         ref={hostRef}
         className="stage-host"
+        data-panorama-pasteback-available={hasPanoramaRoundtripRef(currentPanoramaPastebackItem) ? "true" : "false"}
+        data-panorama-current-workspace-result={currentImageIsWorkspaceResult ? "true" : "false"}
+        data-panorama-task-linked={currentImageTask ? "true" : "false"}
+        data-panorama-active-source-count={activeWorkspace?.sources.length ?? 0}
         style={{ cursor: !currentImage ? "default" : (effectiveTool === "pan" ? (spacePan ? "grabbing" : "grab") : "crosshair") }}
       >
         {!currentImage && !showingResultGrid && !showingHistoryGallery && <EmptyState state={isRunning ? "running" : "idle"} />}
@@ -1101,6 +1308,9 @@ export function CanvasStage() {
             variant="historyGallery"
             gallerySort={historyGallerySort}
             onGallerySortChange={setHistoryGallerySort}
+            hasMore={historyHasMore}
+            loadingMore={historyLoading}
+            onLoadMore={() => void loadMoreHistory()}
           />
         )}
         {!showingResultGrid && !showingHistoryGallery && currentImage && compareB && compareMode === "sideBySide" && (
@@ -1252,7 +1462,7 @@ export function CanvasStage() {
             />
           </div>
         ) : null}
-        {panoramaPastebackQuickBounds && currentImage ? (
+        {panoramaPastebackQuickBounds && currentPanoramaPastebackItem ? (
           <div
             className="canvas-panorama-pasteback-actions"
             style={panoramaPastebackQuickBounds}
@@ -1263,11 +1473,26 @@ export function CanvasStage() {
             <button
               type="button"
               className="canvas-panorama-pasteback-button"
-              title="贴回当前 360 大图"
+              title="使用默认位置和羽化参数直接贴回当前 360 全景"
+              disabled={panoramaQuickPastebackBusy}
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                openPanoramaPastebackAligner(currentImage);
+                void autoPasteCurrentPanorama(currentPanoramaPastebackItem);
+              }}
+            >
+              <WandSparkles className="h-3.5 w-3.5" />
+              <span>{panoramaQuickPastebackBusy ? "贴回中" : "自动贴回"}</span>
+            </button>
+            <button
+              type="button"
+              className="canvas-panorama-pasteback-button"
+              title="贴回当前 360 大图"
+              disabled={panoramaQuickPastebackBusy}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                openPanoramaPastebackAligner(currentPanoramaPastebackItem);
               }}
             >
               <RotateCw className="h-3.5 w-3.5" />
@@ -1277,10 +1502,11 @@ export function CanvasStage() {
               type="button"
               className="canvas-panorama-pasteback-button"
               title="导入同比例外部图像贴回当前 360 大图"
+              disabled={panoramaQuickPastebackBusy}
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                openExternalPanoramaPastebackPicker(currentImage);
+                openExternalPanoramaPastebackPicker(currentPanoramaPastebackItem);
               }}
             >
               <Upload className="h-3.5 w-3.5" />

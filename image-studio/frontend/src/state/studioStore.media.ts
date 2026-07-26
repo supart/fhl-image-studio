@@ -4,7 +4,6 @@ import {
   FlipImage,
   ImportHistoryFromFile,
   RegisterImportedImageAsset,
-  RegisterMediaAsset,
   ReadImageAsBase64,
   RotateImage,
 } from "../platform/runtime/host";
@@ -14,7 +13,7 @@ import {
   sanitizeImportedHistoryItem,
 } from "../lib/security";
 import { base64ToBlob } from "../lib/images";
-import { persistHistoryItems } from "../lib/storage";
+import { persistHistoryItems, pruneHistoryStorage } from "../lib/storage";
 import { storageKey } from "../lib/storageNamespace.ts";
 import type { HistoryGallerySort, HistoryItem, Preset, Toast } from "../types/domain";
 import type { CompareMode, StudioState } from "./studioStore.types";
@@ -27,6 +26,7 @@ import {
   ensureFullBatchItem,
   ensureFullHistoryItem,
   materializeHistoryItem,
+  materializeMediaRefForHistoryItem,
   toPreviewOnlyHistoryItem,
   withMediaAssetRef,
 } from "./studioStore.runtime";
@@ -265,7 +265,6 @@ export function createMediaActions(store: StateAdapter) {
           resultGridOpen: false,
         }),
       });
-      void ensureAllHistoryLoaded(store);
     },
 
     closeHistoryGallery() {
@@ -347,10 +346,13 @@ export function createMediaActions(store: StateAdapter) {
       const state = store.getState();
       store.setState({
         historyGallerySort: normalized,
+        historyCursor: null,
+        historyHasMore: true,
         workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, {
           historyGallerySort: normalized,
         }),
       });
+      void store.getState().loadMoreHistory();
     },
 
     selectHistoryGalleryGridItem(item: HistoryItem) {
@@ -452,7 +454,15 @@ export function createMediaActions(store: StateAdapter) {
     },
 
     async openResultDetail(item: HistoryItem) {
-      store.setState({ resultDetail: toPreviewOnlyHistoryItem(item) });
+      const preview = toPreviewOnlyHistoryItem(item);
+      store.setState({ resultDetail: preview });
+      const full = await ensureFullHistoryItem(preview, {
+        setState: (fn) => store.setState((state) => fn(state)),
+      }).catch(() => null);
+      if (!full || full.id !== item.id) return;
+      store.setState((state) => (
+        state.resultDetail?.id === item.id ? { resultDetail: full } : {}
+      ));
     },
 
     closeResultDetail() {
@@ -523,7 +533,7 @@ export function createMediaActions(store: StateAdapter) {
         historyGalleryOpen: kept.length > 0 && state.historyGalleryOpen,
         workspaces: nextWorkspaces,
       });
-      persistTrimmedHistory(kept);
+      await pruneHistoryStorage(kept.map((item) => item.id));
       return removed;
     },
 
@@ -675,9 +685,7 @@ export function createMediaActions(store: StateAdapter) {
           let safeItem = sanitizeImportedHistoryItem(item);
           if (safeItem.savedPath && !safeItem.previewUrl) {
             try {
-              const ref = safeItem.thumbPath
-                ? await RegisterMediaAsset(safeItem.savedPath, safeItem.thumbPath)
-                : await RegisterImportedImageAsset(safeItem.savedPath);
+              const ref = await materializeMediaRefForHistoryItem(safeItem);
               safeItem = withMediaAssetRef(safeItem, ref);
             } catch {
               // Keep the metadata/legacy preview if the file is unavailable in this environment.

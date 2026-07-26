@@ -42,7 +42,7 @@ const (
 	defaultOutputFormat  = "png"
 )
 
-var packageVersion = "V2.0.2.1"
+var packageVersion = "V2.0.3"
 
 type multiFlag []string
 
@@ -696,6 +696,11 @@ func shouldFallbackResponsesToImages(opts cliOptions, err error, rawPath string)
 
 func shouldFallbackEditToContactSheet(opts cliOptions, err error, rawPath string) bool {
 	if err == nil || opts.mode != client.ModeEdit || len(opts.imagePaths) < 2 {
+		return false
+	}
+	if opts.apiMode == client.APIModeImages &&
+		normalizeBaseURLForFHLComparison(opts.baseURL) == strings.ToLower(defaultBaseURL) &&
+		isGPTImage2Model(opts.imageModelID) {
 		return false
 	}
 	rawBytes, _ := os.ReadFile(rawPath)

@@ -21,12 +21,12 @@ test("root skill chain assets are present", async () => {
     readText("SKILL.md"),
     readText("安装CodexSkill.cmd"),
     readText("image-cli.cmd"),
-    readText("scripts/package-windows-portable-v2.0.2.ps1"),
+    readText("scripts/package-windows-portable-v2.0.3.ps1"),
   ]);
 
   assert.match(agents, /cli\.env\.local/);
   assert.match(agents, /APIMart/);
-  assert.match(skill, /name:\s*fhl-image-studio-v2-0-2-1/);
+  assert.match(skill, /name:\s*fhl-image-studio-v2-0-3/);
   assert.match(skill, /APIMart/);
   assert.match(skill, /config\\cli\.env\.local/);
   assert.match(skill, /default CLI execution stays sequential/);
@@ -35,6 +35,7 @@ test("root skill chain assets are present", async () => {
   assert.match(installer, /fhl-ty-v2/);
   assert.match(cli, /runtime\\cli\\gptcodex-image\.exe/);
   assert.match(cli, /config\\cli\.env\.local/);
+  assert.match(cli, /PUBLIC_ROOT%\\\."\) do set "PUBLIC_ROOT=%%~fI\\"/);
   assert.doesNotMatch(cli, /--base-url\s+https:\/\/www\.fhl\.mom/);
   assert.doesNotMatch(cli, /--api-mode\s+images/);
   assert.match(packageScript, /AGENTS\.md/);

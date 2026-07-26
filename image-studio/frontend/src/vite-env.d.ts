@@ -4,8 +4,10 @@ interface ImportMetaEnv {
   readonly PACKAGE_VERSION?: string;
   readonly IMAGE_STUDIO_SERVICE_INSTANCE_ID?: string;
   readonly IMAGE_STUDIO_STORAGE_NAMESPACE?: string;
+  readonly IMAGE_STUDIO_DEV_CANONICAL_HOST?: string;
   readonly VITE_APP_VERSION?: string;
   readonly VITE_TARGET_PLATFORM?: string;
+  readonly VITE_DESKTOP_UI_VARIANT?: "native" | "windows-parity";
 }
 
 interface ImportMeta {

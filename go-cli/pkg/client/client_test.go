@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -89,6 +90,92 @@ func TestRequestAndExtractWithRetries_HappyPath(t *testing.T) {
 	}
 }
 
+func TestNativeResponsesRejectDeclaredOversizedResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", maxHTTPResponseBytes+1))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	transport := &injectingTransport{inner: &NativeTransport{}, url: srv.URL}
+	_, err := RequestAndExtract(
+		context.Background(),
+		transport,
+		Options{APIKey: "sk-test", Prompt: "cat", BaseURL: "https://test.local"},
+		io.Discard,
+		nil,
+	)
+	if !errors.Is(err, ErrHTTPResponseTooLarge) {
+		t.Fatalf("err = %v, want ErrHTTPResponseTooLarge", err)
+	}
+}
+
+func TestRequestAndExtractDoesNotHideLimitErrorAfterFinal(t *testing.T) {
+	for _, limitErr := range []error{ErrHTTPResponseTooLarge, ErrSSELineTooLarge} {
+		t.Run(limitErr.Error(), func(t *testing.T) {
+			transport := &captureTransport{stream: func(_ context.Context, _ Request, rawSink io.Writer, _ chan<- string) error {
+				_, err := io.WriteString(rawSink, `data: {"type":"response.output_item.done","item":{"type":"image_generation_call","result":"x"}}`+"\n")
+				if err != nil {
+					return err
+				}
+				return fmt.Errorf("stream limit: %w", limitErr)
+			}}
+			_, err := RequestAndExtract(
+				context.Background(),
+				transport,
+				Options{APIKey: "sk-test", Prompt: "cat", BaseURL: "https://test.local"},
+				io.Discard,
+				nil,
+			)
+			if !errors.Is(err, limitErr) {
+				t.Fatalf("err = %v, want %v", err, limitErr)
+			}
+		})
+	}
+}
+
+func TestRequestAndExtractDetectsLimitErrorSwallowedByTransport(t *testing.T) {
+	transport := &captureTransport{stream: func(_ context.Context, _ Request, rawSink io.Writer, _ chan<- string) error {
+		collector := rawSink.(*responseCollector)
+		final := []byte(`data: {"type":"response.output_item.done","item":{"type":"image_generation_call","result":"x"}}` + "\n")
+		collector.maxResponseBytes = int64(len(final))
+		collector.maxLineBytes = len(final) + 10
+		if _, err := collector.Write(final); err != nil {
+			return err
+		}
+		_, _ = collector.Write([]byte("x")) // Deliberately swallow the writer error.
+		return nil
+	}}
+	_, err := RequestAndExtract(
+		context.Background(), transport,
+		Options{APIKey: "sk-test", Prompt: "cat", BaseURL: "https://test.local"},
+		io.Discard, nil,
+	)
+	if !errors.Is(err, ErrHTTPResponseTooLarge) {
+		t.Fatalf("err = %v, want ErrHTTPResponseTooLarge", err)
+	}
+}
+
+func TestResponsesRetriesStopImmediatelyOnLimitError(t *testing.T) {
+	attempts := 0
+	transport := &captureTransport{stream: func(context.Context, Request, io.Writer, chan<- string) error {
+		attempts++
+		return fmt.Errorf("bounded response: %w", ErrHTTPResponseTooLarge)
+	}}
+	_, _, err := RequestAndExtractWithRetries(
+		context.Background(), transport,
+		Options{APIKey: "sk-test", Prompt: "cat", BaseURL: "https://test.local"},
+		t.TempDir(), "limit", nil, nil,
+	)
+	if !errors.Is(err, ErrHTTPResponseTooLarge) {
+		t.Fatalf("err = %v, want ErrHTTPResponseTooLarge", err)
+	}
+	if attempts != 1 {
+		t.Fatalf("limit error attempts = %d, want 1", attempts)
+	}
+}
+
 func TestRouteFHLImagesOptionsUsesStableSizeForLegacyModels(t *testing.T) {
 	var logs []string
 	got := routeFHLImagesOptions(Options{
@@ -152,6 +239,49 @@ func TestRouteFHLImagesOptionsPreservesGPTImage2ExactSizes(t *testing.T) {
 	}
 	if len(logs) != 0 {
 		t.Fatalf("logs = %#v, want no routing note", logs)
+	}
+}
+
+func TestRouteFHLImagesOptionsUsesPluginContractForGPTImage2MultiReferenceEdit(t *testing.T) {
+	got := routeFHLImagesOptions(Options{
+		APIMode:            APIModeImages,
+		BaseURL:            "https://www.fhl.mom/v1",
+		Mode:               ModeEdit,
+		ImageModelID:       "gpt-image-2",
+		ImagePaths:         []string{"main.webp", "ref.webp"},
+		Size:               "2048x1152",
+		Quality:            "medium",
+		PartialImages:      2,
+		ImagesNewAPICompat: false,
+	}, func(string) {})
+
+	if got.Size != "2048x1152" {
+		t.Fatalf("Size = %q, want exact gpt-image-2 size preserved", got.Size)
+	}
+	if got.Quality != "auto" {
+		t.Fatalf("Quality = %q, want auto", got.Quality)
+	}
+	if !got.ImagesNewAPICompat {
+		t.Fatal("ImagesNewAPICompat = false, want non-streaming b64_json compatibility mode")
+	}
+}
+
+func TestRouteFHLImagesOptionsKeepsSingleReferenceGPTImage2Settings(t *testing.T) {
+	got := routeFHLImagesOptions(Options{
+		APIMode:            APIModeImages,
+		BaseURL:            "https://www.fhl.mom",
+		Mode:               ModeEdit,
+		ImageModelID:       "gpt-image-2",
+		ImagePaths:         []string{"main.webp"},
+		Quality:            "medium",
+		ImagesNewAPICompat: false,
+	}, func(string) {})
+
+	if got.Quality != "medium" {
+		t.Fatalf("Quality = %q, want original single-reference quality", got.Quality)
+	}
+	if got.ImagesNewAPICompat {
+		t.Fatal("ImagesNewAPICompat = true, want original single-reference transport setting")
 	}
 }
 

@@ -2,6 +2,7 @@ package client
 
 import (
 	"encoding/base64"
+	"errors"
 	"testing"
 )
 
@@ -79,6 +80,59 @@ func TestResponseCollectorExtractsFinalAndPartial(t *testing.T) {
 		}
 		if seen[0].PartialImageIndex != 2 {
 			t.Fatalf("partial PartialImageIndex = %d, want 2", seen[0].PartialImageIndex)
+		}
+	})
+}
+
+func TestResponseCollectorEnforcesResponseAndLineLimits(t *testing.T) {
+	t.Run("response total", func(t *testing.T) {
+		c := newResponseCollector(nil)
+		c.maxResponseBytes = 5
+		c.maxLineBytes = 100
+		if _, err := c.Write([]byte("a\n")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Write([]byte("1234")); !errors.Is(err, ErrHTTPResponseTooLarge) {
+			t.Fatalf("err = %v, want ErrHTTPResponseTooLarge", err)
+		}
+		if got := c.bytesReceived(); got != 2 {
+			t.Fatalf("bytesReceived = %d, want 2", got)
+		}
+	})
+
+	t.Run("line across writes", func(t *testing.T) {
+		c := newResponseCollector(nil)
+		c.maxResponseBytes = 100
+		c.maxLineBytes = 4
+		if _, err := c.Write([]byte("1234")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Write([]byte("5")); !errors.Is(err, ErrSSELineTooLarge) {
+			t.Fatalf("err = %v, want ErrSSELineTooLarge", err)
+		}
+	})
+
+	t.Run("exact line with CRLF", func(t *testing.T) {
+		c := newResponseCollector(nil)
+		c.maxResponseBytes = 100
+		c.maxLineBytes = 4
+		if _, err := c.Write([]byte("1234\r")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Write([]byte("\n")); err != nil {
+			t.Fatalf("collector rejected exact-limit CRLF line: %v", err)
+		}
+	})
+
+	t.Run("native scanned line uses body limit without synthetic newline rejection", func(t *testing.T) {
+		c := newResponseCollector(nil)
+		c.maxResponseBytes = 4
+		c.maxLineBytes = 4
+		if err := c.writeSSELine([]byte("1234")); err != nil {
+			t.Fatalf("writeSSELine rejected exact wire limit: %v", err)
+		}
+		if err := c.limitError(); err != nil {
+			t.Fatalf("writeSSELine retained unexpected limit error: %v", err)
 		}
 	})
 }

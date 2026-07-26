@@ -2,7 +2,9 @@ package client
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"iter"
@@ -13,7 +15,11 @@ import (
 type Event map[string]any
 
 func decodeEvent(payload string, ev *Event) error {
-	return json.Unmarshal([]byte(payload), ev)
+	return decodeEventBytes([]byte(payload), ev)
+}
+
+func decodeEventBytes(payload []byte, ev *Event) error {
+	return json.Unmarshal(payload, ev)
 }
 
 // IterEvents returns an iterator over decoded SSE events in raw.
@@ -91,8 +97,12 @@ func ExtractImageResult(raw string) (ImageResult, error) {
 }
 
 func findImageResultInJSON(raw string) (ImageResult, bool) {
+	return findImageResultInJSONBytes([]byte(raw))
+}
+
+func findImageResultInJSONBytes(raw []byte) (ImageResult, bool) {
 	var v any
-	if err := json.Unmarshal([]byte(raw), &v); err != nil {
+	if err := json.Unmarshal(raw, &v); err != nil {
 		return ImageResult{}, false
 	}
 	if found, ok := walkForImageCall(v); ok {
@@ -197,12 +207,60 @@ func SummarizeSSELine(line string) string {
 	return ""
 }
 
-// NewSSEScanner returns a bufio.Scanner configured to handle long base64 lines.
+// NewSSEScanner returns a bufio.Scanner configured for lines up to 128 MiB.
 // Default token size is 64KB which truncates partial_image_b64 at 2048x1152 sizes.
 func NewSSEScanner(r io.Reader) *bufio.Scanner {
+	return newSSEScannerWithLimit(r, maxSSELineBytes)
+}
+
+func newSSEScannerWithLimit(r io.Reader, maxLineBytes int) *bufio.Scanner {
 	scanner := bufio.NewScanner(r)
-	const initial = 2 << 20 // 2 MB
-	const max = 1 << 30     // 1 GiB upper bound for future very large partial_image_b64 payload lines
-	scanner.Buffer(make([]byte, 0, initial), max)
+	initial := 2 << 20
+	maxBufferBytes := maxLineBytes + 2 // Allow CRLF outside the line-size limit.
+	if initial > maxBufferBytes {
+		initial = maxBufferBytes
+	}
+	scanner.Buffer(make([]byte, 0, initial), maxBufferBytes)
+	scanner.Split(scanSSELines(maxLineBytes))
 	return scanner
+}
+
+func scanSSELines(maxLineBytes int) bufio.SplitFunc {
+	return func(data []byte, atEOF bool) (advance int, token []byte, err error) {
+		if atEOF && len(data) == 0 {
+			return 0, nil, nil
+		}
+		if i := bytes.IndexByte(data, '\n'); i >= 0 {
+			line := dropTrailingCR(data[:i])
+			if len(line) > maxLineBytes {
+				return 0, nil, sseLineTooLargeError(maxLineBytes)
+			}
+			return i + 1, line, nil
+		}
+		if atEOF {
+			line := dropTrailingCR(data)
+			if len(line) > maxLineBytes {
+				return 0, nil, sseLineTooLargeError(maxLineBytes)
+			}
+			return len(data), line, nil
+		}
+		if len(data) > maxLineBytes && (len(data) != maxLineBytes+1 || data[len(data)-1] != '\r') {
+			return 0, nil, sseLineTooLargeError(maxLineBytes)
+		}
+		return 0, nil, nil
+	}
+}
+
+func dropTrailingCR(data []byte) []byte {
+	if len(data) > 0 && data[len(data)-1] == '\r' {
+		return data[:len(data)-1]
+	}
+	return data
+}
+
+func normalizeSSEScannerError(err error) error {
+	if errors.Is(err, bufio.ErrTooLong) {
+		return sseLineTooLargeError(maxSSELineBytes)
+	}
+	return err
 }

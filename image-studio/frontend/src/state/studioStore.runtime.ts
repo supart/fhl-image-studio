@@ -1,6 +1,7 @@
 import type { backend } from "../../wailsjs/go/models";
 import {
   ImportImageFromB64,
+  ImportImagePath,
   RegisterMediaAsset,
   RegisterImportedImageAsset,
   ReadImageAsBase64,
@@ -68,6 +69,28 @@ function fullUrlFromImageID(imageId?: string | null): string {
   return imageId ? `/media/full/${imageId}` : "";
 }
 
+export async function materializeMediaRefForHistoryItem(item: HistoryItem): Promise<Parameters<typeof withMediaAssetRef>[1]> {
+  if (!item.savedPath) return {};
+  try {
+    return item.thumbPath
+      ? await RegisterMediaAsset(item.savedPath, item.thumbPath)
+      : await RegisterImportedImageAsset(item.savedPath);
+  } catch {
+    const imported = await ImportImagePath(item.savedPath);
+    const ref = await RegisterImportedImageAsset(imported.path).catch(() => null);
+    return ref ?? {
+      imageId: imported.imageId,
+      savedPath: imported.path,
+      previewUrl: imported.previewUrl,
+      fullUrl: fullUrlFromImageID(imported.imageId),
+      width: imported.width,
+      height: imported.height,
+      previewWidth: imported.previewWidth,
+      previewHeight: imported.previewHeight,
+    };
+  }
+}
+
 export async function materializeHistoryItem(
   item: HistoryItem,
   deps: {
@@ -102,38 +125,61 @@ export async function materializeHistoryItem(
 
 export async function ensureFullHistoryItem(
   item: HistoryItem | null,
-  deps: {
+  deps?: {
     setState: (fn: (state: StudioState) => Partial<StudioState>) => void;
   },
 ): Promise<HistoryItem | null> {
   if (!item) return null;
-  if ((item.fullUrl || item.imageId) && !item.imageB64 && !item.imageBlob) {
-    return { ...item, fullUrl: item.fullUrl || fullUrlFromImageID(item.imageId), previewOnly: false };
-  }
-  if (item.savedPath && !item.savedPath.startsWith("memory://") && !item.imageB64 && !item.imageBlob && item.previewOnly) {
+  if (item.savedPath && !item.savedPath.startsWith("memory://") && !item.imageB64 && !item.imageBlob) {
     try {
-      const ref = item.thumbPath
-        ? await RegisterMediaAsset(item.savedPath, item.thumbPath)
-        : await RegisterImportedImageAsset(item.savedPath);
+      const ref = await materializeMediaRefForHistoryItem(item);
       const fullUrl = ref.fullUrl || (ref.imageId ? fullUrlFromImageID(ref.imageId) : item.fullUrl);
       if (fullUrl) {
-        return { ...withMediaAssetRef(item, ref), fullUrl, previewOnly: false };
+        const next = { ...withMediaAssetRef(item, ref), fullUrl, previewOnly: false };
+        deps?.setState((state) => ({
+          currentImage: state.currentImage?.id === item.id ? next : state.currentImage,
+          compareB: state.compareB?.id === item.id ? next : state.compareB,
+          resultDetail: state.resultDetail?.id === item.id ? next : state.resultDetail,
+          panoramaViewerItem: state.panoramaViewerItem?.id === item.id ? next : state.panoramaViewerItem,
+          panoramaAlignTarget: state.panoramaAlignTarget?.id === item.id ? next : state.panoramaAlignTarget,
+          history: state.history.map((h) => (h.id === item.id ? next : h)),
+          batchResults: state.batchResults.map((h) => (h.id === item.id ? next : h)),
+        }));
+        return next;
       }
       const fullB64 = await ReadImageAsBase64(item.savedPath).catch(() => "");
       if (fullB64) {
-        return { ...withMediaAssetRef(item, ref), imageB64: fullB64, imageBlob: base64ToBlob(fullB64), previewOnly: false };
+        const next = { ...withMediaAssetRef(item, ref), imageB64: fullB64, imageBlob: base64ToBlob(fullB64), previewOnly: false };
+        deps?.setState((state) => ({
+          currentImage: state.currentImage?.id === item.id ? next : state.currentImage,
+          compareB: state.compareB?.id === item.id ? next : state.compareB,
+          resultDetail: state.resultDetail?.id === item.id ? next : state.resultDetail,
+          panoramaViewerItem: state.panoramaViewerItem?.id === item.id ? next : state.panoramaViewerItem,
+          panoramaAlignTarget: state.panoramaAlignTarget?.id === item.id ? next : state.panoramaAlignTarget,
+          history: state.history.map((h) => (h.id === item.id ? next : h)),
+          batchResults: state.batchResults.map((h) => (h.id === item.id ? next : h)),
+        }));
+        return next;
       }
     } catch {
       // Fall through to legacy full-image materialization.
     }
   }
-  if (item.savedPath && item.thumbPath && !item.imageB64 && !item.imageBlob) {
-    try {
-      const ref = await RegisterMediaAsset(item.savedPath, item.thumbPath);
-      return { ...withMediaAssetRef(item, ref), fullUrl: ref.fullUrl, previewOnly: false };
-    } catch {
-      return item;
-    }
+  if ((item.fullUrl || item.imageId) && !item.imageB64 && !item.imageBlob) {
+    return { ...item, fullUrl: item.fullUrl || fullUrlFromImageID(item.imageId), previewOnly: false };
+  }
+  if (item.previewOnly && (item.imageB64 || item.imageBlob)) {
+    const next: HistoryItem = { ...item, previewOnly: false };
+    deps?.setState((state) => ({
+      currentImage: state.currentImage?.id === item.id ? next : state.currentImage,
+      compareB: state.compareB?.id === item.id ? next : state.compareB,
+      resultDetail: state.resultDetail?.id === item.id ? next : state.resultDetail,
+      panoramaViewerItem: state.panoramaViewerItem?.id === item.id ? next : state.panoramaViewerItem,
+      panoramaAlignTarget: state.panoramaAlignTarget?.id === item.id ? next : state.panoramaAlignTarget,
+      history: state.history.map((h) => (h.id === item.id ? next : h)),
+      batchResults: state.batchResults.map((h) => (h.id === item.id ? next : h)),
+    }));
+    return next;
   }
   if (!item.previewOnly) return item;
   try {
@@ -145,7 +191,7 @@ export async function ensureFullHistoryItem(
     }
     if (!fullB64) return item;
     const next: HistoryItem = { ...item, imageB64: fullB64, imageBlob: base64ToBlob(fullB64), previewOnly: false };
-    deps.setState((state) => ({
+    deps?.setState((state) => ({
       currentImage: state.currentImage?.id === item.id ? next : state.currentImage,
       compareB: state.compareB?.id === item.id ? next : state.compareB,
     }));

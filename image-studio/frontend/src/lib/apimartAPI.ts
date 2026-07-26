@@ -6,9 +6,11 @@ import {
   APIMART_CONCURRENCY_LIMIT,
   APIMART_IMAGE_MODEL_ID,
   APIMART_PROFILE_NAME,
+  hasUpstreamProfileCapacity,
   isAPIMartOfficialBaseURL,
   normalizeAPIMartBaseURL,
   nextDefaultProfileName,
+  upstreamProfileLimitMessage,
 } from "./profiles";
 
 export const APIMART_REGISTER_URL = "https://apimart.ai/keys";
@@ -47,6 +49,9 @@ export async function ensureAPIMartProfile(store: APIMartProfileActions): Promis
   ));
 
   if (!existing) {
+    if (!hasUpstreamProfileCapacity(store.profiles)) {
+      throw new Error(upstreamProfileLimitMessage());
+    }
     return store.createProfile({
       name: profileName(store),
       apiMode: "apimart",

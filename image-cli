@@ -1,0 +1,90 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+DATA_ROOT=${FHL_IMAGE_STUDIO_DATA_DIR:-"$HOME/Library/Application Support/fhl-studio"}
+PICTURES_ROOT=${FHL_IMAGE_STUDIO_PICTURES_DIR:-"$HOME/Pictures/FHL Studio"}
+LOG_ROOT=${FHL_IMAGE_STUDIO_LOG_DIR:-"$HOME/Library/Logs/FHL Studio"}
+
+find_cli() {
+  if [ -n "${FHL_IMAGE_STUDIO_CLI_BIN:-}" ] && [ -x "$FHL_IMAGE_STUDIO_CLI_BIN" ]; then
+    printf '%s\n' "$FHL_IMAGE_STUDIO_CLI_BIN"
+    return
+  fi
+  for candidate in \
+    "$SCRIPT_DIR/runtime/cli/gptcodex-image" \
+    "$DATA_ROOT/runtime/cli/gptcodex-image" \
+    "$SCRIPT_DIR/FHL Studio.app/Contents/Resources/runtime/cli/gptcodex-image" \
+    "/Applications/FHL Studio.app/Contents/Resources/runtime/cli/gptcodex-image"
+  do
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return
+    fi
+  done
+  return 1
+}
+
+build_source_cli() {
+  [ "$(uname -s)" = "Darwin" ] || return 1
+  case "$(uname -m)" in
+    arm64|aarch64) ;;
+    *) return 1 ;;
+  esac
+  [ -f "$SCRIPT_DIR/go-cli/go.mod" ] || return 1
+  command -v go >/dev/null 2>&1 || return 1
+
+  build_dir="$DATA_ROOT/runtime/cli"
+  target="$build_dir/gptcodex-image"
+  temporary="$build_dir/.gptcodex-image.$$"
+  mkdir -p "$build_dir"
+  chmod 700 "$DATA_ROOT" "$DATA_ROOT/runtime" "$build_dir" 2>/dev/null || true
+  rm -f "$temporary"
+  if ! (
+    cd "$SCRIPT_DIR/go-cli"
+    CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
+      -trimpath \
+      -buildvcs=false \
+      -ldflags "-s -w -X github.com/yuanhua/image-gptcodex/pkg/client.Version=2.0.3" \
+      -o "$temporary" \
+      ./cmd/gptcodex-image
+  ); then
+    rm -f "$temporary"
+    return 1
+  fi
+  chmod 755 "$temporary"
+  mv -f "$temporary" "$target"
+  printf '%s\n' "$target"
+}
+
+CLI_BIN=$(find_cli || build_source_cli || true)
+if [ -z "$CLI_BIN" ]; then
+  printf '%s\n' "[FHL Studio CLI] Missing gptcodex-image for macOS arm64." >&2
+  printf '%s\n' "Install the Codex Skill from the DMG or keep image-cli beside FHL Studio.app." >&2
+  exit 1
+fi
+
+CONFIG_FILE="$DATA_ROOT/cli.env.local"
+if [ ! -f "$CONFIG_FILE" ]; then
+  for candidate in "$SCRIPT_DIR/config/cli.env.example" "$DATA_ROOT/config/cli.env.example"; do
+    if [ -f "$candidate" ]; then
+      CONFIG_FILE=$candidate
+      break
+    fi
+  done
+fi
+
+INPUT_DIR="$PICTURES_ROOT/input"
+OUTPUT_DIR="$PICTURES_ROOT/cli"
+RAW_DIR="$LOG_ROOT/cli"
+mkdir -p "$DATA_ROOT" "$INPUT_DIR" "$OUTPUT_DIR" "$RAW_DIR"
+chmod 700 "$DATA_ROOT" "$INPUT_DIR" "$OUTPUT_DIR" "$RAW_DIR" 2>/dev/null || true
+
+exec "$CLI_BIN" \
+  --no-input \
+  --json \
+  --config "$CONFIG_FILE" \
+  --out-dir "$OUTPUT_DIR" \
+  --raw-dir "$RAW_DIR" \
+  --input-dir "$INPUT_DIR" \
+  "$@"

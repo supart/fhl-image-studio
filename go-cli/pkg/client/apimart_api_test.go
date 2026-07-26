@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -11,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -77,6 +79,35 @@ func TestRequestAndExtractWithRetriesAPIMartSubmitPollDownload(t *testing.T) {
 	if !slicesContain(requests, "/cdn/generated.png?") {
 		t.Fatalf("image download missing: %v", requests)
 	}
+}
+
+func TestAPIMartResponseLimits(t *testing.T) {
+	t.Run("JSON", func(t *testing.T) {
+		response := &http.Response{
+			StatusCode:    http.StatusOK,
+			ContentLength: maxHTTPResponseBytes + 1,
+			Body:          io.NopCloser(strings.NewReader(`{"ok":true}`)),
+		}
+		defer response.Body.Close()
+		_, err := readAPIMartJSONResponse(response, io.Discard, "test")
+		if !errors.Is(err, ErrHTTPResponseTooLarge) {
+			t.Fatalf("err = %v, want ErrHTTPResponseTooLarge", err)
+		}
+	})
+
+	t.Run("download", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "image/png")
+			w.Header().Set("Content-Length", strconv.FormatInt(maxHTTPResponseBytes+1, 10))
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer srv.Close()
+
+		_, err := apimartImageValueToBase64(context.Background(), srv.Client(), srv.URL+"/image.png")
+		if !errors.Is(err, ErrHTTPResponseTooLarge) {
+			t.Fatalf("err = %v, want ErrHTTPResponseTooLarge", err)
+		}
+	})
 }
 
 func TestRequestAndExtractWithRetriesAPIMartEditUploadsSources(t *testing.T) {

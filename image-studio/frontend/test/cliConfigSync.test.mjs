@@ -97,6 +97,30 @@ test("syncCLIConfig only runs on local preview hosts", async () => {
   assert.equal(called, false);
 });
 
+test("syncCLIConfig uses the native Wails bridge outside localhost", async () => {
+  let captured = null;
+  let fetchCalls = 0;
+  globalThis.window = {
+    location: { hostname: "wails.localhost" },
+    go: {
+      backend: {
+        DesktopAPI: {
+          SyncCLIConfig: async (payload) => { captured = payload; },
+        },
+      },
+    },
+  };
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    return { ok: true };
+  };
+
+  assert.equal(await sync.syncCLIConfig({ apiKey: "native-test-key", size: "1:1@2k" }), true);
+  assert.equal(captured.apiKey, "native-test-key");
+  assert.equal(captured.size, "1:1@2k");
+  assert.equal(fetchCalls, 0);
+});
+
 test("syncCLIConfig forwards RunningHub bridge profile without API key", async () => {
   installWindow("127.0.0.1");
   let captured = null;

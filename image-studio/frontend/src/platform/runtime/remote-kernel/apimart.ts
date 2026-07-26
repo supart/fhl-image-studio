@@ -1,4 +1,5 @@
 import { blobToBase64, dataURLFromBase64, imageExtensionForMimeType } from "../../../lib/images.ts";
+import { ProviderPolicy } from "../../../lib/providerPolicy.ts";
 import {
   isTransportishError,
   normalizeAPIKeyForHeader,
@@ -18,7 +19,7 @@ import {
   type RemoteJobResult,
 } from "./types.ts";
 
-const APIMART_DEFAULT_MODEL = "gpt-image-2";
+const APIMART_DEFAULT_MODEL = ProviderPolicy.apimart.imageModelID;
 const APIMART_SUBMIT_TIMEOUT_MS = 240_000;
 const APIMART_TASK_TIMEOUT_MS = 1_800_000;
 const APIMART_TASK_POLL_TIMEOUT_MS = 60_000;
@@ -28,8 +29,8 @@ const APIMART_UPLOAD_TIMEOUT_MS = 120_000;
 const APIMART_UPLOAD_RETRY_DELAY_MS = 1_200;
 const APIMART_UPLOAD_RETRY_MAX_LONG_SIDE = 1024;
 const APIMART_UPLOAD_RETRY_JPEG_QUALITY = 0.78;
-const APIMART_OFFICIAL_BASE_URL = "https://api.apimart.ai";
-const APIMART_LEGACY_BASE_URL = "https://api.apib.ai";
+const APIMART_OFFICIAL_BASE_URL = ProviderPolicy.apimart.baseURL;
+const APIMART_LEGACY_BASE_URL = ProviderPolicy.apimart.legacyBaseURL;
 const APIMART_LOCAL_PROXY_PREFIX = "/__image-studio-apimart";
 const APIMART_LEGACY_LOCAL_PROXY_PREFIX = "/__image-studio-apimart-legacy";
 const APIMART_IMAGE_LOCAL_PROXY_PREFIX = "/__image-studio-apimart-image";

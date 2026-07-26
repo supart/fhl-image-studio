@@ -66,7 +66,7 @@ func normalizeKeyringUser(raw string) (string, error) {
 			return "", errors.New("profile id is empty")
 		}
 		for _, r := range rest {
-			if r == '-' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			if r == '-' || r == '_' || r == '.' || r == ':' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
 				continue
 			}
 			return "", fmt.Errorf("invalid character %q in profile id", r)

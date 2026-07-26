@@ -28,21 +28,25 @@ type GenerateOptions struct {
 	// frontend builds. Folded into ImagePaths when present.
 	ImagePath string `json:"imagePath"`
 
-	MaskB64            string `json:"maskB64"`        // optional, phase 3 reservation
-	Seed               int64  `json:"seed"`           // 0 = random
-	NegativePrompt     string `json:"negativePrompt"` // optional
-	BaseURL            string `json:"baseURL"`        // overrides the default upstream URL
-	TextModelID        string `json:"textModelID"`    // overrides the default text model
-	ImageModelID       string `json:"imageModelID"`   // overrides the default image model
-	APIMode            string `json:"apiMode"`        // "responses" (default) | "images"
-	RequestPolicy      string `json:"requestPolicy"`  // "openai" (default) | "compat"
+	MaskB64        string `json:"maskB64"`        // optional, phase 3 reservation
+	Seed           int64  `json:"seed"`           // 0 = random
+	NegativePrompt string `json:"negativePrompt"` // optional
+	BaseURL        string `json:"baseURL"`        // overrides the default upstream URL
+	TextModelID    string `json:"textModelID"`    // overrides the default text model
+	ImageModelID   string `json:"imageModelID"`   // overrides the default image model
+	APIMode        string `json:"apiMode"`        // "responses" (default) | "images"
+	// APIProfileID is a non-sensitive profile identifier used only to isolate
+	// desktop concurrency buckets. It is never forwarded upstream.
+	APIProfileID       string `json:"apiProfileId"`
+	RequestPolicy      string `json:"requestPolicy"` // "openai" (default) | "compat"
 	ImagesNewAPICompat bool   `json:"imagesNewAPICompat"`
 	ProxyMode          string `json:"proxyMode"` // "none" | "system" (default) | "custom"
 	ProxyURL           string `json:"proxyURL"`  // http(s) proxy URL when ProxyMode == "custom"
 	// NoPromptRevision is kept for backward compatibility; Responses API
 	// requests now always ask the text model to keep the prompt verbatim.
 	NoPromptRevision bool `json:"noPromptRevision"`
-	// ConcurrencyLimit is enforced per APIMode. 0 means unlimited.
+	// ConcurrencyLimit is enforced per APIProfileID when provided; callers
+	// without one retain the legacy per-APIMode bucket. 0 means unlimited.
 	ConcurrencyLimit int `json:"concurrencyLimit"`
 	// PartialImages controls Responses API stream preview count. 0 keeps the app default.
 	PartialImages int `json:"partialImages"`

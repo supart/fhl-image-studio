@@ -25,6 +25,25 @@ test("panorama studio builds a 2:1 generation size without changing prompt seman
   }), "2:1@1k");
 });
 
+test("panorama generation keeps 2:1 in manual aspect mode when switching to edit", () => {
+  const automatic = {
+    inputDir: "",
+    outputMode: "source_dir",
+    outputDir: "",
+    concurrency: 1,
+    retryOnFailure: false,
+    autoAspectResolution: "1k",
+    discoveredSources: [],
+  };
+  const manual = entry.preservePanoramaManualAspect(automatic);
+  assert.notEqual(manual, automatic);
+  assert.equal(manual.autoAspectResolution, "");
+  assert.deepEqual(manual.discoveredSources, []);
+
+  const alreadyManual = { ...automatic, autoAspectResolution: "" };
+  assert.equal(entry.preservePanoramaManualAspect(alreadyManual), alreadyManual);
+});
+
 test("panorama studio lists only recent 2:1 history items", () => {
   const history = [
     { id: "pano-size", width: 2048, height: 1024, size: "auto" },

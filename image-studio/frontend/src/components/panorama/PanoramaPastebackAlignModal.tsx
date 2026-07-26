@@ -843,6 +843,9 @@ export function PanoramaPastebackAlignModal() {
               <AlignSlider label="垂直" value={alignment.offsetYRatio} min={-0.5} max={0.5} step={0.001} onChange={(value) => setAlignment((current) => alignmentWithPatch(current, { offsetYRatio: value }))} />
               <AlignSlider label="缩放" value={alignment.scale} min={0.2} max={3} step={0.005} onChange={changeScale} />
               <AlignSlider label="旋转" value={alignment.rotationDeg} min={-45} max={45} step={0.1} format="degree" onChange={(value) => setAlignment((current) => alignmentWithPatch(current, { rotationDeg: value }))} />
+              {!maskEnabled ? (
+                <AlignSlider label="边缘羽化" value={alignment.featherFraction ?? 0.1} min={0} max={0.5} step={0.01} format="percent" onChange={(value) => setAlignment((current) => alignmentWithPatch(current, { featherFraction: value }))} />
+              ) : null}
               <AlignSlider label="预览透明度" value={opacity} min={0.1} max={1} step={0.01} format="percent" onChange={setOpacity} disabled={compareMode === "curtain"} />
             </div>
           ) : null}
@@ -865,7 +868,7 @@ export function PanoramaPastebackAlignModal() {
                 <button type="button" className={maskTool === "erase" ? "active" : ""} aria-pressed={maskTool === "erase"} onClick={() => setMaskTool("erase")}>擦除</button>
               </div>
               <AlignSlider label="画笔大小" value={maskBrushSize} min={8} max={240} step={1} format="px" disabled={!maskEnabled} onChange={setMaskBrushSize} />
-              <AlignSlider label="蒙版软边" value={maskFeatherPx} min={0} max={96} step={1} format="px" disabled={!maskEnabled} onChange={setMaskFeatherPx} />
+              <AlignSlider label="蒙版羽化" value={maskFeatherPx} min={0} max={96} step={1} format="px" disabled={!maskEnabled} onChange={setMaskFeatherPx} />
               <div className="pano-mask-actions">
                 <button type="button" className="pano-align-secondary" disabled={!maskEnabled || !maskCanUndo} onClick={undoMask}>撤销</button>
                 <button type="button" className="pano-align-secondary" disabled={!maskEnabled || !maskCanRedo} onClick={redoMask}>重做</button>
@@ -887,11 +890,6 @@ export function PanoramaPastebackAlignModal() {
 
           {activePanel === "color" ? (
             <div className="pano-align-panel">
-              {maskEnabled ? (
-                <AlignSlider label="蒙版羽化" value={maskFeatherPx} min={0} max={96} step={1} format="px" onChange={setMaskFeatherPx} />
-              ) : (
-                <AlignSlider label="边缘羽化" value={alignment.featherFraction ?? 0.1} min={0} max={0.5} step={0.01} format="percent" onChange={(value) => setAlignment((current) => alignmentWithPatch(current, { featherFraction: value }))} />
-              )}
               <AlignSlider label="明暗" value={alignment.brightness ?? 1} min={0.5} max={1.5} step={0.01} format="percent" onChange={(value) => setAlignment((current) => alignmentWithPatch(current, { brightness: value }))} />
               <AlignSlider label="对比度" value={alignment.contrast ?? 1} min={0.5} max={1.5} step={0.01} format="percent" onChange={(value) => setAlignment((current) => alignmentWithPatch(current, { contrast: value }))} />
               <AlignSlider label="色相" value={alignment.hueRotationDeg ?? 0} min={-180} max={180} step={1} format="degree" onChange={(value) => setAlignment((current) => alignmentWithPatch(current, { hueRotationDeg: value }))} />

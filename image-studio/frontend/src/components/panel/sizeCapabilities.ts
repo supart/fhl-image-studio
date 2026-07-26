@@ -1,4 +1,5 @@
 import { classifyImageModel } from "../../../../../shared/kernel/requestModel.js";
+import { DEFAULT_FHL_SIZE } from "../../lib/generationDefaults.ts";
 import type { APIMode, Mode, RequestPolicy, SizeValue } from "../../types/domain";
 
 export type FHLAspectPreset =
@@ -309,7 +310,9 @@ const LARGE_RESOLUTION_PRESETS = new Set<ResolutionPreset>(["2k", "4k"]);
 const DEFAULT_FHL_ASPECT_FROM_AUTO: Exclude<AspectPreset, "auto"> = "1:1";
 const DEFAULT_APIMART_ASPECT_FROM_AUTO: Exclude<AspectPreset, "auto"> = "9:16";
 const DEFAULT_RUNNINGHUB_ASPECT_FROM_AUTO: Exclude<AspectPreset, "auto"> = "1:1";
+const DEFAULT_FHL_RESOLUTION_FROM_AUTO: Exclude<ResolutionPreset, "auto"> = "2k";
 const DEFAULT_RESOLUTION_FROM_AUTO: Exclude<ResolutionPreset, "auto"> = "1k";
+export { DEFAULT_FHL_SIZE };
 
 function runningHubMode(mode?: Mode | string): "generate" | "edit" {
   return mode === "edit" ? "edit" : "generate";
@@ -492,13 +495,18 @@ export function buildAspectSizeSelection(
     requestPolicy: RequestPolicy;
     imageModelID?: string;
     mode?: Mode | string;
+    defaultResolutionFromAuto?: Exclude<ResolutionPreset, "auto">;
   },
 ): SizeValue {
   if (aspect === "auto") return "auto";
   const normalizedResolution = normalizeResolutionSelection(currentResolution, input);
+  const fallbackResolution = input.apiMode === "apimart" || input.apiMode === "runninghub"
+    ? DEFAULT_RESOLUTION_FROM_AUTO
+    : DEFAULT_FHL_RESOLUTION_FROM_AUTO;
+  const defaultResolution = normalizeResolutionSelection(input.defaultResolutionFromAuto ?? fallbackResolution, input);
   return buildSizeSelection(
     aspect,
-    normalizedResolution === "auto" ? DEFAULT_RESOLUTION_FROM_AUTO : normalizedResolution,
+    normalizedResolution === "auto" ? defaultResolution : normalizedResolution,
     input,
   );
 }

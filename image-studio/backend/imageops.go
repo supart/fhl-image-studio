@@ -34,6 +34,16 @@ func (s *Service) RotateImage(path string, degrees int) (ImageTransformResult, e
 	if err != nil {
 		return ImageTransformResult{}, err
 	}
+	ctx, finishOperation, err := s.beginOperation(false)
+	if err != nil {
+		return ImageTransformResult{}, err
+	}
+	defer finishOperation()
+	releaseMedia, err := s.acquireMediaSlot(ctx)
+	if err != nil {
+		return ImageTransformResult{}, err
+	}
+	defer releaseMedia()
 	src, err := loadImage(allowed)
 	if err != nil {
 		return ImageTransformResult{}, err
@@ -56,6 +66,16 @@ func (s *Service) FlipImage(path string, horizontal bool) (ImageTransformResult,
 	if err != nil {
 		return ImageTransformResult{}, err
 	}
+	ctx, finishOperation, err := s.beginOperation(false)
+	if err != nil {
+		return ImageTransformResult{}, err
+	}
+	defer finishOperation()
+	releaseMedia, err := s.acquireMediaSlot(ctx)
+	if err != nil {
+		return ImageTransformResult{}, err
+	}
+	defer releaseMedia()
 	src, err := loadImage(allowed)
 	if err != nil {
 		return ImageTransformResult{}, err
@@ -85,6 +105,16 @@ func (s *Service) CropImage(path string, x, y, w, h int) (ImageTransformResult, 
 	if err != nil {
 		return ImageTransformResult{}, err
 	}
+	ctx, finishOperation, err := s.beginOperation(false)
+	if err != nil {
+		return ImageTransformResult{}, err
+	}
+	defer finishOperation()
+	releaseMedia, err := s.acquireMediaSlot(ctx)
+	if err != nil {
+		return ImageTransformResult{}, err
+	}
+	defer releaseMedia()
 	src, err := loadImage(allowed)
 	if err != nil {
 		return ImageTransformResult{}, err

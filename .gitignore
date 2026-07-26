@@ -6,6 +6,12 @@
 /image-studio/frontend/dist/
 /image-studio/frontend/node_modules/
 /image-studio/frontend/test-results/
+/image-studio/frontend/playwright-report/
+/image-studio/frontend/coverage/
+/release-assets/
+/.build-tools/
+/cloudflare-worker/node_modules/
+/cloudflare-worker/coverage/
 /android-shell/.gradle/
 /android-shell/.gradle-wrapper/
 /android-shell/.kotlin/
@@ -33,6 +39,9 @@
 /image-studio/build/bin/data/
 *.exe
 *.exe~
+*.log
+*.prof
+coverage*.out
 
 # Go
 *.test
@@ -73,6 +82,7 @@ Thumbs.db
 .sandbox-home/
 .tmp/
 .tmp-*/
+.wails/
 
 # Frontend (wails-generated hash files)
 package-lock.json.md5

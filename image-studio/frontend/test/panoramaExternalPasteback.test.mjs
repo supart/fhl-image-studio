@@ -11,13 +11,19 @@ const canvasCssSource = await readFile(new URL("../src/styles/_canvas.css", impo
 const panoramaCssSource = await readFile(new URL("../src/components/panorama/panoramaTy360.css", import.meta.url), "utf8");
 
 test("large single-preview canvas exposes direct panorama pasteback actions only for roundtrip images", () => {
-  assert.match(canvasStageSource, /hasPanoramaRoundtripRef\(currentImage\)/);
-  assert.match(canvasStageSource, /!currentImage\.id\.startsWith\("source-preview-"\)/);
+  assert.match(canvasStageSource, /recoverPanoramaItemMetadataFromTask\(currentImage, recoveryTask, history\)/);
+  assert.match(canvasStageSource, /currentImageIsWorkspaceResult && activeWorkspace\?\.mode === "edit"/);
+  assert.match(canvasStageSource, /hasPanoramaRoundtripRef\(currentPanoramaPastebackItem\)/);
+  assert.match(canvasStageSource, /!currentPanoramaPastebackItem\.id\.startsWith\("source-preview-"\)/);
   assert.match(canvasStageSource, /canvas-panorama-pasteback-actions/);
-  assert.match(canvasStageSource, /openPanoramaPastebackAligner\(currentImage\)/);
-  assert.match(canvasStageSource, /openExternalPanoramaPastebackPicker\(currentImage\)/);
+  assert.match(canvasStageSource, /repastePanoramaRoundtrip: state\.repastePanoramaRoundtrip/);
+  assert.match(canvasStageSource, /repastePanoramaRoundtrip\(item, \{ selectAsCurrent: true \}\)/);
+  assert.match(canvasStageSource, />\{panoramaQuickPastebackBusy \? "贴回中" : "自动贴回"\}<\/span>/);
+  assert.match(canvasStageSource, /openPanoramaPastebackAligner\(currentPanoramaPastebackItem\)/);
+  assert.match(canvasStageSource, /openExternalPanoramaPastebackPicker\(currentPanoramaPastebackItem\)/);
   assert.match(canvasStageSource, /accept="image\/png,image\/jpeg,image\/webp"/);
   assert.match(canvasCssSource, /\.canvas-panorama-pasteback-actions/);
+  assert.match(canvasCssSource, /grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
   assert.match(canvasCssSource, /\.canvas-panorama-pasteback-button/);
 });
 

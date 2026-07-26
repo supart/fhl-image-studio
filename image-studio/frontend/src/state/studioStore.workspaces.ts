@@ -4,6 +4,7 @@ import {
 } from "../platform/runtime/host";
 import type { HistoryItem, Workspace } from "../types/domain";
 import type { StudioState } from "./studioStore.types";
+import { DEFAULT_FHL_SIZE } from "../lib/generationDefaults";
 import { historyItemsByIds, saveActiveWorkspaceSnapshot } from "./studioStore.runtime";
 import { streamPreviewItemFromWorkspace } from "./studioStore.streamPreview";
 import { defaultBatchProcessConfig } from "./workspaceRuntime";
@@ -27,7 +28,7 @@ export function createWorkspaceActions(store: StateAdapter) {
         optimizationGuidance: "",
         negativePrompt: "",
         mode: "generate",
-        size: "1024x1024",
+        size: DEFAULT_FHL_SIZE,
         quality: "medium",
         outputFormat: state.outputFormat,
         seed: 0,

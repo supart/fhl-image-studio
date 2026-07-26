@@ -495,14 +495,15 @@ export function findPanoramaRoundtripRef(
 }
 
 export function resolvePanoramaRoundtripRef(
-  item: Pick<HistoryItem, "panoramaRoundtrip" | "sourceImages"> | null | undefined,
+  item: Pick<HistoryItem, "panoramaProject" | "panoramaRoundtrip" | "sourceImages"> | null | undefined,
 ): PanoramaRoundtripRef | null {
   if (!item) return null;
+  if (item.panoramaProject?.role === "pasted-panorama") return null;
   return item.panoramaRoundtrip ?? findPanoramaRoundtripRef(item.sourceImages);
 }
 
 export function hasPanoramaRoundtripRef(
-  item: Pick<HistoryItem, "panoramaRoundtrip" | "sourceImages"> | null | undefined,
+  item: Pick<HistoryItem, "panoramaProject" | "panoramaRoundtrip" | "sourceImages"> | null | undefined,
 ): boolean {
   return !!resolvePanoramaRoundtripRef(item);
 }

@@ -2,7 +2,7 @@ import { Fragment, type DragEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, Images, Plus, X } from "lucide-react";
 import { useStudioStore } from "../../state/studioStore";
-import { useBlobURL } from "../../lib/images";
+import { dataURLFromBase64, useBlobURL } from "../../lib/images";
 import { materializeCompareSourceAsHistoryItem } from "../../state/compareSourceSelection";
 import { sourceToDataURL } from "../../lib/virtualHostStore";
 import { usePlatform } from "../../platform/context";
@@ -13,6 +13,21 @@ function clampBatchQueueSlotIndex(value: unknown, fixedSourceCount: number): num
   const n = Number(value);
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(Math.max(0, fixedSourceCount), Math.floor(n)));
+}
+
+async function sourceToRenderableDataURL(source: {
+  path?: string;
+  name?: string;
+  mimeType?: string | null;
+  imageB64?: string | null;
+  imageBlob?: Blob | null;
+} | null | undefined): Promise<string> {
+  const dataURL = await sourceToDataURL(source).catch(() => "");
+  if (dataURL || !source?.path) return dataURL;
+  const imported = await ImportImagePath(source.path).catch(() => null);
+  const readablePath = imported?.path || source.path;
+  const imageB64 = imported?.imageB64 || await ReadImageAsBase64(readablePath).catch(() => "");
+  return imageB64 ? dataURLFromBase64(imageB64, source.mimeType) : "";
 }
 
 export function SourceStrip() {
@@ -30,7 +45,7 @@ export function SourceStrip() {
   const selectBatchInputFiles = useStudioStore((s) => s.selectBatchInputFiles);
   const importSourceImageFile = useStudioStore((s) => s.importSourceImageFile);
   const pushToast = useStudioStore((s) => s.pushToast);
-  const { isMac, usesFluentUI, usesAppleUI } = usePlatform();
+  const { usesMacDesktopUI, usesFluentUI, usesAppleUI } = usePlatform();
 
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
@@ -140,14 +155,14 @@ export function SourceStrip() {
       title={stripTitle}
       className={`source-strip relative border-b border-[var(--border)] bg-[var(--toolbar)] backdrop-blur-2xl transition-colors ${
         fileDragActive ? "bg-[var(--accent-soft)] shadow-[inset_0_0_0_2px_var(--accent)]" : ""
-      } ${usesAppleUI ? "liquid-glass-bar" : ""} ${isMac ? "px-3 py-2.5" : "px-3 py-2"}`}
+      } ${usesAppleUI ? "liquid-glass-bar" : ""} ${usesMacDesktopUI ? "px-3 py-2.5" : "px-3 py-2"}`}
     >
-      <div className={`flex ${isMac ? "items-start justify-between gap-3" : "items-center gap-2"} overflow-x-auto`}>
+      <div className={`flex ${usesMacDesktopUI ? "items-start justify-between gap-3" : "items-center gap-2"} overflow-x-auto`}>
         <div className="min-w-0 shrink-0">
           <div className={`source-strip-label shrink-0 text-[11px] ${fileDragActive ? "font-medium text-[var(--accent)]" : "text-zinc-500"}`}>
             {stripLabel}
           </div>
-          {isMac && (
+          {usesMacDesktopUI && (
             <div className="mt-0.5 text-[11px] leading-5 text-zinc-500 dark:text-zinc-400">
               {stripHint}
             </div>
@@ -274,16 +289,17 @@ function BatchQueueStripTile({
   const cover = sources.find((source) => source.selected !== false) ?? sources[0] ?? null;
   const immediatePreviewURL = cover?.previewUrl || "";
   const [pathPreviewURL, setPathPreviewURL] = useState("");
-  const previewURL = immediatePreviewURL || pathPreviewURL;
+  const [previewUrlFailed, setPreviewUrlFailed] = useState(false);
+  const previewURL = !previewUrlFailed && immediatePreviewURL ? immediatePreviewURL : pathPreviewURL;
   const { usesFluentUI } = usePlatform();
 
   useEffect(() => {
     let cancelled = false;
-    if (immediatePreviewURL || !cover?.path) {
+    if ((!previewUrlFailed && immediatePreviewURL) || !cover?.path) {
       setPathPreviewURL("");
       return () => { cancelled = true; };
     }
-    sourceToDataURL(cover)
+    sourceToRenderableDataURL(cover)
       .then((dataURL) => {
         if (!cancelled) setPathPreviewURL(dataURL);
       })
@@ -291,7 +307,11 @@ function BatchQueueStripTile({
         if (!cancelled) setPathPreviewURL("");
       });
     return () => { cancelled = true; };
-  }, [cover, immediatePreviewURL]);
+  }, [cover, immediatePreviewURL, previewUrlFailed]);
+
+  useEffect(() => {
+    setPreviewUrlFailed(false);
+  }, [cover?.path, immediatePreviewURL]);
 
   return (
     <div
@@ -327,6 +347,9 @@ function BatchQueueStripTile({
             alt={cover?.name ?? "批量队列封面"}
             loading="lazy"
             decoding="async"
+            onError={() => {
+              if (immediatePreviewURL && previewURL === immediatePreviewURL) setPreviewUrlFailed(true);
+            }}
             className="h-full w-full object-cover"
           />
         ) : (
@@ -494,15 +517,16 @@ function BatchQueuePreviewSourceTile({
   const active = source.selected !== false;
   const immediatePreviewURL = source.previewUrl || "";
   const [pathPreviewURL, setPathPreviewURL] = useState("");
-  const previewURL = immediatePreviewURL || pathPreviewURL;
+  const [previewUrlFailed, setPreviewUrlFailed] = useState(false);
+  const previewURL = !previewUrlFailed && immediatePreviewURL ? immediatePreviewURL : pathPreviewURL;
 
   useEffect(() => {
     let cancelled = false;
-    if (immediatePreviewURL || !source.path) {
+    if ((!previewUrlFailed && immediatePreviewURL) || !source.path) {
       setPathPreviewURL("");
       return () => { cancelled = true; };
     }
-    sourceToDataURL(source)
+    sourceToRenderableDataURL(source)
       .then((dataURL) => {
         if (!cancelled) setPathPreviewURL(dataURL);
       })
@@ -510,7 +534,11 @@ function BatchQueuePreviewSourceTile({
         if (!cancelled) setPathPreviewURL("");
       });
     return () => { cancelled = true; };
-  }, [immediatePreviewURL, source]);
+  }, [immediatePreviewURL, previewUrlFailed, source]);
+
+  useEffect(() => {
+    setPreviewUrlFailed(false);
+  }, [immediatePreviewURL, source.path]);
 
   return (
     <div
@@ -542,6 +570,9 @@ function BatchQueuePreviewSourceTile({
             alt={source.name}
             loading="lazy"
             decoding="async"
+            onError={() => {
+              if (immediatePreviewURL && previewURL === immediatePreviewURL) setPreviewUrlFailed(true);
+            }}
             className="h-full w-full object-cover"
           />
         ) : (
@@ -599,12 +630,13 @@ function SourceTile({
   const objectURL = useBlobURL(source.imageBlob ?? null, source.imageB64 ?? null);
   const immediatePreviewURL = source.previewUrl || objectURL;
   const [pathPreviewURL, setPathPreviewURL] = useState("");
-  const previewURL = immediatePreviewURL || pathPreviewURL;
+  const [previewUrlFailed, setPreviewUrlFailed] = useState(false);
+  const previewURL = !previewUrlFailed && immediatePreviewURL ? immediatePreviewURL : pathPreviewURL;
   const { usesFluentUI } = usePlatform();
 
   async function openSourceOnCanvas() {
     const state = useStudioStore.getState();
-    const dataURL = await sourceToDataURL(source).catch(() => "");
+    const dataURL = await sourceToRenderableDataURL(source).catch(() => "");
     let imageB64 = dataURLBase64(dataURL) || source.imageB64 || undefined;
     let imageBlob = source.imageBlob ?? null;
     let savedPath = source.path;
@@ -615,18 +647,6 @@ function SourceTile({
     let height = source.height;
 
     if (savedPath && !imageB64 && !imageBlob) {
-      const ref = await RegisterImportedImageAsset(savedPath).catch(() => null);
-      if (ref) {
-        savedPath = ref.savedPath || savedPath;
-        previewUrl = ref.previewUrl || previewUrl;
-        imageId = ref.imageId || imageId;
-        fullUrl = ref.fullUrl || fullUrlFromImageId(ref.imageId) || fullUrl;
-        width = ref.width || width;
-        height = ref.height || height;
-      }
-    }
-
-    if (savedPath && !fullUrl && !imageId && !imageB64 && !imageBlob) {
       const imported = await ImportImagePath(savedPath).catch(() => null);
       if (imported?.path) {
         savedPath = imported.path;
@@ -636,6 +656,18 @@ function SourceTile({
         imageB64 = imported.imageB64 || imageB64;
         width = imported.width || width;
         height = imported.height || height;
+      }
+    }
+
+    if (savedPath && !fullUrl && !imageId && !imageB64 && !imageBlob) {
+      const ref = await RegisterImportedImageAsset(savedPath).catch(() => null);
+      if (ref) {
+        savedPath = ref.savedPath || savedPath;
+        previewUrl = ref.previewUrl || previewUrl;
+        imageId = ref.imageId || imageId;
+        fullUrl = ref.fullUrl || fullUrlFromImageId(ref.imageId) || fullUrl;
+        width = ref.width || width;
+        height = ref.height || height;
       }
     }
 
@@ -675,11 +707,11 @@ function SourceTile({
 
   useEffect(() => {
     let cancelled = false;
-    if (immediatePreviewURL || !source.path) {
+    if ((!previewUrlFailed && immediatePreviewURL) || !source.path) {
       setPathPreviewURL("");
       return () => { cancelled = true; };
     }
-    sourceToDataURL(source)
+    sourceToRenderableDataURL(source)
       .then((dataURL) => {
         if (!cancelled) setPathPreviewURL(dataURL);
       })
@@ -687,7 +719,11 @@ function SourceTile({
         if (!cancelled) setPathPreviewURL("");
       });
     return () => { cancelled = true; };
-  }, [immediatePreviewURL, source]);
+  }, [immediatePreviewURL, previewUrlFailed, source]);
+
+  useEffect(() => {
+    setPreviewUrlFailed(false);
+  }, [immediatePreviewURL, source.path]);
 
   return (
     <div
@@ -727,6 +763,9 @@ function SourceTile({
           alt={source.name}
           loading="lazy"
           decoding="async"
+          onError={() => {
+            if (immediatePreviewURL && previewURL === immediatePreviewURL) setPreviewUrlFailed(true);
+          }}
           className="w-full h-full object-cover"
         />
       ) : (

@@ -15,6 +15,8 @@ export function UpstreamProfileList({
   activeProfileId,
   draftId,
   isAndroidPhone,
+  profileLimit,
+  canCreateProfile,
   onSelectProfile,
   onHandleNew,
   onHandleDuplicate,
@@ -26,6 +28,8 @@ export function UpstreamProfileList({
   activeProfileId: string;
   draftId?: string;
   isAndroidPhone: boolean;
+  profileLimit: number;
+  canCreateProfile: boolean;
   onSelectProfile: (id: string) => void;
   onHandleNew: () => void | Promise<void>;
   onHandleDuplicate: () => void | Promise<void>;
@@ -61,27 +65,36 @@ export function UpstreamProfileList({
                     className={`h-2 w-2 shrink-0 rounded-full ${isActive ? "bg-[var(--accent)] shadow-[0_0_5px_rgb(0_122_255_/_0.6)]" : "bg-zinc-300 dark:bg-zinc-700"}`}
                   />
                   <span className="min-w-0 flex-1 truncate break-words text-[13px] font-medium [overflow-wrap:anywhere]">{p.name}</span>
-                  <span className="shrink-0 text-[9px] uppercase tracking-wider opacity-70">
-                    {modeBadge(p.apiMode)}
-                  </span>
+                   <span className="shrink-0 text-[9px] uppercase tracking-wider opacity-70">
+                     {modeBadge(p.apiMode)}
+                   </span>
+                   {p.apiMode === "images" && p.continuousPoolEnabled === true ? (
+                     <span className="shrink-0 text-[9px] font-semibold text-emerald-600 dark:text-emerald-400">池</span>
+                   ) : null}
                 </button>
               );
             })}
           </div>
         )}
       </div>
+      <div className="flex items-center justify-between gap-2 text-[10px] text-zinc-500 dark:text-zinc-400">
+        <span>{profiles.length}/{profileLimit} 个配置</span>
+        {!canCreateProfile ? <span>已达上限</span> : null}
+      </div>
       <div className="flex flex-wrap gap-1.5">
         <button
           type="button"
           onClick={() => void onHandleNew()}
-          className={`platform-action-btn inline-flex flex-1 items-center justify-center gap-1 border border-black/[0.08] px-2.5 py-1.5 text-[11px] text-zinc-700 transition-colors hover:border-[color:var(--accent)]/35 hover:text-[var(--accent)] dark:border-white/[0.08] dark:text-zinc-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
+          disabled={!canCreateProfile}
+          title={canCreateProfile ? "新建配置" : "已达到 API 配置上限"}
+          className={`platform-action-btn inline-flex flex-1 items-center justify-center gap-1 border border-black/[0.08] px-2.5 py-1.5 text-[11px] text-zinc-700 transition-colors hover:border-[color:var(--accent)]/35 hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[0.08] dark:text-zinc-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
         >
           <Plus className="h-3 w-3" /> 新建
         </button>
         <button
           type="button"
           onClick={() => void onHandleDuplicate()}
-          disabled={!selectedId}
+          disabled={!selectedId || !canCreateProfile}
           title="复制当前选中"
           className={`platform-action-btn inline-flex items-center justify-center gap-1 border border-black/[0.08] px-2.5 py-1.5 text-[11px] text-zinc-700 transition-colors hover:border-[color:var(--accent)]/35 hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[0.08] dark:text-zinc-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
         >

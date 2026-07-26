@@ -58,6 +58,9 @@ func (s *Service) importImageFile(path string) (ImportedImage, error) {
 	if info.IsDir() {
 		return ImportedImage{}, fmt.Errorf("path is a directory: %s", path)
 	}
+	if info.Size() > client.MaxInputImageBytes {
+		return ImportedImage{}, fmt.Errorf("图片超过 50MB,请换一张更小的图片")
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ImportedImage{}, err
@@ -66,11 +69,9 @@ func (s *Service) importImageFile(path string) (ImportedImage, error) {
 }
 
 func (s *Service) importImageBytes(data []byte, suggestedName string) (ImportedImage, error) {
-	if len(data) == 0 {
-		return ImportedImage{}, errors.New("image data is empty")
-	}
-	if len(data) > client.MaxInputImageBytes {
-		return ImportedImage{}, fmt.Errorf("图片超过 50MB,请换一张更小的图片")
+	validated, err := validateImageBytes(data)
+	if err != nil {
+		return ImportedImage{}, err
 	}
 
 	dir, err := importsDir()
@@ -81,17 +82,13 @@ func (s *Service) importImageBytes(data []byte, suggestedName string) (ImportedI
 		return ImportedImage{}, err
 	}
 
-	ext := guessExt(suggestedName, data)
+	ext := validated.Extension
 	name := time.Now().Format("20060102-150405") + "-" + sanitiseName(suggestedName) + ext
 	full := filepath.Join(dir, name)
-	if err := os.WriteFile(full, data, secureFileMode); err != nil {
+	if err := os.WriteFile(full, validated.Bytes, secureFileMode); err != nil {
 		return ImportedImage{}, fmt.Errorf("write import file: %w", err)
 	}
-	width, height := 0, 0
-	if cfg, cfgErr := imageConfig(full); cfgErr == nil {
-		width, height = cfg.Width, cfg.Height
-	}
-	return ImportedImage{Path: full, Width: width, Height: height}, nil
+	return ImportedImage{Path: full, Width: validated.Config.Width, Height: validated.Config.Height}, nil
 }
 
 // sanitiseName produces a filename-safe stem from a user-supplied filename.
@@ -127,25 +124,4 @@ func sanitiseName(s string) string {
 		return "import"
 	}
 	return strings.Trim(out, "-")
-}
-
-// guessExt sniffs magic bytes first, then falls back to the suggested
-// filename's extension if it's one of the supported image types.
-func guessExt(name string, data []byte) string {
-	if len(data) >= 8 && data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G' {
-		return ".png"
-	}
-	if len(data) >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff {
-		return ".jpg"
-	}
-	if len(data) >= 12 && string(data[0:4]) == "RIFF" && string(data[8:12]) == "WEBP" {
-		return ".webp"
-	}
-	if dot := strings.LastIndex(name, "."); dot > 0 {
-		ext := strings.ToLower(name[dot:])
-		if _, ok := client.SupportedImageMime[ext]; ok {
-			return ext
-		}
-	}
-	return ".png"
 }

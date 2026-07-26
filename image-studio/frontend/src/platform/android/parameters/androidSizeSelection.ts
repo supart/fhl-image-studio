@@ -21,7 +21,7 @@ export function buildAndroidAspectSizeSelection(
   return buildAspectSizeSelection(
     aspect,
     currentResolution,
-    input,
+    { ...input, defaultResolutionFromAuto: "1k" },
   );
 }
 

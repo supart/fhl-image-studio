@@ -2,59 +2,184 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, "codex/**"]
   pull_request:
     branches: [main, master]
 
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24.13.1"
+  GO_VERSION: "1.26.3"
+  WAILS_VERSION: "v2.12.0"
+
 jobs:
-  go:
-    name: Go tests
+  frontend:
+    name: Frontend and Worker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: image-studio/frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: image-studio/frontend
+        run: npm ci
+      - name: Lint
+        working-directory: image-studio/frontend
+        run: npm run lint
+      - name: Typecheck
+        working-directory: image-studio/frontend
+        run: npm run typecheck
+      - name: Node behavior tests
+        working-directory: image-studio/frontend
+        run: npm run test:node
+      - name: UI behavior tests
+        working-directory: image-studio/frontend
+        run: npm run test:ui
+      - name: Worker tests
+        working-directory: cloudflare-worker
+        run: npm test
+
+  go-windows:
+    name: Go format, vet, and test
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25.5"
+          go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: |
-            go-cli/go.sum
+            go.work.sum
             image-studio/go.sum
-      - name: Test CLI module
+      - name: Check gofmt
+        shell: pwsh
+        run: |
+          $files = gofmt -l .\go-cli .\image-studio
+          if ($files) {
+            $files
+            throw "gofmt drift detected"
+          }
+      - name: Vet and test CLI
         working-directory: go-cli
-        run: go test ./...
+        shell: pwsh
+        run: |
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test ./...
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: image-studio/frontend/package-lock.json
-      - name: Install frontend dependencies for desktop embed
+      - name: Build desktop embed assets
         working-directory: image-studio/frontend
-        run: npm ci
-      - name: Build frontend assets for desktop Go tests
-        working-directory: image-studio/frontend
-        run: npm run build
-      - name: Test desktop backend module
+        run: |
+          npm ci
+          npm run build:windows
+      - name: Vet and test desktop
         working-directory: image-studio
-        run: go test ./...
+        shell: pwsh
+        run: |
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test ./...
 
-  frontend:
-    name: Frontend tests and build
-    runs-on: windows-latest
+  go-race:
+    name: Go race detector
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            go.work.sum
+            image-studio/go.sum
+      - name: Race test CLI
+        working-directory: go-cli
+        run: go test -race ./...
+      - name: Race test desktop backend
+        working-directory: image-studio
+        run: go test -race ./backend
+
+  frontend-targets:
+    name: Frontend target (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [windows, macos, linux, android, android-pad]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: image-studio/frontend/package-lock.json
       - name: Install dependencies
         working-directory: image-studio/frontend
         run: npm ci
-      - name: Run frontend tests
+      - name: Build target
         working-directory: image-studio/frontend
-        run: npm test
-      - name: Build frontend
-        working-directory: image-studio/frontend
-        run: npm run build
+        run: npm run build:${{ matrix.target }}
+
+  wails-windows:
+    name: Wails Windows build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            go.work.sum
+            image-studio/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: image-studio/frontend/package-lock.json
+      - name: Install Wails CLI
+        shell: pwsh
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+      - name: Build Windows application
+        working-directory: image-studio
+        shell: pwsh
+        env:
+          IMAGE_STUDIO_PRODUCT_VERSION: "2.0.3"
+          IMAGE_STUDIO_FRONTEND_VERSION: "2.0.3"
+          VITE_APP_VERSION: "2.0.3"
+          IMAGE_STUDIO_STORAGE_NAMESPACE: fhl-image-studio-desktop
+        run: wails build -platform windows/amd64 -clean -ldflags "-X github.com/yuanhua/image-gptcodex/pkg/client.Version=2.0.3"
+
+  macos-arm64:
+    name: macOS Apple Silicon package
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            go.work.sum
+            image-studio/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: image-studio/frontend/package-lock.json
+      - name: Build and verify macOS arm64 release
+        env:
+          FHL_REQUIRE_EXACT_TOOLCHAIN: "1"
+        run: |
+          bash scripts/package-local-macos-app.sh "$RUNNER_TEMP/release-assets"
+          node scripts/verify-local-macos-release.mjs \
+            "image-studio/build/bin/FHL Studio.app" \
+            "$RUNNER_TEMP/release-assets/FHL-Image-Studio-Desktop-V2.0.3-macOS-AppleSilicon.dmg"
 
   release-hygiene:
     name: Release hygiene

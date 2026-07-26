@@ -92,16 +92,21 @@ func (s *Service) OpenImagesDialog() (SelectFilesResponse, error) {
 		return SelectFilesResponse{}, nil
 	}
 	files := make([]BatchInputImage, 0, len(paths))
+	failures := make([]string, 0)
 	for _, path := range paths {
 		if strings.TrimSpace(path) == "" {
 			continue
 		}
 		info, statErr := os.Stat(path)
 		if statErr != nil || info.IsDir() {
+			if statErr != nil {
+				failures = append(failures, fmt.Sprintf("%s: %v", filepath.Base(path), statErr))
+			}
 			continue
 		}
 		imported, importErr := s.importImageFile(path)
 		if importErr != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", filepath.Base(path), importErr))
 			continue
 		}
 		item := BatchInputImage{
@@ -119,6 +124,13 @@ func (s *Service) OpenImagesDialog() (SelectFilesResponse, error) {
 			}
 		}
 		files = append(files, item)
+	}
+	if len(files) == 0 && len(failures) > 0 {
+		detail := strings.Join(failures, "; ")
+		if len(failures) > 3 {
+			detail = strings.Join(failures[:3], "; ") + fmt.Sprintf("; 等 %d 张失败", len(failures))
+		}
+		return SelectFilesResponse{}, fmt.Errorf("批处理图片导入失败: %s", detail)
 	}
 	return SelectFilesResponse{Files: files}, nil
 }
@@ -155,6 +167,10 @@ func (s *Service) ListBatchInputImages(directory string) (BatchInputDirectory, e
 	if !info.IsDir() {
 		return BatchInputDirectory{}, fmt.Errorf("不是目录: %s", root)
 	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return BatchInputDirectory{}, fmt.Errorf("解析目录失败: %w", err)
+	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return BatchInputDirectory{}, fmt.Errorf("读取目录失败: %w", err)
@@ -168,51 +184,115 @@ func (s *Service) ListBatchInputImages(directory string) (BatchInputDirectory, e
 		if _, ok := supportedBatchInputExtensions[ext]; !ok {
 			continue
 		}
-		path := filepath.Join(root, entry.Name())
-		info, infoErr := entry.Info()
+		path, pathErr := canonicalBatchInputPath(root, filepath.Join(root, entry.Name()))
+		if pathErr != nil {
+			continue
+		}
+		info, infoErr := os.Stat(path)
 		if infoErr != nil {
 			continue
 		}
-		item := BatchInputImage{
-			Path: path,
-			Name: entry.Name(),
-			Size: info.Size(),
+		if info.IsDir() {
+			continue
 		}
-		if cfg, cfgErr := imageConfig(path); cfgErr == nil {
-			item.Width = cfg.Width
-			item.Height = cfg.Height
-		}
-		if info.Size() > 0 && info.Size() <= maxDialogReadBytes {
-			if preview, previewErr := s.registerImportedPreview(path); previewErr == nil {
-				item.PreviewURL = preview.PreviewURL
-				item.PreviewWidth = preview.PreviewWidth
-				item.PreviewHeight = preview.PreviewHeight
-			}
+		item, itemErr := s.materializeBatchInputImage(path, entry.Name(), info)
+		if itemErr != nil {
+			continue
 		}
 		images = append(images, item)
 	}
+	resultDirectory := root
+	if common := commonDirectoryFromBatchImages(images); common != "" {
+		resultDirectory = common
+	}
 	return BatchInputDirectory{
-		Directory: root,
+		Directory: resultDirectory,
 		Images:    images,
 	}, nil
 }
 
+func canonicalBatchInputPath(root, path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	if !isWithinRoot(resolved, root) {
+		return "", fmt.Errorf("拒绝访问批量目录之外的文件: %s", filepath.Base(path))
+	}
+	return resolved, nil
+}
+
+func (s *Service) materializeBatchInputImage(path, displayName string, info os.FileInfo) (BatchInputImage, error) {
+	managedPath := path
+	if _, err := s.ensureManagedReadablePath(path, managedImageFile); err != nil {
+		imported, importErr := s.importImageFile(path)
+		if importErr != nil {
+			return BatchInputImage{}, importErr
+		}
+		managedPath = imported.Path
+	}
+	item := BatchInputImage{
+		Path: managedPath,
+		Name: displayName,
+		Size: info.Size(),
+	}
+	if cfg, cfgErr := imageConfig(managedPath); cfgErr == nil {
+		item.Width = cfg.Width
+		item.Height = cfg.Height
+	}
+	if info.Size() > 0 && info.Size() <= maxDialogReadBytes {
+		if preview, previewErr := s.registerImportedPreview(managedPath); previewErr == nil {
+			item.PreviewURL = preview.PreviewURL
+			item.PreviewWidth = preview.PreviewWidth
+			item.PreviewHeight = preview.PreviewHeight
+		}
+	}
+	return item, nil
+}
+
+func commonDirectoryFromBatchImages(images []BatchInputImage) string {
+	common := ""
+	for _, image := range images {
+		dir := filepath.Dir(strings.TrimSpace(image.Path))
+		if dir == "." || dir == "" {
+			continue
+		}
+		if common == "" {
+			common = dir
+			continue
+		}
+		if common != dir {
+			return ""
+		}
+	}
+	return common
+}
+
 // SaveImageAs prompts the user for a destination and writes the base64 PNG to disk.
 func (s *Service) SaveImageAs(imageB64, suggestedName string) (string, error) {
+	validated, err := decodeBase64Image(imageB64)
+	if err != nil {
+		return "", err
+	}
 	if suggestedName == "" {
-		suggestedName = fmt.Sprintf("image-%d.png", time.Now().Unix())
+		suggestedName = fmt.Sprintf("image-%d%s", time.Now().Unix(), validated.Extension)
+	} else {
+		suggestedName = filepath.Base(forceImageExtension(suggestedName, validated.Extension))
 	}
 	dst, err := runtime.SaveFileDialog(s.ctx, runtime.SaveDialogOptions{
 		Title:           "保存图片",
 		DefaultFilename: suggestedName,
 		Filters: []runtime.FileFilter{
-			{DisplayName: "PNG 图片 (*.png)", Pattern: "*.png"},
+			{DisplayName: "图片文件 (*.png;*.jpg;*.jpeg;*.webp;*.avif)", Pattern: "*.png;*.jpg;*.jpeg;*.webp;*.avif"},
 		},
 	})
 	if err != nil || dst == "" {
 		return "", err
 	}
-	return writeBase64PNG(imageB64, dst)
+	if !imageExtensionMatches(dst, validated.Extension) {
+		return "", fmt.Errorf("保存扩展名必须与图片格式匹配:%s", validated.Extension)
+	}
+	return writeImageBytes(validated.Bytes, dst)
 }
 
 // SaveImagePathAs copies an existing managed image to a user-selected path.
@@ -237,34 +317,35 @@ func (s *Service) SaveImagePathAs(path, suggestedName string) (string, error) {
 	if err != nil || dst == "" {
 		return "", err
 	}
-	data, err := os.ReadFile(allowed)
+	validated, err := readValidatedImageFile(allowed)
 	if err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(dst, data, secureFileMode); err != nil {
-		return "", err
+	if !imageExtensionMatches(dst, validated.Extension) {
+		return "", fmt.Errorf("保存扩展名必须与图片格式匹配:%s", validated.Extension)
 	}
-	abs, _ := filepath.Abs(dst)
-	return abs, nil
+	return writeImageBytes(validated.Bytes, dst)
 }
 
 // SaveImageToDir writes a base64 image into a specified directory without
 // opening a save dialog. It is a low-level capability for future auto-save
 // workflows; current UI flows still use SaveImageAs by default.
 func (s *Service) SaveImageToDir(imageB64, directory, suggestedName string) (string, error) {
-	if strings.TrimSpace(imageB64) == "" {
-		return "", errors.New("image data is empty")
-	}
-	root, err := ensureTargetDirectory(directory)
+	validated, err := decodeBase64Image(imageB64)
 	if err != nil {
 		return "", err
 	}
-	name := ensureTargetFileName(suggestedName, fmt.Sprintf("image-%d.png", time.Now().Unix()))
+	root, err := s.ensureManagedWritableDirectory(directory)
+	if err != nil {
+		return "", err
+	}
+	name := ensureTargetFileName(suggestedName, fmt.Sprintf("image-%d%s", time.Now().Unix(), validated.Extension))
+	name = filepath.Base(forceImageExtension(name, validated.Extension))
 	dst, err := uniqueTargetPath(root, name)
 	if err != nil {
 		return "", err
 	}
-	return writeBase64PNG(imageB64, dst)
+	return writeImageBytes(validated.Bytes, dst)
 }
 
 // SaveImagePathToDir copies an existing managed image into a specified
@@ -274,24 +355,21 @@ func (s *Service) SaveImagePathToDir(path, directory, suggestedName string) (str
 	if err != nil {
 		return "", err
 	}
-	root, err := ensureTargetDirectory(directory)
+	root, err := s.ensureManagedWritableDirectory(directory)
+	if err != nil {
+		return "", err
+	}
+	validated, err := readValidatedImageFile(allowed)
 	if err != nil {
 		return "", err
 	}
 	name := ensureTargetFileName(suggestedName, filepath.Base(allowed))
+	name = filepath.Base(forceImageExtension(name, validated.Extension))
 	dst, err := uniqueTargetPath(root, name)
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(allowed)
-	if err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(dst, data, secureFileMode); err != nil {
-		return "", err
-	}
-	abs, _ := filepath.Abs(dst)
-	return abs, nil
+	return writeImageBytes(validated.Bytes, dst)
 }
 
 // GetOutputDir returns the directory where generated images and raw response
@@ -341,7 +419,17 @@ func (s *Service) SyncMaterialGroupToOutput(groupKind, groupName string, items [
 			})
 			continue
 		}
+		validated, readErr := readValidatedImageFile(allowed)
+		if readErr != nil {
+			result.MissingItems = append(result.MissingItems, MaterialOutputSyncMissing{
+				HistoryID: historyID,
+				Path:      path,
+				Reason:    readErr.Error(),
+			})
+			continue
+		}
 		name := ensureTargetFileName(item.SuggestedName, filepath.Base(allowed))
+		name = filepath.Base(forceImageExtension(name, validated.Extension))
 		dst, pathErr := uniqueTargetPath(targetDir, name)
 		if pathErr != nil {
 			result.MissingItems = append(result.MissingItems, MaterialOutputSyncMissing{
@@ -351,16 +439,7 @@ func (s *Service) SyncMaterialGroupToOutput(groupKind, groupName string, items [
 			})
 			continue
 		}
-		data, readErr := os.ReadFile(allowed)
-		if readErr != nil {
-			result.MissingItems = append(result.MissingItems, MaterialOutputSyncMissing{
-				HistoryID: historyID,
-				Path:      path,
-				Reason:    readErr.Error(),
-			})
-			continue
-		}
-		if writeErr := os.WriteFile(dst, data, secureFileMode); writeErr != nil {
+		if writeErr := os.WriteFile(dst, validated.Bytes, secureFileMode); writeErr != nil {
 			result.MissingItems = append(result.MissingItems, MaterialOutputSyncMissing{
 				HistoryID: historyID,
 				Path:      path,
@@ -393,32 +472,35 @@ func (s *Service) OpenMaterialSyncDir(path string) error {
 	if err != nil {
 		return fmt.Errorf("路径无效:%w", err)
 	}
-	if err := os.MkdirAll(abs, secureDirMode); err != nil {
-		return err
-	}
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
 		return err
 	}
-	if !isWithinRoot(abs, rootAbs) {
+	if err := os.MkdirAll(rootAbs, secureDirMode); err != nil {
+		return err
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(rootAbs)
+	if err != nil {
+		return err
+	}
+	resolvedCandidate, err := resolvePathWithExistingAncestor(abs)
+	if err != nil {
+		return err
+	}
+	if !isWithinRoot(resolvedCandidate, resolvedRoot) {
 		return fmt.Errorf("拒绝打开 output 之外的素材目录:%s", filepath.Base(abs))
 	}
-	return openInExplorer(abs)
-}
-
-func ensureTargetDirectory(directory string) (string, error) {
-	clean := strings.TrimSpace(directory)
-	if clean == "" {
-		return "", errors.New("target directory is empty")
-	}
-	abs, err := filepath.Abs(clean)
-	if err != nil {
-		return "", fmt.Errorf("invalid target directory: %w", err)
-	}
 	if err := os.MkdirAll(abs, secureDirMode); err != nil {
-		return "", fmt.Errorf("create target directory %s: %w", abs, err)
+		return err
 	}
-	return abs, nil
+	resolvedPath, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return err
+	}
+	if !isWithinRoot(resolvedPath, resolvedRoot) {
+		return fmt.Errorf("拒绝打开 output 之外的素材目录:%s", filepath.Base(abs))
+	}
+	return openInExplorer(resolvedPath)
 }
 
 func ensureTargetFileName(suggestedName, fallback string) string {
@@ -550,13 +632,11 @@ func (s *Service) OpenExternalURL(rawURL string) error {
 // 让用户拿系统记事本 / TextEdit / xdg-open 关联程序读 sse-response-*.txt
 // 这类原始上游响应。文件不存在就返回错误。
 func (s *Service) OpenFile(path string) error {
-	if strings.TrimSpace(path) == "" {
-		return errors.New("path is empty")
+	allowed, err := s.ensureManagedOpenPath(path)
+	if err != nil {
+		return err
 	}
-	if _, err := os.Stat(path); err != nil {
-		return fmt.Errorf("文件不存在或无法访问:%w", err)
-	}
-	return openInExplorer(path)
+	return openInExplorer(allowed)
 }
 
 // ReadImageAsBase64 loads an image file from disk and returns its bytes as
@@ -567,11 +647,11 @@ func (s *Service) ReadImageAsBase64(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(allowed)
+	validated, err := readValidatedImageFile(allowed)
 	if err != nil {
 		return "", err
 	}
-	return base64.StdEncoding.EncodeToString(data), nil
+	return base64.StdEncoding.EncodeToString(validated.Bytes), nil
 }
 
 // ReadTextFile returns a file's contents as a string. Used to display the raw

@@ -1,5 +1,12 @@
 ﻿import type { APIMode, RequestPolicy, UpstreamProfile } from "../types/domain";
 import { STORAGE_NAMESPACE, storageKey } from "./storageNamespace.ts";
+import {
+  isOfficialFHLProfile,
+  normalizeProviderBaseURL,
+  providerDefaults,
+  providerModeLabel,
+  ProviderPolicy,
+} from "./providerPolicy.ts";
 
 // localStorage 键名规范:
 //   gptcodex.profiles        —— UpstreamProfile[] JSON(无 apiKey,key 在 keyring)
@@ -18,26 +25,186 @@ export const FHL_PROFILE_ID = "fhl-responses-default";
 export const FHL_IMAGES_PROFILE_ID = "fhl-images-default";
 export const FHL_PROFILE_NAME = "FHL-1 Responses";
 export const FHL_IMAGES_PROFILE_NAME = "FHL-1 Images";
-export const FHL_BASE_URL = "https://www.fhl.mom";
-export const FHL_TEXT_MODEL_ID = "gpt-5.5";
-export const FHL_IMAGE_MODEL_ID = "gpt-image-2";
+export const FHL_BASE_URL: string = ProviderPolicy.fhl.baseURL;
+export const FHL_TEXT_MODEL_ID: string = ProviderPolicy.fhl.textModelID;
+export const FHL_IMAGE_MODEL_ID: string = ProviderPolicy.fhl.imageModelID;
 export const APIMART_PROFILE_ID = "apimart-async-default";
 export const APIMART_PROFILE_NAME = "APIMart 异步";
-export const APIMART_BASE_URL = "https://api.apimart.ai";
-export const APIMART_LEGACY_BASE_URL = "https://api.apib.ai";
-export const APIMART_IMAGE_MODEL_ID = "gpt-image-2";
+export const APIMART_BASE_URL: string = ProviderPolicy.apimart.baseURL;
+export const APIMART_LEGACY_BASE_URL: string = ProviderPolicy.apimart.legacyBaseURL;
+export const APIMART_IMAGE_MODEL_ID: string = ProviderPolicy.apimart.imageModelID;
 export const APIMART_CONCURRENCY_LIMIT = 6;
-export const RUNNINGHUB_BASE_URL = "http://127.0.0.1:8117";
+export const RUNNINGHUB_BASE_URL: string = ProviderPolicy.runningHub.baseURL;
 export const RUNNINGHUB_BANANA2_PROFILE_NAME = "RH-1 全能图像2";
 export const RUNNINGHUB_IMAGE_G2_PROFILE_NAME = "RH-1 全能图像G2";
-export const RUNNINGHUB_DEFAULT_MODEL_ID = "banana2";
+export const RUNNINGHUB_DEFAULT_MODEL_ID: string = ProviderPolicy.runningHub.imageModelID;
 export const DEFAULT_CONCURRENCY_LIMIT = 4;
+export const MAX_UPSTREAM_PROFILES = 10;
+export const FHL_IMAGES_POOL_SLOT_COUNT = 10;
+export const FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT = 5;
+export const FHL_IMAGES_POOL_KEY_HINT_LENGTH = 4;
+export const FHL_IMAGES_POOL_KEY_PREFIX_LENGTH = 3;
+
+export function normalizeFHLPoolPerAPIConcurrencyLimit(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_CONCURRENCY_LIMIT;
+  if (parsed <= 0) return FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT;
+  return Math.max(1, Math.min(FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT, Math.floor(parsed)));
+}
+
+export function resolveFHLPoolPerAPIConcurrencyLimit(
+  storedValue: unknown,
+  legacySharedValue: unknown,
+): number {
+  if (storedValue !== null && storedValue !== undefined) {
+    return normalizeFHLPoolPerAPIConcurrencyLimit(storedValue);
+  }
+  if (legacySharedValue !== null && legacySharedValue !== undefined) {
+    return normalizeFHLPoolPerAPIConcurrencyLimit(legacySharedValue);
+  }
+  return DEFAULT_CONCURRENCY_LIMIT;
+}
+
+export function hasUpstreamProfileCapacity(profiles: readonly UpstreamProfile[], required = 1): boolean {
+  const requested = Number(required);
+  if (!Number.isFinite(requested)) return false;
+  const requiredCount = Math.max(0, Math.floor(requested));
+  // A helper that only reconciles existing profiles must remain usable when
+  // old data already contains more than the current cap.
+  return requiredCount === 0 || profiles.length + requiredCount <= MAX_UPSTREAM_PROFILES;
+}
+
+export function upstreamProfileLimitMessage(): string {
+  return `最多只能保存 ${MAX_UPSTREAM_PROFILES} 个 API 配置。`;
+}
+
+export function normalizeFHLImagesPoolSlot(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isInteger(value)) return undefined;
+  return value >= 1 && value <= FHL_IMAGES_POOL_SLOT_COUNT ? value : undefined;
+}
+
+// Store only a redacted display hint so a saved pool row can be identified
+// without querying the keyring or putting a credential in profile metadata.
+export function normalizeFHLImagesPoolKeyHint(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.trim();
+  const redacted = text.match(/^(sk|msk)-([A-Za-z0-9_-]{1,})\.\.\.([A-Za-z0-9_-]{4})$/i);
+  if (redacted) return `${redacted[1].toLowerCase()}-${redacted[2]}...${redacted[3]}`;
+
+  const rawKey = text.match(/^(sk|msk)-([A-Za-z0-9._-]+)$/i);
+  if (rawKey) {
+    const token = rawKey[2].replace(/[^A-Za-z0-9_-]/g, "");
+    if (token.length < FHL_IMAGES_POOL_KEY_HINT_LENGTH) return undefined;
+    return `${rawKey[1].toLowerCase()}-${token.slice(0, FHL_IMAGES_POOL_KEY_PREFIX_LENGTH)}...${token.slice(-FHL_IMAGES_POOL_KEY_HINT_LENGTH)}`;
+  }
+
+  // V2.0.2.2 early builds persisted only a four-character tail. Preserve it
+  // without inventing a prefix that was never stored.
+  const safeSuffixSource = text.replace(/[^A-Za-z0-9_-]/g, "");
+  if (safeSuffixSource.length < FHL_IMAGES_POOL_KEY_HINT_LENGTH) return undefined;
+  return safeSuffixSource.slice(-FHL_IMAGES_POOL_KEY_HINT_LENGTH);
+}
+
+export function isOfficialFHLImagesProfile(
+  profile: Pick<UpstreamProfile, "apiMode" | "baseURL">,
+): boolean {
+  return profile.apiMode === "images" && isOfficialFHLProfile(profile);
+}
+
+export function hasUsableFHLConfiguration({
+  apiKey,
+  apiMode,
+  baseURL,
+  profiles,
+}: {
+  apiKey: string;
+  apiMode: APIMode;
+  baseURL: string;
+  profiles: readonly UpstreamProfile[];
+}): boolean {
+  const hasCurrentCredential = (
+    (apiMode === "responses" || apiMode === "images")
+    && apiKey.trim().length > 0
+  ) || (
+    apiMode === "runninghub"
+    && baseURL.trim().length > 0
+  );
+  if (hasCurrentCredential) return true;
+
+  return profiles.some((profile) => (
+    isOfficialFHLImagesProfile(profile)
+    && normalizeFHLImagesPoolSlot(profile.fhlImagesPoolSlot) !== undefined
+    && normalizeFHLImagesPoolKeyHint(profile.fhlImagesPoolKeyHint) !== undefined
+  ));
+}
+
+function compareFHLImagesProfiles(a: UpstreamProfile, b: UpstreamProfile): number {
+  const aCreatedAt = Number.isFinite(a.createdAt) ? a.createdAt : 0;
+  const bCreatedAt = Number.isFinite(b.createdAt) ? b.createdAt : 0;
+  if (aCreatedAt !== bCreatedAt) return aCreatedAt - bCreatedAt;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+// This read-only projection is for the ten-row setup surface. Profiles without
+// a persisted slot are placed by creation order, but are never rewritten here.
+export function mapFHLImagesProfilesToPoolSlots(
+  profiles: readonly UpstreamProfile[],
+): Array<UpstreamProfile | null> {
+  const slots: Array<UpstreamProfile | null> = Array.from(
+    { length: FHL_IMAGES_POOL_SLOT_COUNT },
+    () => null,
+  );
+  const unassigned: UpstreamProfile[] = [];
+  const eligible = profiles
+    .filter((profile) => isOfficialFHLImagesProfile(profile))
+    .sort(compareFHLImagesProfiles);
+
+  for (const profile of eligible) {
+    const slot = normalizeFHLImagesPoolSlot(profile.fhlImagesPoolSlot);
+    if (slot !== undefined && slots[slot - 1] === null) {
+      slots[slot - 1] = profile;
+    } else {
+      unassigned.push(profile);
+    }
+  }
+
+  for (const profile of unassigned) {
+    const emptyIndex = slots.findIndex((slot) => slot === null);
+    if (emptyIndex < 0) break;
+    slots[emptyIndex] = profile;
+  }
+
+  return slots;
+}
+
+export function isFHLImagesPoolSlotAvailable(
+  profiles: readonly UpstreamProfile[],
+  slot: unknown,
+  excludeProfileId?: string,
+): boolean {
+  const normalizedSlot = normalizeFHLImagesPoolSlot(slot);
+  if (normalizedSlot === undefined) return false;
+  return !profiles.some((profile) => (
+    profile.id !== excludeProfileId
+    && isOfficialFHLImagesProfile(profile)
+    && normalizeFHLImagesPoolSlot(profile.fhlImagesPoolSlot) === normalizedSlot
+  ));
+}
+
+// The Images pool owns ten fixed slots independently from the generic
+// profile-list cap. Legacy eligible profiles consume their projected row too,
+// so a new profile can never create a second owner for that visible slot.
+export function hasFHLImagesPoolSlotCapacity(
+  profiles: readonly UpstreamProfile[],
+  slot: unknown,
+): boolean {
+  const normalizedSlot = normalizeFHLImagesPoolSlot(slot);
+  return normalizedSlot !== undefined
+    && mapFHLImagesProfilesToPoolSlots(profiles)[normalizedSlot - 1] === null;
+}
 
 export function normalizeAPIMartBaseURL(value: string): string {
-  const normalized = value.trim().replace(/\/+$/, "");
-  if (normalized === `${APIMART_LEGACY_BASE_URL}/v1`) return APIMART_LEGACY_BASE_URL;
-  if (normalized === `${APIMART_BASE_URL}/v1`) return APIMART_BASE_URL;
-  return normalized;
+  return normalizeProviderBaseURL("apimart", value);
 }
 
 export function isAPIMartOfficialBaseURL(value: string): boolean {
@@ -55,6 +222,7 @@ export function makeFHLResponsesProfile(): UpstreamProfile {
     textModelID: FHL_TEXT_MODEL_ID,
     imageModelID: FHL_IMAGE_MODEL_ID,
     concurrencyLimit: DEFAULT_CONCURRENCY_LIMIT,
+    continuousPoolEnabled: false,
     imagesNewAPICompat: false,
     createdAt: Date.now(),
     lastUsedAt: Date.now(),
@@ -71,6 +239,7 @@ export function makeFHLImagesProfile(): UpstreamProfile {
     textModelID: "",
     imageModelID: FHL_IMAGE_MODEL_ID,
     concurrencyLimit: DEFAULT_CONCURRENCY_LIMIT,
+    continuousPoolEnabled: true,
     imagesNewAPICompat: true,
     createdAt: Date.now(),
     lastUsedAt: Date.now(),
@@ -94,10 +263,7 @@ export function keyringUserFor(profileId: string): string {
 }
 
 export function apiModeLabel(mode: APIMode): string {
-  if (mode === "images") return "Images API";
-  if (mode === "apimart") return "APIMart 异步 API";
-  if (mode === "runninghub") return "RunningHub 桥接";
-  return "Responses API";
+  return providerModeLabel(mode);
 }
 
 export function apiModeUsesBridgeStoredKey(mode: APIMode): boolean {
@@ -127,13 +293,23 @@ export function tryParseProfile(raw: unknown): UpstreamProfile | null {
   const baseURL = apiMode === "apimart" ? normalizeAPIMartBaseURL(rawBaseURL) : rawBaseURL;
   const textModelID = typeof o.textModelID === "string" ? o.textModelID : "";
   const imageModelID = typeof o.imageModelID === "string" ? o.imageModelID : "";
-  const concurrencyLimit = typeof o.concurrencyLimit === "number" && o.concurrencyLimit >= 0
+  const rawConcurrencyLimit = typeof o.concurrencyLimit === "number" && o.concurrencyLimit >= 0
     ? Math.floor(o.concurrencyLimit) : 0;
+  const continuousPoolEnabled = apiMode === "images" && o.continuousPoolEnabled !== false;
   const imagesNewAPICompat = o.imagesNewAPICompat === true;
   const createdAt = typeof o.createdAt === "number" ? o.createdAt : Date.now();
   const lastUsedAt = typeof o.lastUsedAt === "number" ? o.lastUsedAt : undefined;
+  const fhlImagesPoolSlot = isOfficialFHLImagesProfile({ apiMode, baseURL })
+    ? normalizeFHLImagesPoolSlot(o.fhlImagesPoolSlot)
+    : undefined;
+  const fhlImagesPoolKeyHint = fhlImagesPoolSlot !== undefined
+    ? normalizeFHLImagesPoolKeyHint(o.fhlImagesPoolKeyHint)
+    : undefined;
+  const concurrencyLimit = fhlImagesPoolSlot !== undefined
+    ? FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT
+    : rawConcurrencyLimit;
   if (!id || !name) return null;
-  return { id, name, apiMode, requestPolicy, baseURL, textModelID, imageModelID, concurrencyLimit, imagesNewAPICompat, createdAt, lastUsedAt };
+  return { id, name, apiMode, requestPolicy, baseURL, textModelID, imageModelID, concurrencyLimit, continuousPoolEnabled, fhlImagesPoolSlot, fhlImagesPoolKeyHint, imagesNewAPICompat, createdAt, lastUsedAt };
 }
 
 // 列表里挑当前 active —— activeProfileId 命中时用它,否则用最近使用过的,
@@ -163,30 +339,19 @@ export function nextDefaultProfileName(profiles: UpstreamProfile[] = []): string
 }
 
 // 新建 profile 的默认值 —— UpstreamConfigModal 里点「+ 新建」用。
-export function makeBlankProfile(apiMode: APIMode = "responses", profiles: UpstreamProfile[] = []): UpstreamProfile {
+export function makeBlankProfile(apiMode: APIMode = "images", profiles: UpstreamProfile[] = []): UpstreamProfile {
   const isAPIMart = apiMode === "apimart";
-  const isRunningHub = apiMode === "runninghub";
+  const defaults = providerDefaults(apiMode);
   return {
     id: genProfileId(),
     name: nextDefaultProfileName(profiles),
     apiMode,
     requestPolicy: "openai",
-    baseURL: apiMode === "responses"
-      ? FHL_BASE_URL
-      : isAPIMart
-        ? APIMART_BASE_URL
-        : isRunningHub
-          ? RUNNINGHUB_BASE_URL
-          : "",
-    textModelID: apiMode === "responses" ? FHL_TEXT_MODEL_ID : "",
-    imageModelID: apiMode === "responses"
-      ? FHL_IMAGE_MODEL_ID
-      : isAPIMart
-        ? APIMART_IMAGE_MODEL_ID
-        : isRunningHub
-          ? RUNNINGHUB_DEFAULT_MODEL_ID
-          : "",
+    baseURL: defaults.baseURL,
+    textModelID: defaults.textModelID,
+    imageModelID: defaults.imageModelID,
     concurrencyLimit: isAPIMart ? APIMART_CONCURRENCY_LIMIT : DEFAULT_CONCURRENCY_LIMIT,
+    continuousPoolEnabled: apiMode === "images",
     imagesNewAPICompat: false,
     createdAt: Date.now(),
   };
@@ -199,6 +364,8 @@ export function duplicateProfile(p: UpstreamProfile): UpstreamProfile {
     ...p,
     id: genProfileId(),
     name: `${p.name} · 副本`,
+    fhlImagesPoolSlot: undefined,
+    fhlImagesPoolKeyHint: undefined,
     createdAt: Date.now(),
     lastUsedAt: undefined,
   };

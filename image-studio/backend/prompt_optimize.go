@@ -42,6 +42,9 @@ const promptOptimizeRequiredModificationInstructions = " Apply the required modi
 const promptReverseInstructions = "Analyze the attached image and write a detailed Simplified Chinese text-to-image prompt that could recreate its visible subject, composition, style, lighting, colors, camera perspective, mood, and important visual details. The returned prompt must be in Simplified Chinese. Return only the prompt text. Do not mention that you are analyzing an image. Do not add explanations, labels, markdown, or quotes."
 const promptReverseUserText = "Write a Simplified Chinese text-to-image prompt for the attached image."
 const textModelUploadJPEGQuality = 82
+const imageEditUploadJPEGQuality = 88
+const imageEditUploadMaxLongSide = 1600
+const imageEditUploadMaxBytes int64 = 6 * 1024 * 1024
 
 type textModelUploadSummary struct {
 	Count       int
@@ -79,7 +82,7 @@ func prepareUploadSourcePaths(paths []string) ([]string, func(), error) {
 		if path == "" {
 			continue
 		}
-		rewrite, tmp, err := flattenTransparentImage(path)
+		rewrite, tmp, err := makeImageEditUploadCopy(path)
 		if err != nil {
 			cleanup()
 			return nil, nil, err
@@ -199,6 +202,53 @@ func logTextModelUploadSummary(purpose string, summary textModelUploadSummary) {
 		summary.MaxLongSide,
 		summary.Compressed,
 	)
+}
+
+func makeImageEditUploadCopy(path string) (string, string, error) {
+	info, statErr := os.Stat(path)
+
+	f, err := os.Open(path)
+	if err != nil {
+		return "", "", err
+	}
+	defer f.Close()
+
+	src, _, err := image.Decode(f)
+	if err != nil {
+		return path, "", nil
+	}
+	bounds := src.Bounds()
+	longSide := max(bounds.Dx(), bounds.Dy())
+	if longSide <= 0 {
+		return path, "", nil
+	}
+	hasTransparency := imageHasTransparency(src)
+	tooLargeForUpload := statErr == nil && !info.IsDir() && info.Size() > imageEditUploadMaxBytes
+	if longSide <= imageEditUploadMaxLongSide && !hasTransparency && !tooLargeForUpload {
+		return path, "", nil
+	}
+
+	scale := min(1, float64(imageEditUploadMaxLongSide)/float64(longSide))
+	width := max(1, int(float64(bounds.Dx())*scale+0.5))
+	height := max(1, int(float64(bounds.Dy())*scale+0.5))
+	dst := image.NewRGBA(image.Rect(0, 0, width, height))
+	draw.Draw(dst, dst.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
+	xdraw.ApproxBiLinear.Scale(dst, dst.Bounds(), src, bounds, draw.Over, nil)
+
+	tmp, err := os.CreateTemp("", "image-studio-edit-upload-*.jpg")
+	if err != nil {
+		return "", "", err
+	}
+	if err := jpeg.Encode(tmp, dst, &jpeg.Options{Quality: imageEditUploadJPEGQuality}); err != nil {
+		tmp.Close()
+		_ = os.Remove(tmp.Name())
+		return "", "", err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmp.Name())
+		return "", "", err
+	}
+	return tmp.Name(), tmp.Name(), nil
 }
 
 func flattenTransparentImage(path string) (string, string, error) {

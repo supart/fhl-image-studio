@@ -3,6 +3,7 @@ import type { JobSlotSnapshot } from "../types/domain";
 export type BatchPendingStatus =
   | "waiting"
   | "local_queued"
+  | "submitting"
   | "queued"
   | "running"
   | "missing"
