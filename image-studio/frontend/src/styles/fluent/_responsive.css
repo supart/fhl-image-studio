@@ -18,30 +18,30 @@
 }
 
 @media (max-width: 1180px) {
-  html[data-platform="windows"][data-ui-family="fluent"] {
+  html[data-presentation-platform="windows"][data-ui-family="fluent"] {
     --fluent-pane-left: 336px;
     --fluent-pane-right: 300px;
   }
 
-  html[data-platform="windows"][data-ui-family="fluent"] .studio {
+  html[data-presentation-platform="windows"][data-ui-family="fluent"] .studio {
     grid-template-columns: var(--fluent-pane-left) minmax(0, 1fr) var(--fluent-pane-right);
   }
 
-  html[data-platform="windows"][data-ui-family="fluent"] .control-panel {
+  html[data-presentation-platform="windows"][data-ui-family="fluent"] .control-panel {
     width: var(--fluent-pane-left);
   }
 
-  html[data-platform="windows"][data-ui-family="fluent"] .history-rail {
+  html[data-presentation-platform="windows"][data-ui-family="fluent"] .history-rail {
     width: var(--fluent-pane-right);
   }
 }
 
 @media (max-width: 980px) {
-  html[data-platform="windows"][data-ui-family="fluent"] .studio {
+  html[data-presentation-platform="windows"][data-ui-family="fluent"] .studio {
     grid-template-columns: minmax(320px, 36vw) minmax(0, 1fr);
   }
 
-  html[data-platform="windows"][data-ui-family="fluent"] .history-rail {
+  html[data-presentation-platform="windows"][data-ui-family="fluent"] .history-rail {
     display: none;
   }
 }

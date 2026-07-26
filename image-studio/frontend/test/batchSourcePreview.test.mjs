@@ -14,6 +14,8 @@ test("batch task cards expose a hoverable source preview anchor", () => {
   assert.match(gridSource, /document\.body/);
   assert.match(gridSource, /setPopoverStyle\(\{ left, top, width \}\)/);
   assert.match(gridSource, /sourceToDataURL/);
+  assert.match(gridSource, /const previewSrc = resolvedPreviewURL \|\| \(!previewUrlFailed && immediatePreviewURL \? immediatePreviewURL : ""\);/);
+  assert.match(gridSource, /setResolvedPreviewURL\(""\);/);
   assert.match(gridSource, /data-open=\{open \? "true" : "false"\}/);
   assert.match(gridSource, /batch-grid-image-shell/);
   assert.match(gridSource, /batch-grid-source-anchor/);

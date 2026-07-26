@@ -9,6 +9,7 @@ import { deriveResolutionPreset } from "../panel/sizeCapabilities";
 import {
   buildPanoramaGenerateSize,
   isPanoramaStudioItem,
+  preservePanoramaManualAspect,
   recentPanoramaHistoryItems,
 } from "./panoramaStudioEntry";
 
@@ -64,6 +65,7 @@ export function PanoramaStudioEntryModal({
     requestPolicy,
     imageModelID,
     size,
+    batchProcess,
     currentImage,
     history,
     setField,
@@ -88,6 +90,10 @@ export function PanoramaStudioEntryModal({
     if (!nextSize) {
       pushToast("当前 API 配置不支持 2:1 全景比例，请切换到 FHL、APIMart 或 RunningHub。", "warn", 3600);
       return;
+    }
+    const manualBatchProcess = preservePanoramaManualAspect(batchProcess);
+    if (manualBatchProcess !== batchProcess) {
+      setField("batchProcess", manualBatchProcess);
     }
     setField("mode", "generate");
     setField("size", nextSize);

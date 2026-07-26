@@ -1,7 +1,7 @@
 @echo off
 setlocal
 set "ROOT=%~dp0.."
-set "EXE=%ROOT%\image-studio\build\bin\FHL Studio 方汤圆版 V2.0.2.1.exe"
+set "EXE=%ROOT%\image-studio\build\bin\FHL Studio 方汤圆版 V2.0.3.exe"
 
 if not exist "%EXE%" (
   echo FHL Studio desktop EXE was not found:

@@ -137,10 +137,12 @@ func runningHubAPIWithRetries(
 		if reqErr == nil {
 			return result, rawPath, nil
 		}
+		if isResponseLimitError(reqErr) {
+			return ImageResult{}, rawPath, reqErr
+		}
 
 		lastErr = reqErr
-		rawBytes, _ := os.ReadFile(rawPath)
-		raw := string(rawBytes)
+		raw := readDiagnosticResponseFile(rawPath)
 		if attempt < MaxAttempts && (IsRetryable(raw) || isTransportishError(reqErr)) {
 			onLog(fmt.Sprintf("%v", reqErr))
 			onLog(fmt.Sprintf("Auto retrying in %d seconds...", RetryBackoffSeconds))
@@ -447,8 +449,24 @@ func runningHubImageValueToBase64(ctx context.Context, httpClient *http.Client, 
 		return "", err
 	}
 	defer response.Body.Close()
+	contentType := strings.ToLower(strings.TrimSpace(response.Header.Get("Content-Type")))
+	if response.StatusCode/100 == 2 && (strings.HasPrefix(contentType, "image/") || strings.HasPrefix(contentType, "application/octet-stream")) {
+		if rawSink != nil {
+			if _, err := fmt.Fprintf(rawSink, "=== image (%d) ===\n[binary body omitted]\n", response.StatusCode); err != nil {
+				return "", fmt.Errorf("write raw response: %w", err)
+			}
+		}
+		encoded, err := readHTTPResponseBase64(response)
+		if err != nil {
+			return "", fmt.Errorf("read RunningHub image proxy response: %w", err)
+		}
+		if encoded == "" {
+			return "", errors.New("RunningHub image proxy returned empty image")
+		}
+		return encoded, nil
+	}
 
-	rawBytes, err := io.ReadAll(io.LimitReader(response.Body, 90*1024*1024))
+	rawBytes, err := readHTTPResponseBody(response)
 	if err != nil {
 		return "", fmt.Errorf("read RunningHub image proxy response: %w", err)
 	}
@@ -485,7 +503,7 @@ func runningHubImageValueToBase64(ctx context.Context, httpClient *http.Client, 
 }
 
 func readRunningHubJSONResponse(response *http.Response, rawSink io.Writer, label string) (map[string]any, error) {
-	rawBytes, err := io.ReadAll(response.Body)
+	rawBytes, err := readHTTPResponseBody(response)
 	if err != nil {
 		return nil, fmt.Errorf("read RunningHub %s response: %w", label, err)
 	}

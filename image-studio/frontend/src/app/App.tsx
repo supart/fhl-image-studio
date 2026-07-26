@@ -25,12 +25,12 @@ export default function App() {
   const settingsOpen = useStudioStore((state) => state.settingsOpen);
   const openSettings = useStudioStore((state) => state.openSettings);
   const closeSettings = useStudioStore((state) => state.closeSettings);
-  const { isMac } = usePlatform();
+  const { isMacHost } = usePlatform();
   const { androidView, setAndroidView } = useAndroidView();
   const { dragHover } = useGlobalImageImport(importImageFile, reuseAsSource);
 
   useStudioBootstrap();
-  useGlobalShortcuts({ isMac });
+  useGlobalShortcuts({ isMac: isMacHost });
   useInteractionAudit();
 
   return (

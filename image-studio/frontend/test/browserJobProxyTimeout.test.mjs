@@ -27,10 +27,28 @@ test("browser job proxy records timeout as a failed terminal state", () => {
   assert.match(proxySource, /: ok && !timedOut\s+\? "succeeded"\s+: "failed"/);
 });
 
-test("browser job proxy clears timeout timers on cancel, error, and close", () => {
-  assert.match(proxySource, /clearProcessTimeout\(running\);\s+running\.child\.kill\(\);/s);
+test("browser job proxy clears timeout timers from the terminal callbacks", () => {
   const procClearCount = proxySource.match(/clearProcessTimeout\(proc\);/g)?.length ?? 0;
   assert.ok(procClearCount >= 2);
+});
+
+test("browser job proxy retains a running cancellation until child close or error settles it", () => {
+  const cancelStart = proxySource.indexOf("  async cancel(jobIds: string[]): Promise<BrowserJobCancelResponse> {");
+  const cancelEnd = proxySource.indexOf("\n  subscribe(jobId", cancelStart);
+  const cancelSource = proxySource.slice(cancelStart, cancelEnd);
+  const runningCancel = cancelSource.match(/if \(running\) \{([\s\S]*?)\n      \}/)?.[1] ?? "";
+
+  assert.match(runningCancel, /running\.cancelled = true;/);
+  assert.match(runningCancel, /running\.child\.kill\(\);/);
+  assert.match(runningCancel, /cancelledJobIds\.push\(jobId\);\s+continue;/s);
+  assert.doesNotMatch(runningCancel, /clearProcessTimeout\(running\)|this\.running\.delete|this\.updateSlot|this\.emit/);
+  assert.match(proxySource, /child\.on\("error"[\s\S]*?if \(this\.running\.get\(jobId\) !== proc\) return;[\s\S]*?this\.running\.delete\(jobId\)[\s\S]*?status: proc\.cancelled \? "cancelled"/);
+  assert.match(proxySource, /child\.on\("close"[\s\S]*?if \(this\.running\.get\(jobId\) !== proc\) return;[\s\S]*?this\.running\.delete\(jobId\)[\s\S]*?const nextStatus: JobStatus = cancelled\s+\? "cancelled"/);
+});
+
+test("browser job proxy does not spawn after cancellation during startup", () => {
+  const startupCancelChecks = proxySource.match(/if \(this\.getSlot\(jobId\)\?\.status === "cancelled"\) \{\s+void this\.startNextQueuedSlot\(groupId\);\s+return;/gs)?.length ?? 0;
+  assert.ok(startupCancelChecks >= 2);
 });
 
 test("browser job proxy retries transient registry write locks without crashing Vite", () => {
@@ -40,7 +58,8 @@ test("browser job proxy retries transient registry write locks without crashing 
   assert.match(proxySource, /code === "EPERM"/);
   assert.match(proxySource, /await delay\(BROWSER_JOB_PERSIST_RETRY_DELAYS_MS\[attempt\]\);/);
   assert.match(proxySource, /console\.warn\(`\[browser-job\] failed to persist registry/);
-  assert.match(proxySource, /return;\s+\}\s+\}\s+\}\s+\n\s+private getGroup/s);
+  assert.match(proxySource, /private persist\(\)[\s\S]*this\.persistChain = this\.persistChain\.then/);
+  assert.match(proxySource, /private async writeRegistrySnapshot\(\)[\s\S]*return false;/);
 });
 
 test("browser job proxy is available in Vite dev and preview servers", () => {

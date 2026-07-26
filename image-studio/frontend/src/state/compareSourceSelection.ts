@@ -48,10 +48,17 @@ export async function materializeCompareSourceAsHistoryItem(
   let imageBlob = resolvedSource.imageBlob ?? null;
 
   if (!previewUrl && !imageB64 && !imageBlob) {
-    const { RegisterImportedImageAsset, ReadImageAsBase64 } = await import("../platform/runtime/host");
-    const ref = await RegisterImportedImageAsset(resolvedSource.path).catch(() => null);
-    previewUrl = ref?.previewUrl || undefined;
-    fullUrl = ref?.fullUrl || ref?.previewUrl || undefined;
+    const { ImportImagePath, RegisterImportedImageAsset, ReadImageAsBase64 } = await import("../platform/runtime/host");
+    const imported = await ImportImagePath(resolvedSource.path).catch(() => null);
+    if (imported?.path) {
+      savedPath = imported.path;
+      imageId = imported.imageId || undefined;
+      previewUrl = imported.previewUrl || undefined;
+      fullUrl = imported.imageId ? `/media/full/${imported.imageId}` : previewUrl;
+    }
+    const ref = await RegisterImportedImageAsset(savedPath).catch(() => null);
+    previewUrl = ref?.previewUrl || previewUrl;
+    fullUrl = ref?.fullUrl || ref?.previewUrl || fullUrl;
     savedPath = ref?.savedPath || savedPath;
     imageId = ref?.imageId || undefined;
     if (!previewUrl && !fullUrl) {

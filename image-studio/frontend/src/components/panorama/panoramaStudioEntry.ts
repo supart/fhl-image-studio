@@ -1,5 +1,5 @@
 import { isLikelyPanoramaItem } from "../../panorama/core.ts";
-import type { APIMode, HistoryItem, Mode, RequestPolicy, SizeValue } from "../../types/domain.ts";
+import type { APIMode, BatchProcessConfig, HistoryItem, Mode, RequestPolicy, SizeValue } from "../../types/domain.ts";
 import {
   aspectPresetsForAPIMode,
   buildAspectSizeSelection,
@@ -35,6 +35,16 @@ export function buildPanoramaGenerateSize(input: {
       mode: "generate",
     },
   );
+}
+
+export function preservePanoramaManualAspect(
+  batchProcess: BatchProcessConfig,
+): BatchProcessConfig {
+  if (batchProcess.autoAspectResolution === "") return batchProcess;
+  return {
+    ...batchProcess,
+    autoAspectResolution: "",
+  };
 }
 
 export function isPanoramaStudioItem(

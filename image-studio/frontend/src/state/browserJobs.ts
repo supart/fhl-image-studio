@@ -6,7 +6,10 @@ import type {
   Workspace,
 } from "../types/domain";
 import { normalizeRuntimeText } from "../lib/runtimeText.ts";
-import { MAX_BROWSER_JOB_GROUPS } from "../platform/runtime/browserJobContracts.ts";
+import {
+  MAX_BROWSER_JOB_GROUPS,
+  retainBrowserJobGroups,
+} from "../platform/runtime/browserJobContracts.ts";
 
 export function isTerminalJobStatus(status: JobStatus) {
   return status === "succeeded"
@@ -105,8 +108,7 @@ function groupsInContinuousWindow(groups: JobGroupSnapshot[]) {
 export function mergeJobGroupList(existing: JobGroupSnapshot[], incoming: JobGroupSnapshot) {
   const next = existing.filter((group) => group.groupId !== incoming.groupId);
   next.unshift(incoming);
-  next.sort((a, b) => b.createdAt - a.createdAt);
-  return next.slice(0, MAX_BROWSER_JOB_GROUPS);
+  return retainBrowserJobGroups(next, MAX_BROWSER_JOB_GROUPS);
 }
 
 export function replaceWorkspaceJobGroups(
@@ -116,7 +118,7 @@ export function replaceWorkspaceJobGroups(
 ) {
   return {
     ...current,
-    [workspaceId]: [...groups].sort((a, b) => b.createdAt - a.createdAt).slice(0, MAX_BROWSER_JOB_GROUPS),
+    [workspaceId]: retainBrowserJobGroups(groups, MAX_BROWSER_JOB_GROUPS),
   };
 }
 

@@ -57,6 +57,23 @@ test("manual pasteback align modal includes a local fine mask tab", () => {
   assert.match(panoCssSource, /\.pano-align-tabs/);
 });
 
+test("places each feather control beside the geometry it affects", () => {
+  const controlsStart = modalSource.indexOf('<div className="pano-align-controls">');
+  const alignPanelStart = modalSource.indexOf('{activePanel === "align" ? (', controlsStart);
+  const maskPanelStart = modalSource.indexOf('{activePanel === "mask" ? (', alignPanelStart);
+  const colorPanelStart = modalSource.indexOf('{activePanel === "color" ? (', maskPanelStart);
+  assert.ok(controlsStart >= 0 && alignPanelStart > controlsStart && maskPanelStart > alignPanelStart && colorPanelStart > maskPanelStart);
+  const alignPanel = modalSource.slice(alignPanelStart, maskPanelStart);
+  const maskPanel = modalSource.slice(maskPanelStart, colorPanelStart);
+  const colorPanel = modalSource.slice(colorPanelStart);
+
+  assert.match(alignPanel, /label="边缘羽化"/);
+  assert.match(alignPanel, /featherFraction/);
+  assert.match(maskPanel, /label="蒙版羽化"/);
+  assert.match(maskPanel, /maskFeatherPx/);
+  assert.doesNotMatch(colorPanel, /label="(?:边缘|蒙版)羽化"/);
+});
+
 test("manual pasteback color adjustments participate in the final pasteback blend", () => {
   assert.match(coreSource, /brightness: Number\.isFinite\(brightness\) \? clamp\(brightness, 0\.5, 1\.5\) : undefined/);
   assert.match(coreSource, /contrast: Number\.isFinite\(contrast\) \? clamp\(contrast, 0\.5, 1\.5\) : undefined/);

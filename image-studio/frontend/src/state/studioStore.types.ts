@@ -30,6 +30,7 @@ import type {
   UpstreamProfile,
   Workspace,
 } from "../types/domain";
+import type { HistoryPageCursor } from "../lib/storage";
 import type { MaterialOutputSyncResultLike } from "../platform/runtime/hostTypes";
 import type { RunningJobMeta } from "./workspaceRuntime";
 
@@ -51,6 +52,8 @@ export interface ModeConfig {
 }
 
 export type CompareMode = "curtain" | "sideBySide";
+
+export type FHLTransportMode = "images" | "responses";
 
 export interface PromptOptimizeRequest {
   apiKey: string;
@@ -93,6 +96,8 @@ export interface UndoEntry {
   redo: (s: StudioState) => Partial<StudioState>;
 }
 
+export type FHLTextAPITestStatus = "unconfigured" | "saved" | "testing" | "success" | "error";
+
 export interface StudioState {
   apiKey: string;
   mode: Mode;
@@ -114,6 +119,11 @@ export interface StudioState {
   requestPolicy: RequestPolicy;
   imagesNewAPICompat: boolean;
   noPromptRevision: boolean;
+  fhlTransportMode: FHLTransportMode;
+  fhlTextAPIConfigured: boolean;
+  fhlTextAPIKeyHint: string;
+  fhlTextAPITestStatus: FHLTextAPITestStatus;
+  fhlTextAPITestMessage: string;
   profiles: UpstreamProfile[];
   activeProfileId: string;
   sources: SourceImage[];
@@ -138,7 +148,7 @@ export interface StudioState {
   history: HistoryItem[];
   historyHasMore: boolean;
   historyLoading: boolean;
-  historyCursorBeforeDayStart: number | null;
+  historyCursor: HistoryPageCursor | null;
   batchResults: HistoryItem[];
   selectedBatchTaskId: string | null;
   resultGridOpen: boolean;
@@ -169,6 +179,8 @@ export interface StudioState {
   promptHistory: string[];
   batchCount: number;
   continuousGenerateTest: boolean;
+  fhlPoolPerAPIConcurrencyLimit: number;
+  fhlPoolEffectiveConcurrencyByProfileId: Record<string, number>;
   editSourceMode: EditSourceMode;
   batchProcess: BatchProcessConfig;
   editAutoAspectUserLocked: boolean;
@@ -184,6 +196,7 @@ export interface StudioState {
   setFullscreen: (value: boolean) => Promise<void>;
   toggleFullscreen: () => Promise<void>;
   setAPIKey: (v: string) => Promise<void>;
+  setFHLTransportMode: (mode: FHLTransportMode) => void;
   clearError: () => void;
   createProfile: (input: {
     name?: string;
@@ -193,12 +206,15 @@ export interface StudioState {
     textModelID?: string;
     imageModelID?: string;
     concurrencyLimit?: number;
+    continuousPoolEnabled?: boolean;
+    fhlImagesPoolSlot?: number;
+    fhlImagesPoolKeyHint?: string;
     imagesNewAPICompat?: boolean;
     apiKey?: string;
     setActive?: boolean;
   }) => Promise<string>;
   updateProfile: (id: string, patch: Partial<Omit<UpstreamProfile, "id" | "createdAt">> & { apiKey?: string }) => Promise<boolean>;
-  deleteProfile: (id: string) => Promise<void>;
+  deleteProfile: (id: string) => Promise<boolean>;
   duplicateProfile: (id: string) => Promise<string | null>;
   setActiveProfile: (id: string) => Promise<void>;
   selectSourceImage: () => Promise<void>;
@@ -306,6 +322,10 @@ export interface StudioState {
   openSettings: () => void;
   closeSettings: () => void;
   testAPIKey: () => Promise<void>;
+  testProfileConnection: (profileId: string) => Promise<boolean>;
+  refreshFHLTextAPIConfig: () => Promise<void>;
+  saveAndTestFHLTextAPI: (apiKeyInput?: string) => Promise<boolean>;
+  deleteFHLTextAPIConfig: () => Promise<void>;
   isTestingKey: boolean;
   isOptimizingPrompt: boolean;
   isReversingPrompt: boolean;
@@ -320,7 +340,7 @@ export interface StudioState {
   openStarPrompt: () => void;
   dismissStarPrompt: () => void;
   resetCurrentWorkspaceDraft: () => void;
-  setContinuousPressureLimit: (limit: number) => Promise<void>;
+  setFHLPoolPerAPIConcurrencyLimit: (limit: number) => Promise<void>;
   runContinuousPressureTest: (count: number) => Promise<void>;
   newWorkspace: (name?: string) => void;
   switchWorkspace: (id: string) => void;

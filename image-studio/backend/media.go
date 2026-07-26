@@ -119,7 +119,17 @@ func (s *Service) registerImportedPreview(sourcePath string) (mediaAsset, error)
 	stem := strings.TrimSuffix(filepath.Base(absSource), filepath.Ext(absSource))
 	previewName := fmt.Sprintf("import-%d-%s.avif", time.Now().UnixNano(), sanitiseName(stem))
 	previewPath := filepath.Join(previewsDir, previewName)
-	width, height, err := createAVIFThumbnail(absSource, previewPath, mediaPreviewMaxEdge)
+	ctx, finishOperation, err := s.beginOperation(false)
+	if err != nil {
+		return mediaAsset{}, err
+	}
+	defer finishOperation()
+	var width, height int
+	err = s.withMediaSlot(ctx, func() error {
+		var encodeErr error
+		width, height, encodeErr = createAVIFThumbnail(absSource, previewPath, mediaPreviewMaxEdge)
+		return encodeErr
+	})
 	if err != nil {
 		return mediaAsset{}, err
 	}
@@ -184,6 +194,25 @@ func (s *Service) RegisterMediaAsset(savedPath, thumbPath string) (MediaAssetRef
 		if allowedThumb, err = s.ensureManagedReadablePath(thumbPath, managedImageFile); err != nil {
 			allowedThumb = ""
 		}
+	}
+	if allowedThumb == "" {
+		thumbDir := filepath.Join(filepath.Dir(allowedFull), "thumbs")
+		candidate := filepath.Join(thumbDir, mediaIDForPath(allowedFull)+".avif")
+		if _, statErr := os.Stat(candidate); statErr != nil {
+			ctx, finishOperation, beginErr := s.beginOperation(false)
+			if beginErr != nil {
+				return MediaAssetRef{}, beginErr
+			}
+			createErr := s.withMediaSlot(ctx, func() error {
+				_, _, thumbErr := createAVIFThumbnail(allowedFull, candidate, mediaThumbMaxEdge)
+				return thumbErr
+			})
+			finishOperation()
+			if createErr != nil {
+				return MediaAssetRef{}, createErr
+			}
+		}
+		allowedThumb = candidate
 	}
 	previewWidth, previewHeight := 0, 0
 	if allowedThumb != "" {

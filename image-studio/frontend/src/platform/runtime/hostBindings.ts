@@ -16,7 +16,7 @@ export type RuntimeBinding = {
 type BrowserWindow = Window & {
   go?: {
     backend?: {
-      Service?: ServiceBinding;
+      DesktopAPI?: ServiceBinding;
     };
   };
   runtime?: RuntimeBinding;
@@ -29,7 +29,8 @@ type BrowserWindow = Window & {
 
 export function getService(): ServiceBinding | null {
   if (typeof window === "undefined") return null;
-  return (window as BrowserWindow).go?.backend?.Service ?? null;
+  const backend = (window as BrowserWindow).go?.backend;
+  return backend?.DesktopAPI ?? null;
 }
 
 export function getRuntime(): RuntimeBinding | null {

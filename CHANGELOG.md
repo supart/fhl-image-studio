@@ -1,5 +1,81 @@
 # CHANGELOG
 
+## Desktop V2.0.3 - 2026-07-26
+
+### Added
+
+- 新增固定 10 槽 FHL Images API 连续池，支持独立连通性测试、槽位状态、API 来源追踪和每 Key 并发管理。
+- 新增独立 FHL 文本 API 凭据和 `gpt-5.5` Responses 测试区，`AI 优化` 与图片反推优先使用该凭据，不复用 Images Key。
+- 新增 API 凭据库视图和一键安全清空，同时清理当前/旧 namespace、浏览器凭据、Keyring 副本和本地配置文件。
+- 新增每轮最多 50 项的独立批量提交接口，每张图保留独立 `clientTaskId` / group / job / 取消 / 结果记录。
+- 新增本地开发媒体注册接口，使用 `sharp` 按需生成 384px、质量 46 的 AVIF 缩略图。
+- 360 编辑结果大图预览新增“自动贴回”快捷按钮，使用默认对齐与羽化参数直接生成并打开新的全景结果，同时保留手动贴回和导入贴回。
+- 新增 Photoshop 2023+ 本地 Bridge：桌面端在 `127.0.0.1:47631-47640` 自动选择空闲端口，为独立 UXP 插件提供单任务生成、状态、结果与取消接口。
+- 新增独立 Photoshop UXP 插件开发预览，支持文生图、图生图、选区修改、按图层多参考、透明边缘裁切、结果回写和最近 50 条元数据记录；插件不保存 API 凭据。
+- 首次提供 macOS 13+ Apple Silicon 完整应用，沿用 Windows V2.0.3 的 Fluent 内容界面，并接入 macOS Keychain、WKWebView、原生文件对话框、Finder 操作和 Core Image / Metal 图像链路。
+- 新增 macOS Apple Silicon DMG、完整 Source ZIP 和统一 SHA256 清单的 Release 交付结构；macOS DMG 同时包含 arm64 CLI 与 Codex Skill 安装器。本次 GitHub Release 不上传 Windows 成品。
+
+### Changed
+
+- FHL 并发设置改为每 API 上限；10 个已启用 API 选择 `4/API` 时总容量为 40，临时降级只影响对应 API。
+- 单图生成固定使用第一个已启用 API；批量任务保留 API1→API10 轮询和原 API 绑定。
+- FHL 图生图原生路径支持最多 10 张独立参考图，上游不稳定时保留兼容回退与失败证据。
+- 批量结果网格、完整历史相册和左侧批量输入队列改为虚拟滚动；网格按行挂载并保留列数切换时的可见任务锚点。
+- 列表只请求缩略图，双击大图、编辑、复制或导出时才读取单张原图。
+- 正式桌面数据使用稳定 namespace `fhl-image-studio-desktop`，Vite/Codex 开发数据使用 `fhl-image-studio-desktop-dev`。
+- 发布形态收敛为开源源码与 Portable ZIP；不再构建或维护 Windows Setup 安装器，减少重复打包、数据目录和卸载链路。
+
+### Fixed
+
+- 修复批量提交泵逐任务串行等待导致 40 并发无法及时填满的问题，任务终态后会立即重新规划空位。
+- 修复删除最后一张参考图或添加单张参考图时意外退出图生图/关闭批处理模式的问题。
+- 修复从 360 全景生成切回图生图时，自动适配覆盖手动 `2:1` 比例的问题。
+- 修复并发输出同名覆盖、预览项串图和恢复后彩色/灰色图片瞬时切换的问题。
+- 删除历史 120 条的破坏性自动裁剪，修复刷新后将已有 `savedPath` 的成功任务误判为“缺少最终图片”。
+- 修复旧记录缩略图不存在时注册 404 媒体地址的问题，桌面端和浏览器端均会按需补建 AVIF。
+- 修复旧 360 镜头编辑结果在工作区恢复后丢失 `panoramaRoundtrip` 关联、导致“手动贴回 / 导入贴回”入口消失的问题；现有历史记录可按任务、参考图和镜头输出路径安全补链。
+
+- 修复已经完成贴回的 `pasted-panorama` 2:1 全景仍被恢复为可贴回镜头、重复显示自动/手动/导入贴回入口的问题；贴回结果现在作为全景终态处理。
+- 恢复手动贴回“对齐”页的边缘羽化控制；普通贴回显示百分比羽化，精细蒙版在“蒙版”页显示像素羽化，“色彩”页不再重复混放羽化参数。
+- 修复 Photoshop 插件比例/分辨率使用紧凑字符串导致 FHL 回退默认尺寸的问题；现统一发送桌面版同规格精确像素。
+- 修复 Photoshop 选区蒙版 Alpha 全不透明、提交前未固化及文生图模式仍可能携带蒙版的问题，并补齐 GrayscaleAlpha 转换。
+- 修复 macOS 反推提示词导入 AVIF 预览时被 hardened runtime 终止的问题；最终签名只增加 Wazero AVIF 回退所需的 `com.apple.security.cs.allow-unsigned-executable-memory` 权限，并在发布验证脚本中强制校验。
+
+### Performance
+
+- IndexedDB 升级 `[createdAt, id]` 复合索引，每页严格读取 48 条，支持最新/最早方向独立游标和相册近底部自动加载。
+- 历史元数据不再持久化 `imageBlob` / `previewBlob`，有真实输出路径时不再保存完整 `imageB64`。
+- 工作区持久化改为 500ms 合并写入，任务终态、页面隐藏和退出时立即 flush。
+- `CanvasStage` 改为精细 Zustand selector，卡片使用稳定 key 和 `memo`，减少无关状态触发的整页重渲染。
+- 浏览器任务注册表保留全部活动任务和最近 500 个终态 group，覆盖 397/500 项恢复。
+
+### Migration
+
+- 启动时幂等迁移 V2.0.2.1 正式数据和旧开发数据；目标设置优先，profiles 按 ID 合并，工作区选择较新 `updatedAt`，历史按 ID 去重。
+- Keyring 仅在新凭据为空时复制旧凭据，明文只存在迁移函数局部变量中，不写入日志或 Zustand。
+
+### Verified
+
+- 已通过虚拟列表、独立批量提交、恢复规则、namespace 与凭据清理的聚焦类型检查和单元测试。
+- 完整前端/Go 检查、Windows 构建、便携包安全扫描和 9230 E2E 结果记录在 `V2.0.3_ACCEPTANCE_REPORT.md`。
+
+- Final release verification passed: frontend Node 552/552, UI 12/12,
+  typecheck, lint, Windows build, desktop/CLI Go test+vet, and Worker 5/5.
+- Photoshop Bridge 收尾验证通过：frontend Node 556/556、UI 12/12、
+  plugin 16/16、Bridge runtime 4/4、desktop/CLI Go test+vet、Worker 5/5、
+  Windows Wails 构建、Portable/源码/CCX 安全扫描和 `git diff --check`。
+- Photoshop UXP 开发 CCX 已生成并通过内容审计；真实 Photoshop 2023
+  Imaging、选区监听和回写矩阵仍是独立的人工验收门槛，不写作已验证。
+- Codex 浏览器确认已贴回的 3840x1920 全景不再显示任何贴回入口，真正的镜头图和编辑镜头图仍保留完整贴回能力。
+- Codex 浏览器确认手动贴回“对齐”页显示默认 `边缘羽化 10%`，且“蒙版羽化”只在蒙版页出现。
+- Packaged 397-item E2E mounted 36 result cards and 8 input rows, requested no
+  full-image or Blob sources, restored a blank state after reload, and logged
+  no browser warnings/errors.
+- Portable, ZIP, and source safety scans reported 0 issues. A disposable cold
+  start imported no V2.0.2.1 namespace data and created no user image files.
+- macOS arm64 App 与 DMG 已通过架构、最低系统版本、Bundle ID、深度签名、权限和 `hdiutil verify` 检查；签名后的 AVIF 回归测试与真实 FHL `gpt-5.5` 图片反推均完成，应用未再崩溃。
+- 最终前端 Node 测试为 561/561；完整 Source ZIP 可在不含本机工具链、`node_modules`、API Key、用户图片或日志的临时目录中重建并通过 macOS 发布验证。
+
 ## Desktop V2.0.2.1 - 2026-06-29
 
 - 修复桌面版 FHL Responses / `gpt-image-2` 明确尺寸下的比例选择不稳定问题。

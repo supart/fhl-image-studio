@@ -8,24 +8,30 @@ import {
   BROWSER_JOB_PROXY_PREFIX,
   BROWSER_JOB_REGISTRY_FILENAME,
   MAX_BROWSER_JOB_GROUPS,
+  MAX_BROWSER_JOB_SUBMIT_MANY_ITEMS,
   emptyJobStatusSummary,
+  retainBrowserJobGroups,
   summarizeJobStatuses,
   type BrowserJobCancelResponse,
   type BrowserJobEvent,
   type BrowserJobListResponse,
   type BrowserJobRegistry,
+  type BrowserJobSubmitManyItemResult,
+  type BrowserJobSubmitManyRequest,
+  type BrowserJobSubmitManyResponse,
   type BrowserJobSubmitPayload,
   type BrowserJobSubmitResponse,
-} from "../src/platform/runtime/browserJobContracts";
+} from "../src/platform/runtime/browserJobContracts.ts";
 import type {
   JobGroupSnapshot,
   JobSlotSnapshot,
   JobStatus,
-} from "../src/types/domain";
+} from "../src/types/domain.ts";
 
 type JobSubscriber = {
   res: ServerResponse;
   req: IncomingMessage;
+  heartbeat?: ReturnType<typeof setInterval>;
 };
 
 type RunningProcess = {
@@ -42,10 +48,21 @@ type SequentialJobQueue = {
   payload: BrowserJobSubmitPayload;
 };
 
+type RegisteredBrowserJob = {
+  payload: BrowserJobSubmitPayload;
+  group: JobGroupSnapshot;
+};
+
+type BrowserJobManagerHooks = {
+  disableSpawning?: boolean;
+  onRegistryWrite?: () => void;
+};
+
 const BROWSER_JOB_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 const BROWSER_JOB_DEFAULT_MAX_RUNTIME_MS = 20 * 60 * 1000;
 const BROWSER_JOB_APIMART_MAX_RUNTIME_MS = 35 * 60 * 1000;
 const BROWSER_JOB_TIMEOUT_CHECK_INTERVAL_MS = 15 * 1000;
+const BROWSER_JOB_SSE_HEARTBEAT_MS = 15 * 1000;
 const BROWSER_JOB_PERSIST_RETRY_DELAYS_MS = [80, 160, 320, 640, 1000] as const;
 const APIMART_OFFICIAL_BASE_URL = "https://api.apimart.ai";
 const APIMART_LEGACY_BASE_URL = "https://api.apib.ai";
@@ -86,6 +103,20 @@ function sendJSON(res: ServerResponse, status: number, payload: unknown) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.end(JSON.stringify(payload));
+}
+
+function openEventStream(res: ServerResponse) {
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+}
+
+function clearSubscriberHeartbeat(subscriber: JobSubscriber) {
+  if (!subscriber.heartbeat) return;
+  clearInterval(subscriber.heartbeat);
+  subscriber.heartbeat = undefined;
 }
 
 function delay(ms: number) {
@@ -279,19 +310,37 @@ async function consumeLines(
   if (buffer.trim()) onLine(buffer.trim());
 }
 
-class BrowserJobManager {
+export class BrowserJobManager {
   private registry: BrowserJobRegistry = { version: 1, updatedAt: Date.now(), groups: [] };
   private readonly running = new Map<string, RunningProcess>();
   private readonly subscribers = new Map<string, Set<JobSubscriber>>();
+  private readonly workspaceSubscribers = new Map<string, Set<JobSubscriber>>();
   private readonly sequentialQueues = new Map<string, SequentialJobQueue>();
+  private persistSequence = 0;
+  private persistedSequence = 0;
+  private persistChain: Promise<void> = Promise.resolve();
+  private readonly repoRoot: string;
+  private readonly outputDir: string;
+  private readonly inputDir: string;
+  private readonly cliExePath: string;
+  private readonly registryPath: string;
+  private readonly hooks: BrowserJobManagerHooks;
 
   constructor(
-    private readonly repoRoot: string,
-    private readonly outputDir: string,
-    private readonly inputDir: string,
-    private readonly cliExePath: string,
-    private readonly registryPath: string,
-  ) {}
+    repoRoot: string,
+    outputDir: string,
+    inputDir: string,
+    cliExePath: string,
+    registryPath: string,
+    hooks: BrowserJobManagerHooks = {},
+  ) {
+    this.repoRoot = repoRoot;
+    this.outputDir = outputDir;
+    this.inputDir = inputDir;
+    this.cliExePath = cliExePath;
+    this.registryPath = registryPath;
+    this.hooks = hooks;
+  }
 
   async init() {
     await fs.mkdir(path.dirname(this.registryPath), { recursive: true });
@@ -307,9 +356,8 @@ class BrowserJobManager {
       };
     }
     let touched = false;
-    this.registry.groups = this.registry.groups
+    const restoredGroups = this.registry.groups
       .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, MAX_BROWSER_JOB_GROUPS)
       .map((group) => {
         const slots = group.slots.map((slot) => {
           if (slot.status === "queued" || slot.status === "running") {
@@ -334,24 +382,25 @@ class BrowserJobManager {
           statusSummary: summarizeJobStatuses(slots),
         };
       });
+    this.registry.groups = retainBrowserJobGroups(restoredGroups, MAX_BROWSER_JOB_GROUPS);
     if (touched) await this.persist();
   }
 
   listWorkspace(workspaceId: string, limit = MAX_BROWSER_JOB_GROUPS): BrowserJobListResponse {
-    const groups = this.registry.groups
-      .filter((group) => group.workspaceId === workspaceId)
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, Math.max(1, limit));
+    const groups = retainBrowserJobGroups(
+      this.registry.groups.filter((group) => group.workspaceId === workspaceId),
+      Math.max(1, limit),
+    );
     return {
       workspaceId,
       groups,
     };
   }
 
-  async submit(payload: BrowserJobSubmitPayload): Promise<BrowserJobSubmitResponse> {
-    if (!(await this.cliAvailable())) {
-      throw new Error("后台任务代理不可用：缺少 runtime\\cli\\gptcodex-image.exe");
-    }
+  private createRegisteredJob(
+    payload: BrowserJobSubmitPayload,
+    metadata: { runId?: string; clientTaskId?: string } = {},
+  ): RegisteredBrowserJob {
     const effectivePayload: BrowserJobSubmitPayload = {
       ...payload,
       apiMode: effectiveAPIModeForJob(payload.mode, payload.apiMode),
@@ -374,6 +423,8 @@ class BrowserJobManager {
     }));
     const group: JobGroupSnapshot = {
       groupId,
+      runId: String(metadata.runId || "").trim() || undefined,
+      clientTaskId: String(metadata.clientTaskId || "").trim() || undefined,
       workspaceId: effectivePayload.workspaceId,
       createdAt: now,
       mode: effectivePayload.mode,
@@ -403,22 +454,153 @@ class BrowserJobManager {
       slots,
       statusSummary: summarizeJobStatuses(slots),
     };
-    this.registry.groups = [group, ...this.registry.groups.filter((entry) => entry.groupId !== groupId)]
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, MAX_BROWSER_JOB_GROUPS);
-    await this.persist();
-    if (shouldRunSequentially(effectivePayload)) {
-      this.sequentialQueues.set(groupId, { payload: effectivePayload });
-      void this.startNextQueuedSlot(groupId);
-    } else {
-      for (const slot of slots) {
-        void this.spawnSlot(groupId, slot.jobId, effectivePayload);
-      }
+    return { payload: effectivePayload, group };
+  }
+
+  private registerGroups(groups: JobGroupSnapshot[]) {
+    if (groups.length === 0) return;
+    const groupIds = new Set(groups.map((group) => group.groupId));
+    this.registry.groups = retainBrowserJobGroups(
+      [...groups, ...this.registry.groups.filter((entry) => !groupIds.has(entry.groupId))],
+      MAX_BROWSER_JOB_GROUPS,
+    );
+  }
+
+  private findGroupByClientTaskId(clientTaskId: string) {
+    const cleanId = String(clientTaskId || "").trim();
+    if (!cleanId) return null;
+    return this.registry.groups.find((group) => group.clientTaskId === cleanId) ?? null;
+  }
+
+  private startRegisteredJob(registration: RegisteredBrowserJob, persistBeforeSpawn: boolean) {
+    if (this.hooks.disableSpawning) return;
+    const { group, payload } = registration;
+    if (shouldRunSequentially(payload)) {
+      this.sequentialQueues.set(group.groupId, { payload });
+      void this.startNextQueuedSlot(group.groupId);
+      return;
     }
+    for (const slot of group.slots) {
+      void this.spawnSlot(group.groupId, slot.jobId, payload, persistBeforeSpawn)
+        .catch((error) => this.failRegisteredSlotStart(group.groupId, slot.jobId, error));
+    }
+  }
+
+  private async failRegisteredSlotStart(groupId: string, jobId: string, error: unknown) {
+    const existing = this.getSlot(jobId);
+    if (!existing || existing.status === "cancelled" || existing.status === "failed") return;
+    const now = Date.now();
+    const slot = this.updateSlot(jobId, {
+      status: "failed",
+      updatedAt: now,
+      finishedAt: now,
+      stage: "启动失败",
+      errorMessage: String((error as { message?: unknown })?.message || error || "failed to start job"),
+    });
+    await this.persist();
+    const group = this.getGroup(groupId);
+    if (slot && group) this.emit(jobId, { type: "error", slot, group });
+    void this.startNextQueuedSlot(groupId);
+  }
+
+  async submit(payload: BrowserJobSubmitPayload): Promise<BrowserJobSubmitResponse> {
+    if (!(await this.cliAvailable())) {
+      throw new Error("后台任务代理不可用：缺少 runtime\\cli\\gptcodex-image.exe");
+    }
+    const registration = this.createRegisteredJob(payload);
+    this.registerGroups([registration.group]);
+    await this.persist();
+    this.startRegisteredJob(registration, true);
+    const group = this.getGroup(registration.group.groupId)!;
     return {
-      groupId,
-      jobIds: slots.map((slot) => slot.jobId),
-      group: this.getGroup(groupId)!,
+      groupId: group.groupId,
+      jobIds: group.slots.map((slot) => slot.jobId),
+      group,
+    };
+  }
+
+  async submitMany(request: BrowserJobSubmitManyRequest): Promise<BrowserJobSubmitManyResponse> {
+    if (!(await this.cliAvailable())) {
+      throw new Error("后台任务代理不可用：缺少 runtime\\cli\\gptcodex-image.exe");
+    }
+    const tasks = Array.isArray(request?.tasks) ? request.tasks : [];
+    if (tasks.length > MAX_BROWSER_JOB_SUBMIT_MANY_ITEMS) {
+      throw new Error(`submit-many accepts at most ${MAX_BROWSER_JOB_SUBMIT_MANY_ITEMS} tasks`);
+    }
+    const runId = String(request?.runId || "").trim() || genId("run");
+    const credentials = new Map(
+      (Array.isArray(request?.credentials) ? request.credentials : [])
+        .map((credential) => [String(credential.apiProfileId || "").trim(), credential] as const)
+        .filter(([profileId]) => !!profileId),
+    );
+    const registrations: RegisteredBrowserJob[] = [];
+    const registrationByClientTaskId = new Map<string, RegisteredBrowserJob>();
+    const results: BrowserJobSubmitManyItemResult[] = [];
+
+    for (const task of tasks) {
+      const clientTaskId = String(task?.clientTaskId || "").trim();
+      if (!clientTaskId) {
+        results.push({ clientTaskId: "", ok: false, error: "clientTaskId is required" });
+        continue;
+      }
+      const existing = this.findGroupByClientTaskId(clientTaskId);
+      if (existing) {
+        results.push({ clientTaskId, ok: true, group: existing });
+        continue;
+      }
+      const duplicate = registrationByClientTaskId.get(clientTaskId);
+      if (duplicate) {
+        results.push({ clientTaskId, ok: true, group: duplicate.group });
+        continue;
+      }
+      const profileId = String(task.apiProfileId || "").trim();
+      const credential = credentials.get(profileId);
+      if (!profileId || !credential) {
+        results.push({ clientTaskId, ok: false, error: "API credential is missing" });
+        continue;
+      }
+      if (!String(credential.apiKey || "").trim()) {
+        results.push({ clientTaskId, ok: false, error: "API key is missing" });
+        continue;
+      }
+      if (!String(task.workspaceId || "").trim() || !String(task.prompt || "").trim()) {
+        results.push({ clientTaskId, ok: false, error: "workspaceId and prompt are required" });
+        continue;
+      }
+
+      const { clientTaskId: _clientTaskId, runId: taskRunId, ...taskPayload } = task;
+      const registration = this.createRegisteredJob({
+        ...taskPayload,
+        batchCount: 1,
+        apiKey: credential.apiKey,
+        baseURL: credential.baseURL,
+        apiMode: credential.apiMode,
+        apiProfileId: profileId,
+        apiProfileName: credential.apiProfileName,
+        requestPolicy: credential.requestPolicy,
+        imagesNewAPICompat: credential.imagesNewAPICompat,
+        textModelID: credential.textModelID,
+        imageModelID: credential.imageModelID,
+      }, {
+        runId: String(taskRunId || "").trim() || runId,
+        clientTaskId,
+      });
+      registrations.push(registration);
+      registrationByClientTaskId.set(clientTaskId, registration);
+      results.push({ clientTaskId, ok: true, group: registration.group });
+    }
+
+    this.registerGroups(registrations.map((registration) => registration.group));
+    if (registrations.length > 0) await this.persist();
+    for (const registration of registrations) this.startRegisteredJob(registration, false);
+
+    return {
+      runId,
+      results: results.map((result) => {
+        if (!result.ok) return result;
+        const group = this.findGroupByClientTaskId(result.clientTaskId) ?? result.group;
+        return { ...result, group };
+      }),
     };
   }
 
@@ -430,10 +612,13 @@ class BrowserJobManager {
       if (!slot) continue;
       if (running) {
         running.cancelled = true;
-        clearProcessTimeout(running);
         running.child.kill();
-        this.running.delete(jobId);
+        // The child can still be alive after kill() returns. Keep this slot
+        // running until its close/error handler confirms the process exited.
+        cancelledJobIds.push(jobId);
+        continue;
       }
+      if (slot.status !== "queued" && slot.status !== "running") continue;
       this.updateSlot(jobId, {
         status: "cancelled",
         updatedAt: Date.now(),
@@ -448,6 +633,7 @@ class BrowserJobManager {
         this.emit(jobId, { type: "cancelled", slot: current, group });
       }
       cancelledJobIds.push(jobId);
+      void this.startNextQueuedSlot(slot.groupId);
     }
     return { cancelledJobIds };
   }
@@ -459,10 +645,7 @@ class BrowserJobManager {
       sendJSON(res, 404, { error: "job not found" });
       return;
     }
-    res.statusCode = 200;
-    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
+    openEventStream(res);
     res.write(`data: ${JSON.stringify({ type: "snapshot", slot, group } satisfies BrowserJobEvent)}\n\n`);
     if (slot.status === "queued" || slot.status === "running") {
       const bucket = this.subscribers.get(jobId) ?? new Set<JobSubscriber>();
@@ -472,6 +655,7 @@ class BrowserJobManager {
       req.on("close", () => {
         const active = this.subscribers.get(jobId);
         if (!active) return;
+        clearSubscriberHeartbeat(subscriber);
         active.delete(subscriber);
         if (active.size === 0) this.subscribers.delete(jobId);
       });
@@ -486,6 +670,39 @@ class BrowserJobManager {
     res.end();
   }
 
+  subscribeWorkspace(workspaceId: string, req: IncomingMessage, res: ServerResponse) {
+    openEventStream(res);
+    const subscriber: JobSubscriber = { req, res };
+    const bucket = this.workspaceSubscribers.get(workspaceId) ?? new Set<JobSubscriber>();
+    bucket.add(subscriber);
+    this.workspaceSubscribers.set(workspaceId, bucket);
+
+    for (const group of this.registry.groups) {
+      if (group.workspaceId !== workspaceId) continue;
+      for (const slot of group.slots) {
+        if (slot.status !== "queued" && slot.status !== "running") continue;
+        res.write(`data: ${JSON.stringify({ type: "snapshot", slot, group } satisfies BrowserJobEvent)}\n\n`);
+      }
+    }
+
+    subscriber.heartbeat = setInterval(() => {
+      try {
+        res.write(`: heartbeat ${Date.now()}\n\n`);
+      } catch {
+        clearSubscriberHeartbeat(subscriber);
+      }
+    }, BROWSER_JOB_SSE_HEARTBEAT_MS);
+    subscriber.heartbeat.unref?.();
+
+    req.on("close", () => {
+      clearSubscriberHeartbeat(subscriber);
+      const active = this.workspaceSubscribers.get(workspaceId);
+      if (!active) return;
+      active.delete(subscriber);
+      if (active.size === 0) this.workspaceSubscribers.delete(workspaceId);
+    });
+  }
+
   private async cliAvailable() {
     try {
       await fs.access(this.cliExePath);
@@ -495,14 +712,26 @@ class BrowserJobManager {
     }
   }
 
-  private async persist() {
+  private persist() {
+    const requestedSequence = ++this.persistSequence;
+    this.persistChain = this.persistChain.then(async () => {
+      if (this.persistedSequence >= requestedSequence) return;
+      const snapshotSequence = this.persistSequence;
+      const persisted = await this.writeRegistrySnapshot();
+      if (persisted) this.persistedSequence = snapshotSequence;
+    });
+    return this.persistChain;
+  }
+
+  private async writeRegistrySnapshot() {
     this.registry.updatedAt = Date.now();
     const payload = JSON.stringify(this.registry, null, 2);
     for (let attempt = 0; attempt <= BROWSER_JOB_PERSIST_RETRY_DELAYS_MS.length; attempt += 1) {
       try {
         await fs.mkdir(path.dirname(this.registryPath), { recursive: true });
         await fs.writeFile(this.registryPath, payload, "utf8");
-        return;
+        this.hooks.onRegistryWrite?.();
+        return true;
       } catch (error) {
         const canRetry = isTransientRegistryWriteError(error) && attempt < BROWSER_JOB_PERSIST_RETRY_DELAYS_MS.length;
         if (canRetry) {
@@ -510,9 +739,10 @@ class BrowserJobManager {
           continue;
         }
         console.warn(`[browser-job] failed to persist registry ${this.registryPath}: ${registryWriteErrorMessage(error)}`);
-        return;
+        return false;
       }
     }
+    return false;
   }
 
   private getGroup(groupId: string) {
@@ -551,21 +781,42 @@ class BrowserJobManager {
 
   private emit(jobId: string, event: BrowserJobEvent) {
     const listeners = this.subscribers.get(jobId);
-    if (!listeners || listeners.size === 0) return;
     const payload = `data: ${JSON.stringify(event)}\n\n`;
-    for (const subscriber of Array.from(listeners)) {
-      try {
-        subscriber.res.write(payload);
-        if (event.type !== "snapshot") {
-          subscriber.res.end();
+    if (listeners && listeners.size > 0) {
+      for (const subscriber of Array.from(listeners)) {
+        try {
+          subscriber.res.write(payload);
+          if (event.type !== "snapshot") {
+            clearSubscriberHeartbeat(subscriber);
+            subscriber.res.end();
+            listeners.delete(subscriber);
+          }
+        } catch {
+          clearSubscriberHeartbeat(subscriber);
+          try { subscriber.res.end(); } catch {}
           listeners.delete(subscriber);
         }
-      } catch {
-        try { subscriber.res.end(); } catch {}
-        listeners.delete(subscriber);
       }
+      if (listeners.size === 0) this.subscribers.delete(jobId);
     }
-    if (listeners.size === 0) this.subscribers.delete(jobId);
+
+    const workspaceListeners = this.workspaceSubscribers.get(event.group.workspaceId);
+    if (workspaceListeners && workspaceListeners.size > 0) {
+      for (const subscriber of Array.from(workspaceListeners)) {
+        try {
+          subscriber.res.write(payload);
+        } catch {
+          clearSubscriberHeartbeat(subscriber);
+          try { subscriber.res.end(); } catch {}
+          workspaceListeners.delete(subscriber);
+        }
+      }
+      if (workspaceListeners.size === 0) this.workspaceSubscribers.delete(event.group.workspaceId);
+    }
+    if (event.type !== "snapshot") {
+      this.registry.groups = retainBrowserJobGroups(this.registry.groups, MAX_BROWSER_JOB_GROUPS);
+      void this.persist();
+    }
   }
 
   private async startNextQueuedSlot(groupId: string) {
@@ -586,7 +837,12 @@ class BrowserJobManager {
     await this.spawnSlot(groupId, next.jobId, queue.payload);
   }
 
-  private async spawnSlot(groupId: string, jobId: string, payload: BrowserJobSubmitPayload) {
+  private async spawnSlot(
+    groupId: string,
+    jobId: string,
+    payload: BrowserJobSubmitPayload,
+    persistBeforeSpawn = true,
+  ) {
     const startedAt = Date.now();
     const slot = this.updateSlot(jobId, {
       status: "running",
@@ -596,9 +852,16 @@ class BrowserJobManager {
       elapsedSec: 0,
       bytes: 0,
     });
-    await this.persist();
+    if (persistBeforeSpawn) await this.persist();
     const group = this.getGroup(groupId);
     if (slot && group) this.emit(jobId, { type: "snapshot", slot, group });
+
+    // A cancellation can arrive while the slot is persisted but before spawn()
+    // creates its child process. Do not start a process for that terminal slot.
+    if (this.getSlot(jobId)?.status === "cancelled") {
+      void this.startNextQueuedSlot(groupId);
+      return;
+    }
 
     const args = [
       "--no-input",
@@ -638,6 +901,11 @@ class BrowserJobManager {
       const maskPath = path.join(this.outputDir, "log", `${jobId}-mask.png`);
       await fs.writeFile(maskPath, Buffer.from(cleanBase64(payload.maskB64), "base64"));
       args.push("--mask", maskPath);
+    }
+
+    if (this.getSlot(jobId)?.status === "cancelled") {
+      void this.startNextQueuedSlot(groupId);
+      return;
     }
 
     const child = spawn(this.cliExePath, args, {
@@ -710,6 +978,7 @@ class BrowserJobManager {
     });
 
     child.on("error", async (error) => {
+      if (this.running.get(jobId) !== proc) return;
       clearProcessTimeout(proc);
       this.running.delete(jobId);
       const timedOut = !proc.cancelled && !!proc.timedOutMessage;
@@ -733,6 +1002,7 @@ class BrowserJobManager {
     });
 
     child.on("close", async (code, signal) => {
+      if (this.running.get(jobId) !== proc) return;
       clearProcessTimeout(proc);
       this.running.delete(jobId);
       const rawResult = safeJsonParse(proc.stdout);
@@ -817,9 +1087,14 @@ export function createBrowserJobProxyPlugin(opts: {
           return;
         }
         if (req.method === "GET" && url.pathname === "/events") {
+          const workspaceId = String(url.searchParams.get("workspaceId") || "").trim();
           const jobId = String(url.searchParams.get("jobId") || "").trim();
+          if (workspaceId) {
+            manager.subscribeWorkspace(workspaceId, req, res);
+            return;
+          }
           if (!jobId) {
-            sendJSON(res, 400, { error: "jobId is required" });
+            sendJSON(res, 400, { error: "workspaceId or jobId is required" });
             return;
           }
           manager.subscribe(jobId, req, res);
@@ -828,6 +1103,12 @@ export function createBrowserJobProxyPlugin(opts: {
         if (req.method === "POST" && url.pathname === "/submit") {
           const payload = await readJSONBody(req) as BrowserJobSubmitPayload;
           const result = await manager.submit(payload);
+          sendJSON(res, 200, result);
+          return;
+        }
+        if (req.method === "POST" && url.pathname === "/submit-many") {
+          const payload = await readJSONBody(req, 64 * 1024 * 1024) as BrowserJobSubmitManyRequest;
+          const result = await manager.submitMany(payload);
           sendJSON(res, 200, result);
           return;
         }

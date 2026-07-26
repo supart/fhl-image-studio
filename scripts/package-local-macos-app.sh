@@ -3,214 +3,211 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_DIR="$ROOT_DIR/image-studio"
-WAILS_CONFIG="$PROJECT_DIR/wails.json"
-WAILS_META_FILE="$(mktemp "${TMPDIR:-/tmp}/image-studio.meta.XXXXXX")"
-GO_COMPILER="${GO_COMPILER:-go}"
+OUTPUT_ROOT="${1:-${OUTPUT_ROOT:-$ROOT_DIR/release-assets}}"
+VERSION="2.0.3"
+APP_NAME="FHL Studio"
+APP_BUNDLE="$PROJECT_DIR/build/bin/$APP_NAME.app"
+WAILS_APP_BUNDLE="$PROJECT_DIR/build/bin/fhl-studio.app"
+ENTITLEMENTS_PATH="$PROJECT_DIR/build/darwin/entitlements.plist"
+DMG_NAME="FHL-Image-Studio-Desktop-V2.0.3-macOS-AppleSilicon.dmg"
+DMG_PATH="$OUTPUT_ROOT/$DMG_NAME"
+TOOLS_DIR="${FHL_BUILD_TOOLS_DIR:-$ROOT_DIR/.build-tools}"
+WAILS_BIN="${WAILS_BIN:-$TOOLS_DIR/wails}"
+WAILS_VERSION="v2.12.0"
 
-node -e '
-  const fs = require("fs");
-  const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-  const appName = cfg.info?.productName || cfg.name || "FHL Studio";
-  const output = cfg.outputfilename || "image-studio";
-  const version = cfg.info?.productVersion || "0.0.0";
-  const bundleId = `com.wails.${cfg.name || output}`;
-  const comments = cfg.info?.comments || "";
-  const copyright = cfg.info?.copyright || "";
-  console.log(appName);
-  console.log(output);
-  console.log(version);
-  console.log(bundleId);
-  console.log(comments);
-  console.log(copyright);
-' "$WAILS_CONFIG" >"$WAILS_META_FILE"
+export GOTOOLCHAIN="local"
+export MACOSX_DEPLOYMENT_TARGET="13.0"
+export VITE_TARGET_PLATFORM="macos"
+export VITE_DESKTOP_UI_VARIANT="windows-parity"
+export VITE_APP_VERSION="$VERSION"
+export IMAGE_STUDIO_PRODUCT_VERSION="$VERSION"
+export IMAGE_STUDIO_FRONTEND_VERSION="$VERSION"
+export IMAGE_STUDIO_STORAGE_NAMESPACE="fhl-image-studio-desktop"
 
-APP_NAME="$(sed -n '1p' "$WAILS_META_FILE")"
-OUTPUT_FILENAME="$(sed -n '2p' "$WAILS_META_FILE")"
-APP_VERSION="$(sed -n '3p' "$WAILS_META_FILE")"
-BUNDLE_ID="top.fangtangyuan.fhlstudio"
-APP_COMMENTS="$(sed -n '5p' "$WAILS_META_FILE")"
-APP_COPYRIGHT="$(sed -n '6p' "$WAILS_META_FILE")"
-CLIENT_VERSION_LDFLAG="${CLIENT_VERSION_LDFLAG:--X github.com/yuanhua/image-gptcodex/pkg/client.Version=${VITE_APP_VERSION:-$APP_VERSION}}"
+mkdir -p "$OUTPUT_ROOT" "$TOOLS_DIR"
 
-APP_BUNDLE="$PROJECT_DIR/build/bin/${APP_NAME}.app"
-EXECUTABLE_SRC="$PROJECT_DIR/build/bin/${OUTPUT_FILENAME}"
-EXECUTABLE_ARM64="$PROJECT_DIR/build/bin/${OUTPUT_FILENAME}-arm64"
-EXECUTABLE_AMD64="$PROJECT_DIR/build/bin/${OUTPUT_FILENAME}-amd64"
-EXECUTABLE_DST="$APP_BUNDLE/Contents/MacOS/${OUTPUT_FILENAME}"
-RESOURCES_DIR="$APP_BUNDLE/Contents/Resources"
-PLIST_PATH="$APP_BUNDLE/Contents/Info.plist"
-ICON_SRC="$PROJECT_DIR/build/appicon.png"
-ICON_ENCODER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/fhl-studio-icns.XXXXXX")"
-ICON_ENCODER="$ICON_ENCODER_DIR/make-icns.go"
+if [[ ! -f "$ENTITLEMENTS_PATH" ]]; then
+  echo "[FHL macOS] Missing hardened runtime entitlements: $ENTITLEMENTS_PATH" >&2
+  exit 1
+fi
+plutil -lint "$ENTITLEMENTS_PATH" >/dev/null
 
-cleanup() {
-  rm -f "$WAILS_META_FILE"
-  rm -rf "$ICON_ENCODER_DIR"
-}
-trap cleanup EXIT
+CURRENT_NODE="$(node --version)"
+if [[ "${FHL_REQUIRE_EXACT_TOOLCHAIN:-0}" == "1" && "$CURRENT_NODE" != "v24.13.1" ]]; then
+  echo "[FHL macOS] Expected Node v24.13.1, found $CURRENT_NODE" >&2
+  exit 1
+fi
+if [[ "$CURRENT_NODE" != v24.* ]]; then
+  echo "[FHL macOS] Node 24.x is required, found $CURRENT_NODE" >&2
+  exit 1
+fi
+echo "[FHL macOS] Using Node $CURRENT_NODE (release CI pins v24.13.1)" >&2
 
-ensure_frontend_deps() {
-  if [[ -d "$PROJECT_DIR/frontend/node_modules" ]]; then
-    return
+CURRENT_GO="$(go env GOVERSION)"
+if [[ "${FHL_REQUIRE_EXACT_TOOLCHAIN:-0}" == "1" && "$CURRENT_GO" != "go1.26.3" ]]; then
+  echo "[FHL macOS] Expected Go 1.26.3, found $CURRENT_GO" >&2
+  exit 1
+fi
+if [[ "$CURRENT_GO" != go1.26.* ]]; then
+  echo "[FHL macOS] Go 1.26.x is required, found $CURRENT_GO" >&2
+  exit 1
+fi
+echo "[FHL macOS] Using $CURRENT_GO (release CI pins go1.26.3)" >&2
+
+USE_WAILS_CLI=1
+if [[ ! -x "$WAILS_BIN" ]] || ! "$WAILS_BIN" version 2>/dev/null | grep -Eq 'v?2\.12\.0([^0-9]|$)'; then
+  if [[ "${FHL_SKIP_WAILS_INSTALL:-0}" == "1" ]]; then
+    USE_WAILS_CLI=0
+  else
+    echo "[FHL macOS] Installing Wails $WAILS_VERSION into $TOOLS_DIR" >&2
+    if ! GOBIN="$TOOLS_DIR" go install "github.com/wailsapp/wails/v2/cmd/wails@$WAILS_VERSION"; then
+      echo "[FHL macOS] Wails CLI install unavailable; using the equivalent direct bundle build" >&2
+      USE_WAILS_CLI=0
+    fi
   fi
-  echo "frontend/node_modules missing; running npm ci" >&2
+fi
+
+if [[ "$USE_WAILS_CLI" == "1" ]]; then
+  echo "[FHL macOS] Building Apple Silicon application with Wails $WAILS_VERSION" >&2
+  (
+    cd "$PROJECT_DIR"
+    CGO_ENABLED=1 \
+    GOOS=darwin \
+    GOARCH=arm64 \
+    CGO_CFLAGS="-mmacosx-version-min=13.0" \
+    CGO_LDFLAGS="-mmacosx-version-min=13.0" \
+    "$WAILS_BIN" build \
+      -platform darwin/arm64 \
+      -clean \
+      -o "$APP_NAME" \
+      -ldflags "-s -w -X github.com/yuanhua/image-gptcodex/pkg/client.Version=$VERSION"
+  )
+
+  if [[ ! -d "$WAILS_APP_BUNDLE" ]]; then
+    echo "[FHL macOS] Missing Wails app bundle: $WAILS_APP_BUNDLE" >&2
+    exit 1
+  fi
+  rm -rf "$APP_BUNDLE"
+  mv "$WAILS_APP_BUNDLE" "$APP_BUNDLE"
+
+  GENERATED_EXECUTABLES=("$APP_BUNDLE"/Contents/MacOS/*)
+  if [[ "${#GENERATED_EXECUTABLES[@]}" != "1" || ! -f "${GENERATED_EXECUTABLES[0]}" ]]; then
+    echo "[FHL macOS] Expected exactly one Wails executable in $APP_BUNDLE/Contents/MacOS" >&2
+    exit 1
+  fi
+  if [[ "${GENERATED_EXECUTABLES[0]}" != "$APP_BUNDLE/Contents/MacOS/$APP_NAME" ]]; then
+    mv "${GENERATED_EXECUTABLES[0]}" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
+  fi
+else
+  echo "[FHL macOS] Building Apple Silicon application directly from the pinned Wails module" >&2
   (
     cd "$PROJECT_DIR/frontend"
     npm ci
+    npm run build:macos
   )
-}
+  rm -rf "$APP_BUNDLE"
+  mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
+  (
+    cd "$PROJECT_DIR"
+    CGO_ENABLED=1 \
+    GOOS=darwin \
+    GOARCH=arm64 \
+    CGO_CFLAGS="-mmacosx-version-min=13.0" \
+    CGO_LDFLAGS="-mmacosx-version-min=13.0" \
+    go build \
+      -trimpath \
+      -buildvcs=false \
+      -tags "desktop,production" \
+      -ldflags "-s -w -X github.com/yuanhua/image-gptcodex/pkg/client.Version=$VERSION" \
+      -o "$APP_BUNDLE/Contents/MacOS/$APP_NAME" \
+      .
+  )
+  ditto "$PROJECT_DIR/build/darwin/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
+  ICONSET_DIR="$PROJECT_DIR/build/bin/FHLStudio.iconset"
+  rm -rf "$ICONSET_DIR"
+  mkdir -p "$ICONSET_DIR"
+  sips -z 16 16 "$PROJECT_DIR/build/appicon.png" --out "$ICONSET_DIR/icon_16x16.png" >/dev/null
+  sips -z 32 32 "$PROJECT_DIR/build/appicon.png" --out "$ICONSET_DIR/icon_16x16@2x.png" >/dev/null
+  sips -z 32 32 "$PROJECT_DIR/build/appicon.png" --out "$ICONSET_DIR/icon_32x32.png" >/dev/null
+  sips -z 64 64 "$PROJECT_DIR/build/appicon.png" --out "$ICONSET_DIR/icon_32x32@2x.png" >/dev/null
+  sips -z 128 128 "$PROJECT_DIR/build/appicon.png" --out "$ICONSET_DIR/icon_128x128.png" >/dev/null
+  sips -z 256 256 "$PROJECT_DIR/build/appicon.png" --out "$ICONSET_DIR/icon_128x128@2x.png" >/dev/null
+  sips -z 256 256 "$PROJECT_DIR/build/appicon.png" --out "$ICONSET_DIR/icon_256x256.png" >/dev/null
+  sips -z 512 512 "$PROJECT_DIR/build/appicon.png" --out "$ICONSET_DIR/icon_256x256@2x.png" >/dev/null
+  sips -z 512 512 "$PROJECT_DIR/build/appicon.png" --out "$ICONSET_DIR/icon_512x512.png" >/dev/null
+  sips -z 1024 1024 "$PROJECT_DIR/build/appicon.png" --out "$ICONSET_DIR/icon_512x512@2x.png" >/dev/null
+  iconutil -c icns "$ICONSET_DIR" -o "$APP_BUNDLE/Contents/Resources/iconfile.icns"
+  rm -rf "$ICONSET_DIR"
+fi
 
-if [[ ! -f "$ICON_SRC" ]]; then
-  echo "missing icon source: $ICON_SRC" >&2
+if [[ ! -d "$APP_BUNDLE" ]]; then
+  echo "[FHL macOS] Missing app bundle: $APP_BUNDLE" >&2
   exit 1
 fi
 
-ensure_frontend_deps
+PLIST_PATH="$APP_BUNDLE/Contents/Info.plist"
+plutil -replace CFBundleExecutable -string "$APP_NAME" "$PLIST_PATH"
+plutil -replace CFBundleIdentifier -string "top.fangtangyuan.fhlstudio" "$PLIST_PATH"
+plutil -replace CFBundleDisplayName -string "$APP_NAME" "$PLIST_PATH"
+plutil -replace CFBundleName -string "$APP_NAME" "$PLIST_PATH"
+plutil -replace CFBundleShortVersionString -string "$VERSION" "$PLIST_PATH"
+plutil -replace CFBundleVersion -string "203" "$PLIST_PATH"
+plutil -replace LSMinimumSystemVersion -string "13.0" "$PLIST_PATH"
+plutil -replace LSApplicationCategoryType -string "public.app-category.graphics-design" "$PLIST_PATH"
+plutil -replace NSHighResolutionCapable -bool YES "$PLIST_PATH"
+if ! plutil -extract NSAppTransportSecurity xml1 -o - "$PLIST_PATH" >/dev/null 2>&1; then
+  plutil -insert NSAppTransportSecurity -xml '<dict><key>NSAllowsLocalNetworking</key><true/></dict>' "$PLIST_PATH"
+fi
 
+RESOURCES_DIR="$APP_BUNDLE/Contents/Resources"
+CLI_DIR="$RESOURCES_DIR/runtime/cli"
+mkdir -p "$CLI_DIR" "$RESOURCES_DIR/config"
+
+echo "[FHL macOS] Building bundled arm64 CLI" >&2
 (
-  cd "$PROJECT_DIR/frontend"
-  npm run build:macos
+  cd "$ROOT_DIR/go-cli"
+  CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
+    -trimpath \
+    -buildvcs=false \
+    -ldflags "-s -w -X github.com/yuanhua/image-gptcodex/pkg/client.Version=$VERSION" \
+    -o "$CLI_DIR/gptcodex-image" \
+    ./cmd/gptcodex-image
 )
 
-perl -0pi -e 's/[ \t]+\n/\n/g; s/\n+\z/\n/' "$PROJECT_DIR/frontend/wailsjs/go/models.ts"
+ditto "$ROOT_DIR/image-cli" "$RESOURCES_DIR/image-cli"
+ditto "$ROOT_DIR/SKILL.md" "$RESOURCES_DIR/SKILL.md"
+ditto "$ROOT_DIR/AGENTS.md" "$RESOURCES_DIR/AGENTS.md"
+ditto "$ROOT_DIR/README_MACOS.md" "$RESOURCES_DIR/README_MACOS.md"
+ditto "$ROOT_DIR/config/cli.env.example" "$RESOURCES_DIR/config/cli.env.example"
+chmod 755 "$CLI_DIR/gptcodex-image" "$RESOURCES_DIR/image-cli"
 
-mkdir -p "$PROJECT_DIR/build/bin"
-rm -f "$EXECUTABLE_ARM64" "$EXECUTABLE_AMD64" "$EXECUTABLE_SRC"
+xattr -cr "$APP_BUNDLE"
+codesign --force --sign - --timestamp=none "$CLI_DIR/gptcodex-image"
+codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS_PATH" --sign - --timestamp=none "$APP_BUNDLE"
+codesign --verify --deep --strict "$APP_BUNDLE"
 
-(
-  cd "$PROJECT_DIR"
-  GOPATH="$ROOT_DIR/.gopath" \
-  GOMODCACHE="$ROOT_DIR/.gomodcache" \
-  GOCACHE="$ROOT_DIR/.gocache" \
-  GOOS=darwin \
-  GOARCH=arm64 \
-  CGO_ENABLED=1 \
-  CC='clang -arch arm64' \
-  CXX='clang++ -arch arm64' \
-  CGO_CFLAGS="-mmacosx-version-min=10.13" \
-  CGO_CXXFLAGS="-I$PROJECT_DIR/build" \
-  CGO_LDFLAGS="-framework UniformTypeIdentifiers -mmacosx-version-min=10.13" \
-  "$GO_COMPILER" build -buildvcs=false -tags 'desktop,wv2runtime.download,production' -ldflags "-w -s ${CLIENT_VERSION_LDFLAG}" -o "$EXECUTABLE_ARM64" .
-)
+STAGE_DIR="$OUTPUT_ROOT/.fhl-macos-dmg-stage"
+rm -rf "$STAGE_DIR"
+mkdir -p "$STAGE_DIR/config"
+ditto "$APP_BUNDLE" "$STAGE_DIR/$APP_NAME.app"
+ditto "$ROOT_DIR/image-cli" "$STAGE_DIR/image-cli"
+ditto "$ROOT_DIR/安装CodexSkill.command" "$STAGE_DIR/安装CodexSkill.command"
+ditto "$ROOT_DIR/SKILL.md" "$STAGE_DIR/SKILL.md"
+ditto "$ROOT_DIR/AGENTS.md" "$STAGE_DIR/AGENTS.md"
+ditto "$ROOT_DIR/README_MACOS.md" "$STAGE_DIR/README_MACOS.md"
+ditto "$ROOT_DIR/config/cli.env.example" "$STAGE_DIR/config/cli.env.example"
+chmod 755 "$STAGE_DIR/image-cli" "$STAGE_DIR/安装CodexSkill.command"
+ln -s /Applications "$STAGE_DIR/Applications"
 
-(
-  cd "$PROJECT_DIR"
-  GOPATH="$ROOT_DIR/.gopath" \
-  GOMODCACHE="$ROOT_DIR/.gomodcache" \
-  GOCACHE="$ROOT_DIR/.gocache" \
-  GOOS=darwin \
-  GOARCH=amd64 \
-  CGO_ENABLED=1 \
-  CC='clang -arch x86_64' \
-  CXX='clang++ -arch x86_64' \
-  CGO_CFLAGS="-mmacosx-version-min=10.13" \
-  CGO_CXXFLAGS="-I$PROJECT_DIR/build" \
-  CGO_LDFLAGS="-framework UniformTypeIdentifiers -mmacosx-version-min=10.13" \
-  "$GO_COMPILER" build -buildvcs=false -tags 'desktop,wv2runtime.download,production' -ldflags "-w -s ${CLIENT_VERSION_LDFLAG}" -o "$EXECUTABLE_AMD64" .
-)
+rm -f "$DMG_PATH"
+hdiutil create \
+  -volname "FHL Studio V$VERSION" \
+  -srcfolder "$STAGE_DIR" \
+  -ov \
+  -format UDZO \
+  "$DMG_PATH" >/dev/null
+hdiutil verify "$DMG_PATH" >/dev/null
+rm -rf "$STAGE_DIR"
 
-/usr/bin/lipo -create -output "$EXECUTABLE_SRC" "$EXECUTABLE_ARM64" "$EXECUTABLE_AMD64"
-rm -f "$EXECUTABLE_ARM64" "$EXECUTABLE_AMD64"
-
-rm -rf "$APP_BUNDLE"
-mkdir -p "$APP_BUNDLE/Contents/MacOS" "$RESOURCES_DIR"
-cp "$EXECUTABLE_SRC" "$EXECUTABLE_DST"
-
-cat >"$ICON_ENCODER" <<'EOF'
-package main
-
-import (
-  "image/png"
-  "os"
-
-  "github.com/jackmordaunt/icns"
-)
-
-func main() {
-  if len(os.Args) != 3 {
-    panic("usage: make-icns <src.png> <dest.icns>")
-  }
-  src, err := os.Open(os.Args[1])
-  if err != nil {
-    panic(err)
-  }
-  defer src.Close()
-
-  img, err := png.Decode(src)
-  if err != nil {
-    panic(err)
-  }
-
-  dest, err := os.Create(os.Args[2])
-  if err != nil {
-    panic(err)
-  }
-  defer dest.Close()
-
-  if err := icns.Encode(dest, img); err != nil {
-    panic(err)
-  }
-}
-EOF
-(
-  cd "$PROJECT_DIR"
-  GOPATH="$ROOT_DIR/.gopath" \
-  GOMODCACHE="$ROOT_DIR/.gomodcache" \
-  GOCACHE="$ROOT_DIR/.gocache" \
-  go run "$ICON_ENCODER" "$ICON_SRC" "$RESOURCES_DIR/iconfile.icns"
-)
-
-cat >"$PLIST_PATH" <<'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-  <dict>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleName</key>
-    <string>__APP_NAME__</string>
-    <key>CFBundleExecutable</key>
-    <string>__OUTPUT_FILENAME__</string>
-    <key>CFBundleIdentifier</key>
-    <string>__BUNDLE_ID__</string>
-    <key>CFBundleVersion</key>
-    <string>__APP_VERSION__</string>
-    <key>CFBundleGetInfoString</key>
-    <string>__APP_COMMENTS__</string>
-    <key>CFBundleShortVersionString</key>
-    <string>__APP_VERSION__</string>
-    <key>CFBundleIconFile</key>
-    <string>iconfile</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>10.13.0</string>
-    <key>NSHighResolutionCapable</key>
-    <string>true</string>
-    <key>NSHumanReadableCopyright</key>
-    <string>__APP_COPYRIGHT__</string>
-  </dict>
-</plist>
-EOF
-
-python3 - <<'PY' "$PLIST_PATH" "$APP_NAME" "$OUTPUT_FILENAME" "$BUNDLE_ID" "$APP_VERSION" "$APP_COMMENTS" "$APP_COPYRIGHT"
-from pathlib import Path
-import sys
-
-plist_path, app_name, output_filename, bundle_id, app_version, app_comments, app_copyright = sys.argv[1:]
-content = Path(plist_path).read_text()
-replacements = {
-    "__APP_NAME__": app_name,
-    "__OUTPUT_FILENAME__": output_filename,
-    "__BUNDLE_ID__": bundle_id,
-    "__APP_VERSION__": app_version,
-    "__APP_COMMENTS__": app_comments,
-    "__APP_COPYRIGHT__": app_copyright,
-}
-for key, value in replacements.items():
-    content = content.replace(key, value)
-Path(plist_path).write_text(content)
-PY
-
-chmod +x "$EXECUTABLE_DST"
-/usr/bin/xattr -rc "$APP_BUNDLE"
-/usr/bin/codesign --force --deep --sign - "$APP_BUNDLE" >/dev/null
 echo "$APP_BUNDLE"
+echo "$DMG_PATH"

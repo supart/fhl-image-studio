@@ -21,3 +21,31 @@ func TestAppendUniquePathDeduplicatesCaseInsensitiveWindowsPaths(t *testing.T) {
 		t.Fatalf("historical exe path was not preserved: %#v", paths)
 	}
 }
+
+func TestWindowsLegacyWebviewUserDataPathsSkipsPortableMode(t *testing.T) {
+	portableRoot := t.TempDir()
+	t.Setenv(publicRootEnvName, portableRoot)
+	t.Setenv(windowsLegacyWebviewDirEnvName, filepath.Join(t.TempDir(), "legacy-webview"))
+
+	paths, err := WindowsLegacyWebviewUserDataPaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 0 {
+		t.Fatalf("portable legacy WebView paths = %#v, want none", paths)
+	}
+}
+
+func TestWindowsLegacyWebviewUserDataPathsHonorsOverrideOutsidePortableMode(t *testing.T) {
+	t.Setenv(publicRootEnvName, "")
+	legacy := filepath.Join(t.TempDir(), "legacy-webview")
+	t.Setenv(windowsLegacyWebviewDirEnvName, legacy)
+
+	paths, err := WindowsLegacyWebviewUserDataPaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 1 || filepath.Clean(paths[0]) != filepath.Clean(legacy) {
+		t.Fatalf("legacy WebView paths = %#v, want %q", paths, legacy)
+	}
+}

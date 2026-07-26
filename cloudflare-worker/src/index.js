@@ -119,7 +119,7 @@ function sanitizePayload(input) {
     imageModelID: String(input?.imageModelID || ""),
     apiMode: String(input?.apiMode || ""),
     requestPolicy: input?.requestPolicy === "compat" ? "compat" : "openai",
-    noPromptRevision: !!input?.noPromptRevision,
+    noPromptRevision: input?.noPromptRevision === false ? false : true,
     partialImages: Number(input?.partialImages || 0),
   };
 }

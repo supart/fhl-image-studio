@@ -5,6 +5,7 @@ import {
 } from "../../../lib/virtualHostStore.ts";
 import { blobToBase64, dataURLFromBase64 } from "../../../lib/images.ts";
 import { validateAPIKeyForHeader } from "../../../lib/apiKey.ts";
+import { ProviderPolicy } from "../../../lib/providerPolicy.ts";
 import { hasAndroidInvokeBridge } from "../../android/nativeInvoke.ts";
 import {
   describeProblem as describeSharedProblem,
@@ -17,10 +18,10 @@ import {
 } from "../../../../../../shared/kernel/requestModel.js";
 import type { KernelImageSource, RemoteGeneratePayload } from "./types.ts";
 
-const FHL_BASE_URL = "https://www.fhl.mom";
+const FHL_BASE_URL = ProviderPolicy.fhl.baseURL;
 const FHL_LOCAL_PROXY_PREFIX = "/__image-studio-fhl";
-const APIMART_BASE_URL = "https://api.apimart.ai";
-const APIMART_LEGACY_BASE_URL = "https://api.apib.ai";
+const APIMART_BASE_URL = ProviderPolicy.apimart.baseURL;
+const APIMART_LEGACY_BASE_URL = ProviderPolicy.apimart.legacyBaseURL;
 const APIMART_LOCAL_PROXY_PREFIX = "/__image-studio-apimart";
 const APIMART_LEGACY_LOCAL_PROXY_PREFIX = "/__image-studio-apimart-legacy";
 const SINGLE_SOURCE_UPLOAD_COMPRESS_THRESHOLD = 2.5 * 1024 * 1024;
@@ -45,7 +46,7 @@ const FHL_IMAGES_STABLE_SIZE_OVERRIDES = new Map<string, string>([
 ]);
 
 export function isGPTImage2Model(modelID: string | undefined): boolean {
-  return normalizeSharedImageModel(modelID || "").toLowerCase().startsWith("gpt-image-2");
+  return normalizeSharedImageModel(modelID || "").toLowerCase().startsWith(ProviderPolicy.fhl.imageModelID);
 }
 
 type LoadedUploadImage = {

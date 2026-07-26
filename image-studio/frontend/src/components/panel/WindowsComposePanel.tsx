@@ -32,7 +32,9 @@ export function WindowsComposePanel({
   pushToast,
   quality,
   requestPolicy,
-  sharedConcurrencyLimit,
+  perAPIConcurrencyLimit,
+  enabledAPICount,
+  totalConcurrencyLimit,
   selectBatchInputDir,
   selectBatchInputFiles,
   selectSourceImage,
@@ -70,7 +72,9 @@ export function WindowsComposePanel({
   pushToast: (text: string, kind?: "info" | "success" | "error" | "warn", ttl?: number) => void;
   quality: QualityValue;
   requestPolicy: RequestPolicy;
-  sharedConcurrencyLimit: number;
+  perAPIConcurrencyLimit: number;
+  enabledAPICount: number;
+  totalConcurrencyLimit: number;
   selectBatchInputDir: () => void;
   selectBatchInputFiles: () => void;
   selectSourceImage: () => void;
@@ -152,7 +156,9 @@ export function WindowsComposePanel({
             pushToast={pushToast}
             quality={quality}
             requestPolicy={requestPolicy}
-            sharedConcurrencyLimit={sharedConcurrencyLimit}
+            perAPIConcurrencyLimit={perAPIConcurrencyLimit}
+            enabledAPICount={enabledAPICount}
+            totalConcurrencyLimit={totalConcurrencyLimit}
             selectBatchInputDir={selectBatchInputDir}
             selectBatchInputFiles={selectBatchInputFiles}
             selectSourceImage={selectSourceImage}

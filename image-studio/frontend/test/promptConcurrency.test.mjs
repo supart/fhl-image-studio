@@ -70,7 +70,7 @@ test("prompt helper actions can run while image generation is running", () => {
 
 test("single generate mode blocks repeated generate clicks while active tasks are running", () => {
   assert.match(storeSource, /function hasActiveGenerationForWorkspace\(state: StudioState, workspaceId: string\): boolean/);
-  assert.match(storeSource, /task\.status === "queued" \|\| task\.status === "running" \|\| startingContinuousTaskIds\.has\(task\.id\)/);
+  assert.match(storeSource, /task\.status === "queued"[\s\S]+task\.status === "running"[\s\S]+task\.launchState === "submitting"[\s\S]+startingContinuousTaskIds\.has\(task\.id\)/);
   assert.match(storeSource, /state\.runningJobs\.length > 0/);
   assert.match(storeSource, /Object\.values\(state\.runningJobMeta\)\.some\(\(meta\) => meta\.workspaceId === workspaceId\)/);
   assert.match(storeSource, /state\.jobGroupsByWorkspace\[workspaceId\]/);

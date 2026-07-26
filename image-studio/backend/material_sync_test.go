@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,8 +18,10 @@ func TestSyncMaterialGroupToOutputCopiesManagedImages(t *testing.T) {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	src := filepath.Join(srcDir, "source.png")
-	if err := os.WriteFile(src, []byte("png-data"), secureFileMode); err != nil {
-		t.Fatalf("WriteFile: %v", err)
+	writeImportSourceTestPNG(t, src)
+	wantBytes, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatalf("Read source file: %v", err)
 	}
 
 	result, err := svc.SyncMaterialGroupToOutput("folder", "人物:参考*组", []MaterialOutputSyncItem{{
@@ -40,8 +43,8 @@ func TestSyncMaterialGroupToOutputCopiesManagedImages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read synced file: %v", err)
 	}
-	if string(got) != "png-data" {
-		t.Fatalf("synced data = %q", got)
+	if !bytes.Equal(got, wantBytes) {
+		t.Fatal("synced data differs from the source image")
 	}
 	if _, err := os.Stat(src); err != nil {
 		t.Fatalf("original file should remain: %v", err)
@@ -60,12 +63,8 @@ func TestSyncMaterialGroupToOutputNumbersDuplicateNames(t *testing.T) {
 	}
 	srcA := filepath.Join(srcDir, "a.png")
 	srcB := filepath.Join(srcDir, "b.png")
-	if err := os.WriteFile(srcA, []byte("a"), secureFileMode); err != nil {
-		t.Fatalf("WriteFile a: %v", err)
-	}
-	if err := os.WriteFile(srcB, []byte("b"), secureFileMode); err != nil {
-		t.Fatalf("WriteFile b: %v", err)
-	}
+	writeImportSourceTestPNG(t, srcA)
+	writeImportSourceTestPNG(t, srcB)
 
 	result, err := svc.SyncMaterialGroupToOutput("folder", "重复", []MaterialOutputSyncItem{
 		{HistoryID: "a", SavedPath: srcA, SuggestedName: "same.png"},

@@ -5,24 +5,20 @@
 | 类型 | 位置 |
 |---|---|
 | 桌面端 API Key | 系统安全存储(Keychain / Credential Manager / Secret Service)。 |
-| Android API Key | 应用私有 SharedPreferences。 |
 | 上游配置(API 形态、BASE_URL、模型 ID) | 前端本地存储。 |
 | 历史记录元数据 | IndexedDB。 |
 | 用户偏好 | 前端本地存储。 |
-| 生成图片 | 桌面端输出目录下的 `images/`；Android 端优先保存到 MediaStore `Pictures/ImageStudio`。 |
-| 原始响应日志 | 桌面端输出目录下的 `log/`；浏览器/Android 远程内核可能使用虚拟 raw 路径或壳层文件能力。 |
-| 拖入 / 粘贴 / 变换中间图 | 桌面端系统 config 目录下的 `image-studio/imports/`；Android 端应用私有 `imports` 目录。 |
+| 源码直构 Wails WebView/IndexedDB | 当前用户稳定数据目录；不作为正式预编译发行形态。 |
+| Portable WebView/IndexedDB | 包内 `config\webview`。 |
+| 拖入、粘贴和变换中间图 | Portable 包内 `input`。 |
 
-默认输出目录:
+Windows V2.0.3 默认输出：
 
-| 平台 | 默认输出目录 |
-|---|---|
-| Windows | `%APPDATA%\image-studio\` |
-| macOS | `~/Pictures/FHL Studio/` |
-| Linux | `~/Pictures/FHL Studio/` |
-| Android | 应用外部图片目录；保存到系统相册时使用 `Pictures/ImageStudio`。 |
+| 运行形态 | GUI 图片 | GUI 原始响应 | CLI / Codex 输出 |
+|---|---|---|---|
+| Portable | 包内 `output\images` | 包内 `output\log` | 包内 `output` |
 
-桌面端输出目录里会继续拆成:
+GUI 的输出根目录继续拆成：
 
 ```text
 images/
@@ -30,6 +26,8 @@ log/
 ```
 
 `images/` 存图，`log/` 存 Responses SSE dump 或 Images API JSON 响应，避免图片浏览目录被日志污染。
+
+Portable 包不包含 API Key。复制一个干净包时，包内 WebView 和配置应为空；但同一 Windows 用户的 Credential Manager 仍可能保留旧凭据。需要验证完全空白状态时，应使用 Windows Sandbox、全新 Windows 用户或新机器，或者明确执行“一键清空 API”。
 
 ## 一直 524 / 504
 

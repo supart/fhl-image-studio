@@ -41,13 +41,21 @@ const mode = explicitMode || process.env.VITE_TARGET_PLATFORM || mapHostPlatform
 if (!supportedModes.has(mode)) {
   throw new Error(`Unsupported target platform: ${mode}. Expected one of ${Array.from(supportedModes).join(", ")}`);
 }
-const env = { ...process.env, NODE_USE_ENV_PROXY: process.env.NODE_USE_ENV_PROXY || "1", VITE_TARGET_PLATFORM: mode };
+const desktopUIVariant = process.env.VITE_DESKTOP_UI_VARIANT || (mode === "macos" ? "windows-parity" : "native");
+const env = {
+  ...process.env,
+  NODE_USE_ENV_PROXY: process.env.NODE_USE_ENV_PROXY || "1",
+  VITE_TARGET_PLATFORM: mode,
+  VITE_DESKTOP_UI_VARIANT: desktopUIVariant,
+};
+// Browser fallback credentials are origin-scoped, so keep the local dev origin stable.
+const devHost = process.env.IMAGE_STUDIO_DEV_HOST?.trim() || "127.0.0.1";
 
 if (command === "build") {
   await run("node_modules/typescript/bin/tsc", ["--noEmit"], env);
   await run("node_modules/vite/bin/vite.js", ["build", "--mode", mode], env);
 } else if (command === "dev") {
-  await run("node_modules/vite/bin/vite.js", ["--mode", mode], env);
+  await run("node_modules/vite/bin/vite.js", ["--mode", mode, "--host", devHost], env);
 } else {
   throw new Error(`Unsupported command: ${command}`);
 }

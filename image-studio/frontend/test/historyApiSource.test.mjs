@@ -136,7 +136,7 @@ test("switching API profiles preserves the current batch preview", () => {
   const profileSource = readFileSync(new URL("../src/state/studioStore.profiles.ts", import.meta.url), "utf8");
   const setActiveProfileBlock = profileSource.match(/async setActiveProfile\(id: string\) \{[\s\S]+?\n    \},/)?.[0] ?? "";
   assert.match(setActiveProfileBlock, /activeProfileId: id/);
-  assert.match(setActiveProfileBlock, /apiMode: profile\.apiMode/);
+  assert.match(setActiveProfileBlock, /activeProfileRuntimePatch\(profile, before\.fhlTransportMode\)/);
   assert.doesNotMatch(setActiveProfileBlock, /resultGridOpen:\s*false/);
   assert.doesNotMatch(setActiveProfileBlock, /selectedBatchTaskId:\s*null/);
   assert.doesNotMatch(setActiveProfileBlock, /patchWorkspaceRuntime/);

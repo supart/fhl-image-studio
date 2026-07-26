@@ -5,19 +5,20 @@ import { base64ToBlob, blobToBase64 } from "./images";
 import { storageDBName, storageKey } from "./storageNamespace.ts";
 
 const DB_NAME = storageDBName("image-studio");
-const DB_VERSION = 2;
+const DB_VERSION = 4;
 const HISTORY_STORE = "history";
 const HISTORY_FULL_STORE = "historyFull";
 const LEGACY_DB_NAME = "keyval-store";
 const LEGACY_STORE_NAME = "keyval";
-const TRUSTED_OUTPUT_ROOTS_KEY = storageKey("gptcodex.trustedOutputRoots");
 const LEGACY_SHARED_API_KEY = storageKey("gptcodex.apiKey");
 const MIGRATE_LEGACY_HISTORY = false;
 
 type HistoryRecord = HistoryItem & { searchText: string; searchTokens: string[] };
 type FullRecord = { id: string; image: Blob };
 export type HistoryPageCursor = {
-  beforeDayStart: number;
+  createdAt: number;
+  id: string;
+  direction: "newest" | "oldest";
 };
 export type HistoryPageResult = {
   items: HistoryItem[];
@@ -32,13 +33,22 @@ function openDB(): Promise<IDBDatabase> {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
       req.onupgradeneeded = () => {
         const db = req.result;
+        let store: IDBObjectStore;
         if (!db.objectStoreNames.contains(HISTORY_STORE)) {
-          const store = db.createObjectStore(HISTORY_STORE, { keyPath: "id" });
+          store = db.createObjectStore(HISTORY_STORE, { keyPath: "id" });
           store.createIndex("createdAt", "createdAt", { unique: false });
           store.createIndex("mode", "mode", { unique: false });
           store.createIndex("createdAt_mode", ["mode", "createdAt"], { unique: false });
           store.createIndex("searchText", "searchText", { unique: false });
           store.createIndex("searchTokens", "searchTokens", { unique: false, multiEntry: true });
+        } else {
+          store = req.transaction!.objectStore(HISTORY_STORE);
+        }
+        if (!store.indexNames.contains("createdAt_id")) {
+          store.createIndex("createdAt_id", ["createdAt", "id"], { unique: true });
+        }
+        if (!store.indexNames.contains("savedPath")) {
+          store.createIndex("savedPath", "savedPath", { unique: false });
         }
         if (!db.objectStoreNames.contains(HISTORY_FULL_STORE)) {
           db.createObjectStore(HISTORY_FULL_STORE, { keyPath: "id" });
@@ -105,8 +115,18 @@ function cursorAsPromise<T>(
 
 function normalizeHistoryRecord(item: HistoryItem): HistoryRecord {
   const searchText = `${item.prompt ?? ""} ${item.revisedPrompt ?? ""}`.trim().toLowerCase();
+  const {
+    imageBlob: _imageBlob,
+    previewBlob: _previewBlob,
+    imageB64,
+    ...metadata
+  } = item;
+  void _imageBlob;
+  void _previewBlob;
+  const hasDurablePath = !!item.savedPath && !item.savedPath.startsWith("memory://");
   return {
-    ...item,
+    ...metadata,
+    ...(hasDurablePath ? {} : { imageB64 }),
     searchText,
     searchTokens: buildSearchTokens(searchText),
   };
@@ -164,31 +184,6 @@ export function clearLegacyAPIKeys(): void {
   }
 }
 
-export function loadTrustedOutputRoots(): string[] {
-  try {
-    const raw = localStorage.getItem(TRUSTED_OUTPUT_ROOTS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed)
-      ? parsed.filter((v): v is string => typeof v === "string" && !!v.trim())
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-export function rememberTrustedOutputRoot(root: string): string[] {
-  const cleaned = root.trim();
-  if (!cleaned) return loadTrustedOutputRoots();
-  const next = Array.from(new Set([...loadTrustedOutputRoots(), cleaned]));
-  try {
-    localStorage.setItem(TRUSTED_OUTPUT_ROOTS_KEY, JSON.stringify(next));
-  } catch {
-    // ignore
-  }
-  return next;
-}
-
 function stripHistoryRecord(record: HistoryRecord): HistoryItem {
   const { searchText, searchTokens, ...item } = record;
   void searchText;
@@ -202,12 +197,6 @@ function stripHistoryRecord(record: HistoryRecord): HistoryItem {
     };
   }
   return item;
-}
-
-function startOfLocalDay(createdAt: number): number {
-  const d = new Date(createdAt);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
 }
 
 export async function persistHistoryItems(items: HistoryItem[]): Promise<void> {
@@ -350,20 +339,23 @@ export async function loadAllHistory(limit?: number): Promise<HistoryItem[]> {
 export async function loadHistoryPage(opts?: {
   cursor?: HistoryPageCursor | null;
   limit?: number;
+  direction?: "newest" | "oldest";
 }): Promise<HistoryPageResult> {
   if (MIGRATE_LEGACY_HISTORY) await migrateLegacyHistoryIfNeeded();
   const { store, tx } = await openHistoryTx("readonly");
   const limit = typeof opts?.limit === "number" && Number.isFinite(opts.limit) && opts.limit > 0
     ? Math.floor(opts.limit)
     : 24;
-  const beforeDayStart = opts?.cursor?.beforeDayStart ?? 0;
-  const range = beforeDayStart > 0
-    ? IDBKeyRange.upperBound(beforeDayStart, true)
+  const direction = opts?.direction === "oldest" ? "oldest" : "newest";
+  const cursorValue = opts?.cursor?.direction === direction ? opts.cursor : null;
+  const range = cursorValue
+    ? direction === "newest"
+      ? IDBKeyRange.upperBound([cursorValue.createdAt, cursorValue.id], true)
+      : IDBKeyRange.lowerBound([cursorValue.createdAt, cursorValue.id], true)
     : null;
   const result = await new Promise<{ records: HistoryRecord[]; nextCursor: HistoryPageCursor | null }>((resolve, reject) => {
     const out: HistoryRecord[] = [];
-    let currentDayStart: number | null = null;
-    const req = store.index("createdAt").openCursor(range, "prev");
+    const req = store.index("createdAt_id").openCursor(range, direction === "newest" ? "prev" : "next");
     req.onsuccess = () => {
       const cursor = req.result;
       if (!cursor) {
@@ -371,26 +363,14 @@ export async function loadHistoryPage(opts?: {
         return;
       }
       const value = cursor.value as HistoryRecord;
-      const dayStart = startOfLocalDay(value.createdAt);
-      if (currentDayStart === null) {
-        currentDayStart = dayStart;
-        out.push(value);
-        cursor.continue();
-        return;
-      }
-      if (dayStart === currentDayStart) {
-        out.push(value);
-        cursor.continue();
-        return;
-      }
       if (out.length >= limit) {
+        const last = out[out.length - 1];
         resolve({
           records: out,
-          nextCursor: { beforeDayStart: currentDayStart },
+          nextCursor: { createdAt: last.createdAt, id: last.id, direction },
         });
         return;
       }
-      currentDayStart = dayStart;
       out.push(value);
       cursor.continue();
     };
@@ -401,6 +381,65 @@ export async function loadHistoryPage(opts?: {
     items: result.records.map(stripHistoryRecord),
     nextCursor: result.nextCursor,
   };
+}
+
+export async function loadHistoryItemsByIds(ids: string[]): Promise<HistoryItem[]> {
+  const unique = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+  if (unique.length === 0) return [];
+  const { store, tx } = await openHistoryTx("readonly");
+  const records = await Promise.all(
+    unique.map((id) => reqAsPromise<HistoryRecord | undefined>(store.get(id))),
+  );
+  await txDone(tx);
+  return records.filter((record): record is HistoryRecord => !!record).map(stripHistoryRecord);
+}
+
+export async function loadHistoryItemsBySavedPaths(paths: string[]): Promise<HistoryItem[]> {
+  const unique = Array.from(new Set(paths.map((path) => path.trim()).filter(Boolean)));
+  if (unique.length === 0) return [];
+  const { store, tx } = await openHistoryTx("readonly");
+  const index = store.index("savedPath");
+  const records = await Promise.all(
+    unique.map((path) => reqAsPromise<HistoryRecord | undefined>(index.get(path))),
+  );
+  await txDone(tx);
+  return records.filter((record): record is HistoryRecord => !!record).map(stripHistoryRecord);
+}
+
+async function openExistingHistoryDB(name: string): Promise<IDBDatabase | null> {
+  const databases = typeof indexedDB.databases === "function" ? await indexedDB.databases() : [];
+  if (databases.length > 0 && !databases.some((entry) => entry.name === name)) return null;
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(name);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function migrateHistoryFromNamespace(sourceNamespace: string): Promise<number> {
+  const sourceName = `image-studio-${sourceNamespace}`;
+  if (sourceName === DB_NAME) return 0;
+  const sourceDB = await openExistingHistoryDB(sourceName);
+  if (!sourceDB || !sourceDB.objectStoreNames.contains(HISTORY_STORE)) {
+    sourceDB?.close();
+    return 0;
+  }
+  const sourceTx = sourceDB.transaction(HISTORY_STORE, "readonly");
+  const sourceRecords = await reqAsPromise<HistoryRecord[]>(sourceTx.objectStore(HISTORY_STORE).getAll());
+  await txDone(sourceTx);
+  sourceDB.close();
+  if (sourceRecords.length === 0) return 0;
+
+  const { store, tx } = await openHistoryTx("readwrite");
+  const targetKeys = new Set((await reqAsPromise<IDBValidKey[]>(store.getAllKeys())).map(String));
+  let migrated = 0;
+  for (const record of sourceRecords) {
+    if (!record?.id || targetKeys.has(record.id)) continue;
+    store.put(normalizeHistoryRecord(stripHistoryRecord(record)));
+    migrated += 1;
+  }
+  await txDone(tx);
+  return migrated;
 }
 
 export async function loadHistoryByFilters(opts: {

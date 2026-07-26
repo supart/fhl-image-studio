@@ -5,11 +5,12 @@ set "ROOT=%~dp0"
 if "%IMAGE_STUDIO_PUBLIC_ROOT%"=="" (
   set "PUBLIC_ROOT=%ROOT%"
 ) else (
-  for %%I in ("%IMAGE_STUDIO_PUBLIC_ROOT%") do set "PUBLIC_ROOT=%%~fI\"
+  for %%I in ("%IMAGE_STUDIO_PUBLIC_ROOT%") do set "PUBLIC_ROOT=%%~fI"
 )
+for %%I in ("%PUBLIC_ROOT%\.") do set "PUBLIC_ROOT=%%~fI\"
 set "CLI_EXE=%ROOT%runtime\cli\gptcodex-image.exe"
 set "CONFIG=%ROOT%config\cli.env.local"
-if not exist "%CONFIG%" set "CONFIG=%ROOT%config\cli.env.example"
+if not exist "%CONFIG%" if exist "%ROOT%config\cli.env.example" set "CONFIG=%ROOT%config\cli.env.example"
 
 if not exist "%CLI_EXE%" (
   echo [FHL Studio CLI] Missing runtime\cli\gptcodex-image.exe 1>&2

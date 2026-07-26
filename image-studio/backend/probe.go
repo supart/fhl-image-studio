@@ -3,7 +3,6 @@ package backend
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,10 +20,17 @@ type modelsListProbeResponse struct {
 }
 
 func (s *Service) ProbeUpstream(opts ProbeUpstreamOptions) (ProbeUpstreamResult, error) {
-	if s.ctx == nil {
-		return ProbeUpstreamResult{}, errors.New("服务未启动")
+	parent, finishOperation, err := s.beginOperation(true)
+	if err != nil {
+		return ProbeUpstreamResult{}, err
 	}
-	return probeUpstream(s.ctx, opts)
+	defer finishOperation()
+	releaseNetwork, err := s.jobManager.acquireNetwork(parent)
+	if err != nil {
+		return ProbeUpstreamResult{}, err
+	}
+	defer releaseNetwork()
+	return probeUpstream(parent, opts)
 }
 
 func probeUpstream(parent context.Context, opts ProbeUpstreamOptions) (ProbeUpstreamResult, error) {

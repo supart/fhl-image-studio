@@ -1,9 +1,11 @@
 import type { StudioState } from "../state/studioStore.types";
 import { blobToBase64 } from "./images";
 import {
+  hasUpstreamProfileCapacity,
   RUNNINGHUB_BANANA2_PROFILE_NAME,
   RUNNINGHUB_BASE_URL,
   RUNNINGHUB_IMAGE_G2_PROFILE_NAME,
+  upstreamProfileLimitMessage,
 } from "./profiles";
 
 export const RUNNINGHUB_REGISTER_URL = "https://www.runninghub.cn/call-api/api-detail/2046503667076751361?inviteCode=rh-v1507";
@@ -413,6 +415,16 @@ export async function ensureRunningHubProfiles(
   baseURL: string,
 ): Promise<{ banana2Id: string; imageG2Id: string }> {
   const normalizedBaseURL = normalizeRunningHubBaseURL(baseURL);
+  const hasBanana2 = store.profiles.some((profile) => (
+    profile.apiMode === "runninghub" && profile.imageModelID.trim() === "banana2"
+  ));
+  const hasImageG2 = store.profiles.some((profile) => (
+    profile.apiMode === "runninghub" && profile.imageModelID.trim() === "image_g2"
+  ));
+  const missingProfiles = Number(!hasBanana2) + Number(!hasImageG2);
+  if (!hasUpstreamProfileCapacity(store.profiles, missingProfiles)) {
+    throw new Error(upstreamProfileLimitMessage());
+  }
   const banana2Id = await ensureRunningHubProfile(store, {
     name: RUNNINGHUB_BANANA2_PROFILE_NAME,
     imageModelID: "banana2",

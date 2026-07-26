@@ -81,7 +81,11 @@ export function UpstreamProfileEditor({
               <button
                 key={option.id}
                 type="button"
-                onClick={() => onPatchDraft({ apiMode: option.id, requestPolicy: "openai" })}
+                onClick={() => onPatchDraft({
+                  apiMode: option.id,
+                  requestPolicy: "openai",
+                  continuousPoolEnabled: option.id === "images" ? (draft.continuousPoolEnabled ?? true) : false,
+                })}
                 className={`upstream-option-card platform-card flex flex-col items-start gap-0.5 border p-2.5 text-left transition-colors ${
                   active
                     ? "active border-[color:var(--accent)]/25 bg-[var(--accent-soft)] text-[var(--accent)]"
@@ -250,6 +254,22 @@ export function UpstreamProfileEditor({
         />
         <Hint>0 / 留空 = 不限制。填正整数后，这个 profile 跨所有标签页最多同时运行这么多任务。</Hint>
       </Field>
+
+      {draft.apiMode === "images" ? (
+        <Field label="连续生成池">
+          <label className={`flex items-start gap-2 border border-black/[0.08] bg-[var(--surface)] px-3 py-2 text-[12px] text-zinc-700 dark:border-white/[0.08] dark:text-zinc-300 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
+            <input
+              type="checkbox"
+              checked={draft.continuousPoolEnabled === true}
+              onChange={(e) => onPatchDraft({ continuousPoolEnabled: e.target.checked })}
+              className="mt-0.5"
+            />
+            <span className="min-w-0 leading-5">
+              加入连续生成池：连续生成会在所有已启用、仍有并发容量的 Images 配置之间轮询分配任务。
+            </span>
+          </label>
+        </Field>
+      ) : null}
 
       {draft.apiMode === "images" ? (
         <Field label="NewAPI 兼容模式">

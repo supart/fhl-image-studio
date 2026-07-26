@@ -22,6 +22,15 @@ test("desktop E2E harness supports browser-visible postMessage commands", () => 
   assert.match(harnessSource, /window\.addEventListener\("message"/);
 });
 
+test("desktop E2E harness can load packaged batch input directories", () => {
+  assert.match(harnessSource, /ListBatchInputImages/);
+  assert.match(harnessSource, /loadBatchInputDir/);
+  assert.match(harnessSource, /mountE2EBatchControls/);
+  assert.match(harnessSource, /image-studio-e2e-load-batch-dir/);
+  assert.match(harnessSource, /editSourceMode:\s*"batch"/);
+  assert.match(harnessSource, /selected:\s*true/);
+});
+
 test("runtime host can read backend or injected E2E automation status", () => {
   assert.match(hostSource, /export function GetAutomationStatus/);
   assert.match(hostSource, /__IMAGE_STUDIO_E2E_BOOTSTRAP/);

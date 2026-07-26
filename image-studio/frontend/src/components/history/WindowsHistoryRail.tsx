@@ -15,6 +15,7 @@ import { WindowsHistoryPromptGroup } from "./WindowsHistoryPromptGroup";
 import { qualityLabel, sizeLabel } from "./historyLabels";
 import type { MenuItem } from "../common/ContextMenu";
 import { apiModeLabel, apiModeRequiresDirectAPIKey } from "../../lib/profiles";
+import { fhlTransportLabel, isOfficialFHLProfile } from "../../lib/providerPolicy";
 import { apiSourceShortLabel } from "./historyApiSource";
 import { normalizeRuntimeText } from "../../lib/runtimeText.ts";
 
@@ -74,6 +75,7 @@ export function WindowsHistoryRail({
   apiKey,
   apiMode,
   baseURL,
+  fhlTransportMode,
   batchQueueCompleted,
   batchQueueMode,
   batchQueueQuality,
@@ -125,6 +127,7 @@ export function WindowsHistoryRail({
   apiKey: string;
   apiMode: APIMode;
   baseURL: string;
+  fhlTransportMode: "images" | "responses";
   batchQueueCompleted: number;
   batchQueueMode: Mode;
   batchQueueQuality: QualityValue;
@@ -157,7 +160,7 @@ export function WindowsHistoryRail({
   openMaterialManager: () => void;
   openMenu: (item: HistoryItem, x: number, y: number) => void;
   openUpstreamConfig: (source?: "app" | "settings") => void;
-  profiles: Array<{ id: string; name: string; apiMode: APIMode }>;
+  profiles: Array<{ id: string; name: string; apiMode: APIMode; baseURL: string }>;
   q: string;
   rawPath: string | null;
   recentJobGroups: JobGroupSnapshot[];
@@ -173,6 +176,9 @@ export function WindowsHistoryRail({
   onOpenPromptGroup: (group: HistoryPromptGroup) => void;
 }) {
   const upstreamReady = !!baseURL.trim() && (!apiModeRequiresDirectAPIKey(apiMode) || !!apiKey.trim());
+  const activeFHLModeLabel = isOfficialFHLProfile({ apiMode, baseURL })
+    ? `${fhlTransportLabel(fhlTransportMode)} API`
+    : apiModeLabel(apiMode);
   const latest = filtered[0] ?? null;
   const list = historyRailCollapsed ? [] : entries.slice(0, 18);
   const historyById = new Map(history.map((item) => [item.id, item]));
@@ -213,7 +219,9 @@ export function WindowsHistoryRail({
             >
               {profiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
-                  {profile.name} · {apiModeLabel(profile.apiMode).replace(" API", "")}
+                  {profile.name} · {isOfficialFHLProfile(profile)
+                    ? fhlTransportLabel(fhlTransportMode)
+                    : apiModeLabel(profile.apiMode).replace(" API", "")}
                 </option>
               ))}
               <option value="__manage__">管理配置...</option>
@@ -230,13 +238,14 @@ export function WindowsHistoryRail({
               type="button"
               onClick={() => void testAPIKey()}
               disabled={!upstreamReady || isTestingKey}
+              title={upstreamReady ? "测试当前 API 连接" : "请先选择并保存当前 Images API"}
               className="platform-action-btn"
             >
-              {isTestingKey ? "检查中..." : "测试"}
+              {isTestingKey ? "检查中..." : "测试当前"}
             </button>
           </div>
           <span className="windows-history-api-mode">
-            {apiModeLabel(apiMode)}
+            {activeFHLModeLabel}
           </span>
         </section>
 

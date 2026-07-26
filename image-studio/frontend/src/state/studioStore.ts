@@ -2,7 +2,6 @@ import { create } from "zustand";
 import {
   BuildBatchOutputPath,
   EventsOn,
-  EventsOff,
   Generate as wailsGenerate,
   Edit as wailsEdit,
   OptimizePrompt as wailsOptimizePrompt,
@@ -14,22 +13,31 @@ import {
   DeleteStoredAPIKey,
   GetStoredAPIKey,
   SetStoredAPIKey,
-  RegisterMediaAsset,
   RegisterImportedImageAsset,
+  RegisterMediaAsset,
   ReadTextFile,
   SaveImagePathToDir,
-  SetOutputDir,
   SyncMaterialGroupToOutput,
   detectHostKind,
   OpenMaterialSyncDir,
   probeCurrentUpstream,
   setKernelRuntimeMode,
 } from "../platform/runtime/host";
+import { createDesktopJobEventGate } from "../platform/runtime/desktopJobEvents";
 import {
+  cancelBrowserJobs,
   listBrowserJobGroups,
   submitBrowserJobGroup,
+  submitBrowserJobGroups,
   subscribeToBrowserJob,
+  subscribeToBrowserWorkspace,
 } from "../platform/runtime/browserJobClient";
+import type {
+  BrowserJobEvent,
+  BrowserJobSubmitManyCredential,
+  BrowserJobSubmitManyRequest,
+  BrowserJobSubmitManyResponse,
+} from "../platform/runtime/browserJobContracts.ts";
 import { isTransientGenerationFailureText } from "../platform/runtime/remote-kernel/common.ts";
 import {
   canUseAndroidJobs,
@@ -40,6 +48,7 @@ import {
 import type { backend } from "../../wailsjs/go/models";
 import {
   APIMode,
+  BatchProcessSourceImage,
   BatchProcessAutoAspectResolution,
   BatchTaskRecord,
   type EditSourceMode,
@@ -69,14 +78,15 @@ import {
   clearLegacyAPIKeys,
   loadLegacyModeAPIKey,
   loadLegacySharedAPIKey,
-  loadTrustedOutputRoots,
   persistHistoryItem,
   persistHistoryItems,
-  rememberTrustedOutputRoot,
   loadAllHistory,
   loadHistoryPage,
+  loadHistoryItemsByIds,
+  loadHistoryItemsBySavedPaths,
 } from "../lib/storage";
 import { purgeForeignAPIKeyStorageKeys, storageKey } from "../lib/storageNamespace.ts";
+import { migrateStableNamespaceData } from "../lib/storageMigration.ts";
 import {
   cleanBaseURL,
 } from "../lib/security";
@@ -101,15 +111,34 @@ import {
   duplicateProfile as cloneProfile,
   FHL_BASE_URL,
   FHL_IMAGE_MODEL_ID,
+  FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT,
   FHL_PROFILE_ID,
   FHL_TEXT_MODEL_ID,
   genProfileId,
+  hasUpstreamProfileCapacity,
+  isOfficialFHLImagesProfile,
   keyringUserFor,
+  mapFHLImagesProfilesToPoolSlots,
+  makeFHLImagesProfile,
   makeFHLResponsesProfile,
+  normalizeFHLPoolPerAPIConcurrencyLimit,
   pickActiveProfile,
+  resolveFHLPoolPerAPIConcurrencyLimit,
 } from "../lib/profiles";
+import { effectiveProviderMode, isOfficialFHLProfile, ProviderPolicy } from "../lib/providerPolicy";
+import { resolvePromptTextSelection } from "../lib/promptTextProfiles";
+import {
+  deleteFHLTextAPIKey,
+  fhlTextAPIKeyHint,
+  FHL_TEXT_API_KEYRING_USER,
+  formatFHLTextAPIError,
+  loadFHLTextAPIKey,
+  saveFHLTextAPIKey,
+  testFHLTextAPIKey,
+  validateFHLTextAPIKey,
+} from "../lib/fhlTextAPI";
 import { loadLocalFHLConfig } from "../lib/localFHLConfig";
-import { isMac, readRuntimePlatformState } from "../platform";
+import { readRuntimePlatformState, usesWindowsDesktopUI } from "../platform";
 import { dispatchFullscreenResize, setNativeFullscreen } from "../platform/nativeFullscreen";
 import {
   activeRuntimePatch,
@@ -131,6 +160,7 @@ import {
 import {
   normalizeSizeSelection,
 } from "../components/panel/sizeCapabilities";
+import { DEFAULT_FHL_SIZE } from "../lib/generationDefaults";
 import { buildMacWorkspacePreview, readPreviewScenario } from "../app/dev/previewData";
 import {
   buildAutoAspectSizeFromDimensions,
@@ -149,16 +179,19 @@ import {
   genId,
   imageDims,
   loadModeConfig,
+  loadLegacyFHLPoolSharedConcurrencyLimit,
+  loadStoredFHLPoolPerAPIConcurrencyLimit,
+  loadStoredFHLTransportMode,
   loadStoredActiveProfileId,
   loadStoredProfiles,
-  MAX_HISTORY_ITEMS,
   persistActiveProfileId,
+  persistFHLPoolPerAPIConcurrencyLimit,
+  persistFHLTransportMode,
   persistProfiles,
   persistWorkspaceSession,
   persistTrimmedHistory,
   loadWorkspaceSession,
   currentWorkspaceServiceInstanceId,
-  registerTrustedOutputRoots,
   stripDataURLPrefix,
   tempDataURLFromB64,
   trimHistory,
@@ -170,6 +203,7 @@ import {
   cryptoIDFallback,
   ensureFullHistoryItem as ensureFullHistoryItemRuntime,
   fileToBase64,
+  materializeMediaRefForHistoryItem,
   materializeHistoryItem as materializeHistoryItemRuntime,
   saveActiveWorkspaceSnapshot,
   STYLE_SUFFIXES,
@@ -177,7 +211,7 @@ import {
   withMediaAssetRef,
 } from "./studioStore.runtime";
 import { createMediaActions } from "./studioStore.media";
-import { createProfileActions } from "./studioStore.profiles";
+import { activeProfileRuntimePatch, createProfileActions } from "./studioStore.profiles";
 import { createWorkspaceActions } from "./studioStore.workspaces";
 import { createImageActions } from "./studioStore.images";
 import { buildEffectivePrompt } from "./promptComposition";
@@ -198,6 +232,7 @@ import {
   findTaskForSlot,
   isRetryableBatchTask,
   localQueuedTasksForWorkspace,
+  minimalHistoryItemFromBatchTask,
   markMissingJobTasksInterrupted,
   nextSlotIndexFromTasks,
   runningOrSubmittedTaskCountForWorkspace,
@@ -209,6 +244,11 @@ import {
   updateTasksFromJobGroup,
   upsertBatchTasks,
 } from "./batchTaskRecords";
+import {
+  planContinuousPoolWave,
+  selectNextContinuousPoolProfile,
+  selectNextFailoverPoolProfile,
+} from "./continuousPoolScheduler";
 import {
   findPanoramaRoundtripRef,
   buildPanoramaProjectRef,
@@ -229,6 +269,14 @@ import {
   uniqueMaterialRefs,
 } from "./materialLibrary";
 import { sourceImagesForHistory, sourceImagesFromPaths } from "./historySourceImages";
+import {
+  panoramaHistoryIdsForMetadataRecovery,
+  panoramaSourcePathsForMetadataRecovery,
+  recoverPanoramaHistoryMetadata,
+  recoverPanoramaItemMetadata,
+  recoverPanoramaItemMetadataFromTask,
+  recoverPanoramaSourceMetadata,
+} from "./panoramaRoundtripRecovery";
 import { sourceContextPatchFromBatchTask } from "./sourceContextSelection";
 import {
   currentImageIdForWorkspaceSnapshot,
@@ -251,6 +299,7 @@ type BrowserSourceIdentity = {
 };
 
 const browserJobSubscriptions = new Map<string, () => void>();
+const browserWorkspaceSubscriptions = new Map<string, () => void>();
 const browserJobRefreshes = new Map<string, Promise<void>>();
 const ENABLE_LEGACY_PROFILE_MIGRATION = false;
 const STAR_PROMPTED_KEY = storageKey("gptcodex.starPrompted");
@@ -261,7 +310,6 @@ const PRESETS_KEY = storageKey("gptcodex.presets");
 const CONCURRENCY_DEFAULT_V4_MIGRATION_KEY = storageKey("gptcodex.profileConcurrencyDefaultV4Migrated");
 const THEME_KEY = storageKey("gptcodex.theme");
 const FONT_SCALE_KEY = storageKey("gptcodex.fontScale");
-const OUTPUT_DIR_KEY = storageKey("gptcodex.outputDir");
 const INITIAL_HISTORY_LOAD = 48;
 const HISTORY_MEDIA_HYDRATE_CONCURRENCY = 4;
 const PRESSURE_PROMPT_FRUITS = [
@@ -285,7 +333,7 @@ function pressurePrompt(index: number) {
   const scene = PRESSURE_PROMPT_SCENES[Math.floor(index / PRESSURE_PROMPT_FRUITS.length) % PRESSURE_PROMPT_SCENES.length];
   const style = PRESSURE_PROMPT_STYLES[index % PRESSURE_PROMPT_STYLES.length];
   const serial = String(index + 1).padStart(3, "0");
-  return `pressure ${serial} ${fruit} ${scene}, vertical 9:16, ${style}, detailed realistic image, clean composition`;
+  return `pressure ${serial} 钓鱼的小动物, tiny ${fruit}-colored animal fishing near a ${scene}, vertical 9:16, ${style}, detailed realistic image, clean composition`;
 }
 
 async function sourceFromHistoryForMaterial(item: HistoryItem): Promise<SourceImage | null> {
@@ -293,7 +341,7 @@ async function sourceFromHistoryForMaterial(item: HistoryItem): Promise<SourceIm
   if (!full?.savedPath) return null;
   let previewItem = full;
   if (!previewItem.previewUrl && !previewItem.previewBlob && !previewItem.imageB64) {
-    const ref = await RegisterImportedImageAsset(full.savedPath).catch(() => null);
+    const ref = await materializeMediaRefForHistoryItem(full).catch(() => null);
     if (ref) previewItem = withMediaAssetRef(previewItem, ref);
   }
   return {
@@ -308,6 +356,10 @@ async function sourceFromHistoryForMaterial(item: HistoryItem): Promise<SourceIm
 
 let deferredHistoryLoadPromise: Promise<void> | null = null;
 const startingContinuousTaskIds = new Set<string>();
+const unavailableContinuousPoolProfileIds = new Set<string>();
+let continuousPoolRoundRobinCursor = 0;
+let continuousPoolPumpPromise: Promise<void> | null = null;
+let continuousPoolPumpRequested = false;
 const autoRetryTimersByTaskId = new Map<string, ReturnType<typeof setTimeout>>();
 const recordedTransientFailureSignatures = new Set<string>();
 const transientFailureWindowsByProfile = new Map<string, number[]>();
@@ -324,6 +376,29 @@ function persistWorkspaceSessionFromState(state: StudioState) {
     lastPayload: null,
   }));
   persistWorkspaceSession(state.activeWorkspaceId, workspaces, state.batchTasksById);
+}
+
+let pendingWorkspaceSessionState: StudioState | null = null;
+let workspaceSessionPersistTimer: ReturnType<typeof setTimeout> | null = null;
+
+function flushWorkspaceSessionPersistence(state?: StudioState) {
+  const snapshot = state ?? pendingWorkspaceSessionState;
+  if (workspaceSessionPersistTimer) {
+    clearTimeout(workspaceSessionPersistTimer);
+    workspaceSessionPersistTimer = null;
+  }
+  pendingWorkspaceSessionState = null;
+  if (snapshot) persistWorkspaceSessionFromState(snapshot);
+}
+
+function scheduleWorkspaceSessionPersistence(state: StudioState, immediate = false) {
+  pendingWorkspaceSessionState = state;
+  if (immediate) {
+    flushWorkspaceSessionPersistence();
+    return;
+  }
+  if (workspaceSessionPersistTimer) clearTimeout(workspaceSessionPersistTimer);
+  workspaceSessionPersistTimer = setTimeout(flushWorkspaceSessionPersistence, 500);
 }
 
 function needsHistoryPreviewHydration(item: HistoryItem): boolean {
@@ -364,9 +439,7 @@ async function hydrateHistoryPreviewRefs(items: HistoryItem[]): Promise<HistoryI
   return mapWithConcurrency(items, HISTORY_MEDIA_HYDRATE_CONCURRENCY, async (item) => {
     if (!needsHistoryPreviewHydration(item)) return item;
     try {
-      const ref = item.thumbPath
-        ? await RegisterMediaAsset(item.savedPath!, item.thumbPath)
-        : await RegisterImportedImageAsset(item.savedPath!);
+      const ref = await materializeMediaRefForHistoryItem(item);
       return withMediaAssetRef(item, ref);
     } catch {
       return item;
@@ -736,6 +809,7 @@ async function autoPastePanoramaRoundtripResult(
     pasteMask?: PanoramaPastebackMaskInput | null;
   },
 ): Promise<HistoryItem | null> {
+  item = recoverPanoramaItemMetadata(item, useStudioStore.getState().history);
   const roundtrip = resolvePanoramaRoundtripRef(item);
   if (!roundtrip) return null;
   let sourceItem = roundtrip.sourceHistoryId
@@ -821,8 +895,46 @@ function shouldUseBackgroundTaskProxyForSubmit(apiMode: APIMode): boolean {
   return isAndroidTaskProxyMode() && apiMode !== "images";
 }
 
-function effectiveAPIModeForSubmit(_mode: Mode, apiMode: APIMode): APIMode {
-  return apiMode;
+function fhlTransportModeForState(state: StudioState): "images" | "responses" {
+  return state.fhlTransportMode === "responses" ? "responses" : "images";
+}
+
+function isOfficialFHLTransportProfile(
+  profile: Pick<UpstreamProfile, "apiMode" | "baseURL"> | null | undefined,
+  fallbackBaseURL = "",
+  fallbackAPIMode?: APIMode,
+): boolean {
+  return isOfficialFHLProfile(profile, {
+    apiMode: fallbackAPIMode,
+    baseURL: fallbackBaseURL,
+  });
+}
+
+function effectiveAPIModeForSubmit(
+  state: StudioState,
+  profile: UpstreamProfile | null | undefined,
+  fallbackAPIMode: APIMode,
+): APIMode {
+  return effectiveProviderMode(
+    profile,
+    fallbackAPIMode,
+    fhlTransportModeForState(state),
+    state.baseURL,
+  );
+}
+
+function fhlImagesPoolProfiles(state: StudioState): UpstreamProfile[] {
+  return mapFHLImagesProfilesToPoolSlots(state.profiles)
+    .filter((profile): profile is UpstreamProfile => !!profile && isOfficialFHLImagesProfile(profile));
+}
+
+function isFHLImagesPoolProfileId(state: StudioState, profileId?: string): boolean {
+  const cleanId = String(profileId || "").trim();
+  return !!cleanId && fhlImagesPoolProfiles(state).some((profile) => profile.id === cleanId);
+}
+
+function shouldRetainFHLPoolCapacityOnCancel(state: StudioState, jobId: string): boolean {
+  return isFHLImagesPoolProfileId(state, state.runningJobMeta[jobId]?.apiProfileId);
 }
 
 function apiProfileSnapshotForSubmit(profile: UpstreamProfile | undefined, activeProfileId: string) {
@@ -835,7 +947,26 @@ function apiProfileSnapshotForSubmit(profile: UpstreamProfile | undefined, activ
 }
 
 function transientProfileKey(apiMode: APIModeValue, apiProfileId?: string) {
-  return `${apiMode}:${String(apiProfileId || "default").trim() || "default"}`;
+  const profileId = String(apiProfileId || "").trim();
+  // Profile-scoped limits must survive an Images/Responses switch. Old calls
+  // without a profile ID retain the API-mode fallback key for compatibility.
+  return profileId ? `profile:${profileId}` : `mode:${apiMode}`;
+}
+
+function clearContinuousPoolProfileRuntimeLimit(profileId: string) {
+  const cleanId = String(profileId || "").trim();
+  if (!cleanId) return;
+  unavailableContinuousPoolProfileIds.delete(cleanId);
+  const key = transientProfileKey("images", cleanId);
+  const cap = temporaryConcurrencyCapsByProfile.get(key);
+  if (cap?.timer) clearTimeout(cap.timer);
+  temporaryConcurrencyCapsByProfile.delete(key);
+  temporaryConcurrencyDowngradeCountsByProfile.delete(key);
+  useStudioStore.setState((current) => {
+    const next = { ...current.fhlPoolEffectiveConcurrencyByProfileId };
+    delete next[cleanId];
+    return { fhlPoolEffectiveConcurrencyByProfileId: next };
+  });
 }
 
 function clearAutoRetryTimer(taskId: string) {
@@ -861,7 +992,16 @@ function effectiveConcurrencyLimitForProfile(
 ) {
   const profile = activeProfileForConcurrency(state, apiProfileId);
   const baseLimit = normalizeConcurrencyLimit(profile?.concurrencyLimit ?? 0);
-  const profileId = profile?.id || apiProfileId || state.activeProfileId;
+  return effectiveConcurrencyLimitFromBase(state, apiMode, apiProfileId || profile?.id, baseLimit);
+}
+
+function effectiveConcurrencyLimitFromBase(
+  state: StudioState,
+  apiMode: APIModeValue,
+  apiProfileId: string | undefined,
+  baseLimit: number,
+) {
+  const profileId = apiProfileId || state.activeProfileId;
   const key = transientProfileKey(apiMode, profileId);
   const cap = temporaryConcurrencyCapsByProfile.get(key);
   if (!cap) return baseLimit;
@@ -872,6 +1012,62 @@ function effectiveConcurrencyLimitForProfile(
     return baseLimit;
   }
   return baseLimit > 0 ? Math.min(baseLimit, cap.limit) : cap.limit;
+}
+
+function enabledFHLPoolProfiles(state: StudioState): UpstreamProfile[] {
+  return fhlImagesPoolProfiles(state).filter((profile) => profile.continuousPoolEnabled === true);
+}
+
+function fhlPoolSlotConcurrencyLimit(
+  state: StudioState,
+  apiMode: APIModeValue,
+  apiProfileId: string,
+): number {
+  if (unavailableContinuousPoolProfileIds.has(apiProfileId)) return 0;
+  return effectiveConcurrencyLimitFromBase(
+    state,
+    apiMode,
+    apiProfileId,
+    Math.min(
+      FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT,
+      normalizeFHLPoolPerAPIConcurrencyLimit(state.fhlPoolPerAPIConcurrencyLimit),
+    ),
+  );
+}
+
+function fhlPoolProfileCapacityProjection(state: StudioState, apiMode: APIModeValue): UpstreamProfile[] {
+  return enabledFHLPoolProfiles(state).map((profile) => {
+    const concurrencyLimit = fhlPoolSlotConcurrencyLimit(state, apiMode, profile.id);
+    return {
+      ...profile,
+      continuousPoolEnabled: concurrencyLimit > 0,
+      concurrencyLimit,
+    };
+  });
+}
+
+function fhlPoolTotalCapacity(state: StudioState, apiMode: APIModeValue = fhlTransportModeForState(state)): number {
+  return fhlPoolProfileCapacityProjection(state, apiMode)
+    .reduce((sum, profile) => sum + Math.max(0, normalizeConcurrencyLimit(profile.concurrencyLimit)), 0);
+}
+
+function nextFHLPoolProfileForMultiReferenceRetry(
+  state: StudioState,
+  task: BatchTaskRecord,
+): UpstreamProfile | null {
+  if (
+    task.continuousPoolTask !== true
+    || task.mode !== "edit"
+    || (task.sourceImagePaths?.length ?? 0) < 2
+    || normalizeAPIMode(task.apiMode) !== "images"
+    || !isFHLImagesPoolProfileId(state, task.apiProfileId)
+  ) {
+    return null;
+  }
+  const projected = fhlPoolProfileCapacityProjection(state, "images");
+  const selected = selectNextFailoverPoolProfile(projected, String(task.apiProfileId || ""));
+  if (!selected) return null;
+  return enabledFHLPoolProfiles(state).find((profile) => profile.id === selected.id) ?? null;
 }
 
 function recordTransientFailureForTask(task: BatchTaskRecord, reason: string): number | null {
@@ -890,7 +1086,12 @@ function recordTransientFailureForTask(task: BatchTaskRecord, reason: string): n
 
   const state = useStudioStore.getState();
   const profile = activeProfileForConcurrency(state, task.apiProfileId);
-  const baseLimit = normalizeConcurrencyLimit(profile?.concurrencyLimit ?? 0);
+  const baseLimit = profile && isFHLImagesPoolProfileId(state, profile.id)
+    ? Math.min(
+        FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT,
+        normalizeFHLPoolPerAPIConcurrencyLimit(state.fhlPoolPerAPIConcurrencyLimit),
+      )
+    : normalizeConcurrencyLimit(profile?.concurrencyLimit ?? 0);
   const existing = temporaryConcurrencyCapsByProfile.get(key);
   const currentEffective = existing && existing.expiresAt > now
     ? existing.limit
@@ -903,12 +1104,30 @@ function recordTransientFailureForTask(task: BatchTaskRecord, reason: string): n
   const timer = setTimeout(() => {
     temporaryConcurrencyCapsByProfile.delete(key);
     temporaryConcurrencyDowngradeCountsByProfile.delete(key);
+    const profileId = String(task.apiProfileId || "").trim();
+    if (profileId) {
+      useStudioStore.setState((current) => {
+        const next = { ...current.fhlPoolEffectiveConcurrencyByProfileId };
+        delete next[profileId];
+        return { fhlPoolEffectiveConcurrencyByProfileId: next };
+      });
+      void requestContinuousPoolPump();
+    }
   }, TEMPORARY_CONCURRENCY_CAP_MS);
   temporaryConcurrencyCapsByProfile.set(key, {
     limit: nextLimit,
     expiresAt: now + TEMPORARY_CONCURRENCY_CAP_MS,
     timer,
   });
+  const profileId = String(task.apiProfileId || "").trim();
+  if (profileId) {
+    useStudioStore.setState((current) => ({
+      fhlPoolEffectiveConcurrencyByProfileId: {
+        ...current.fhlPoolEffectiveConcurrencyByProfileId,
+        [profileId]: nextLimit,
+      },
+    }));
+  }
   temporaryConcurrencyDowngradeCountsByProfile.set(key, recent.length);
   return nextLimit;
 }
@@ -924,8 +1143,11 @@ function retryContextFromOriginalTask(state: StudioState, task: BatchTaskRecord)
   return {
     activeProfile: profile,
     apiMode,
-    apiProfileSnapshot: apiProfileSnapshotForSubmit(profile, task.apiProfileId || state.activeProfileId),
-    baseURL: profile?.baseURL ?? state.baseURL,
+    apiProfileSnapshot: {
+      apiProfileId: task.apiProfileId || profile?.id || state.activeProfileId || undefined,
+      apiProfileName: task.apiProfileName || profile?.name || undefined,
+    },
+    baseURL: task.apiBaseURL ?? profile?.baseURL ?? state.baseURL,
     requestPolicy,
     textModelID,
     imageModelID,
@@ -938,14 +1160,22 @@ async function apiKeyForProfileOrState(state: StudioState, apiProfileId?: string
   const cleanProfileId = String(apiProfileId || "").trim();
   if (!cleanProfileId) return state.apiKey;
   const stored = await GetStoredAPIKey(keyringUserFor(cleanProfileId)).catch(() => "");
-  return stored;
+  if (stored.trim()) return stored;
+  return cleanProfileId === String(state.activeProfileId || "").trim() ? state.apiKey : "";
 }
 
 function retrySubmitContextFromState(state: StudioState, mode: Mode) {
   const activeProfile = state.profiles.find((profile) => profile.id === state.activeProfileId);
-  const apiMode = effectiveAPIModeForSubmit(mode, activeProfile?.apiMode ?? state.apiMode);
+  const apiMode = effectiveAPIModeForSubmit(state, activeProfile, activeProfile?.apiMode ?? state.apiMode);
+  const activeProfileUsesFHLTransport = isOfficialFHLTransportProfile(
+    activeProfile,
+    state.baseURL,
+    activeProfile?.apiMode ?? state.apiMode,
+  );
   const requestPolicy = activeProfile?.requestPolicy ?? state.requestPolicy;
-  const textModelID = activeProfile?.textModelID ?? state.textModelID;
+  const textModelID = activeProfileUsesFHLTransport && apiMode === "responses"
+    ? FHL_TEXT_MODEL_ID
+    : activeProfile?.textModelID ?? state.textModelID;
   const imageModelID = activeProfile?.imageModelID ?? state.imageModelID;
   return {
     activeProfile,
@@ -1251,6 +1481,15 @@ function syncBatchOutputAfterSuccess(
 ) {
   if (!link?.sourcePath) return;
   const sourceSavedPath = String(savedPath || "").trim();
+  if (isVirtualImagePath(link.sourcePath) && !link.outputDir.trim()) return;
+  if (isVirtualImagePath(link.sourcePath) && link.outputDir.trim()) {
+    if (!sourceSavedPath) return;
+    const suggestedName = `${link.outputNamePrefix || "processed-"}${pathLeaf(link.sourcePath) || "image.png"}`;
+    void SaveImagePathToDir(sourceSavedPath, link.outputDir.trim(), suggestedName).catch((error: any) => {
+      useStudioStore.getState().pushToast(`鎵瑰鐞嗚緭鍑哄悓姝ュけ璐ワ細${error?.message ?? error}`, "warn", 6000);
+    });
+    return;
+  }
   const targetDirectory = link.outputDir.trim() || directoryFromPath(link.sourcePath);
   if (!sourceSavedPath || !targetDirectory) return;
   void BuildBatchOutputPath(
@@ -1269,31 +1508,93 @@ function isVirtualImagePath(filePath: string | null | undefined): boolean {
   return String(filePath || "").trim().startsWith("memory://image/");
 }
 
+type BrowserProxyMaterializableSource = SourceImage | BatchProcessSourceImage;
+
+async function materializeVirtualSourceForBrowserProxy<T extends BrowserProxyMaterializableSource>(source: T): Promise<T | null> {
+  const rawPath = String(source.path || "").trim();
+  if (!isVirtualImagePath(rawPath)) return source;
+  const inlineB64 = "imageB64" in source ? String(source.imageB64 || "").trim() : "";
+  const imageB64 = inlineB64 || await ReadImageAsBase64(rawPath).catch(() => "");
+  if (!imageB64) return null;
+  const sourceName = source.name || pathLeaf(rawPath);
+  const needsPNG = shouldNormalizeSourceForCLIFallback(sourceName, imageB64);
+  const cliB64 = needsPNG
+    ? await transcodeSourceToPNGBase64(imageB64, sourceName).catch(() => imageB64)
+    : imageB64;
+  const imported = await ImportImageFromB64(cliB64, needsPNG ? pngNameForCLIInput(sourceName) : sourceName).catch(() => null);
+  const nextPath = String(imported?.path || "").trim();
+  if (!nextPath || isVirtualImagePath(nextPath)) return null;
+  const previewMeta = source as Partial<BatchProcessSourceImage>;
+  const nextSource = {
+    ...source,
+    name: pathLeaf(nextPath) || sourceName,
+    path: nextPath,
+    width: imported?.width ?? source.width,
+    height: imported?.height ?? source.height,
+    previewUrl: imported?.previewUrl || source.previewUrl,
+    previewWidth: imported?.previewWidth ?? previewMeta.previewWidth,
+    previewHeight: imported?.previewHeight ?? previewMeta.previewHeight,
+  } as T;
+  if ("imageB64" in nextSource) {
+    nextSource.imageB64 = imported?.previewUrl ? undefined : (needsPNG ? cliB64 : (inlineB64 || imageB64));
+  }
+  return nextSource;
+}
+
 async function materializeEditSourcesForBrowserProxy(sources: SourceImage[]): Promise<SourceImage[]> {
   let changed = false;
   const nextSources = await Promise.all(sources.map(async (source) => {
-    const rawPath = String(source.path || "").trim();
-    if (!isVirtualImagePath(rawPath)) return source;
-    const imageB64 = String(source.imageB64 || "").trim() || await ReadImageAsBase64(rawPath).catch(() => "");
-    if (!imageB64) return source;
-    const sourceName = source.name || pathLeaf(rawPath);
-    const needsPNG = shouldNormalizeSourceForCLIFallback(sourceName, imageB64);
-    const cliB64 = needsPNG
-      ? await transcodeSourceToPNGBase64(imageB64, sourceName).catch(() => imageB64)
-      : imageB64;
-    const imported = await ImportImageFromB64(cliB64, needsPNG ? pngNameForCLIInput(sourceName) : sourceName).catch(() => null);
-    const nextPath = String(imported?.path || "").trim();
-    if (!nextPath || isVirtualImagePath(nextPath)) return source;
+    const materialized = await materializeVirtualSourceForBrowserProxy(source);
+    if (!materialized || materialized === source) return source;
     changed = true;
-    return {
-      ...source,
-      name: pathLeaf(nextPath),
-      path: nextPath,
-      previewUrl: imported?.previewUrl || source.previewUrl,
-      imageB64: imported?.previewUrl ? undefined : (needsPNG ? cliB64 : (source.imageB64 || imageB64)),
-    };
+    return materialized;
   }));
   return changed ? nextSources : sources;
+}
+
+type MaterializeBatchSourcesResult =
+  | {
+    ok: true;
+    changed: boolean;
+    selectedSources: BatchProcessSourceImage[];
+    fixedSources: SourceImage[];
+  }
+  | {
+    ok: false;
+    failedLabel: string;
+  };
+
+async function materializeBatchSourcesForBrowserProxy(
+  selectedSources: BatchProcessSourceImage[],
+  fixedSources: SourceImage[],
+): Promise<MaterializeBatchSourcesResult> {
+  let changed = false;
+  const nextSelectedSources: BatchProcessSourceImage[] = [];
+  for (const source of selectedSources) {
+    const materialized = await materializeVirtualSourceForBrowserProxy(source);
+    if (!materialized) {
+      return { ok: false, failedLabel: source.name || pathLeaf(source.path) };
+    }
+    changed ||= materialized !== source;
+    nextSelectedSources.push(materialized);
+  }
+
+  const nextFixedSources: SourceImage[] = [];
+  for (const source of fixedSources) {
+    const materialized = await materializeVirtualSourceForBrowserProxy(source);
+    if (!materialized) {
+      return { ok: false, failedLabel: source.name || pathLeaf(source.path) };
+    }
+    changed ||= materialized !== source;
+    nextFixedSources.push(materialized);
+  }
+
+  return {
+    ok: true,
+    changed,
+    selectedSources: nextSelectedSources,
+    fixedSources: nextFixedSources,
+  };
 }
 
 async function resolvePromptTextProfile(s: StudioState): Promise<{
@@ -1301,40 +1602,39 @@ async function resolvePromptTextProfile(s: StudioState): Promise<{
   baseURL: string;
   textModelID: string;
 }> {
-  let apiKey = s.apiKey;
-  let baseURL = s.baseURL;
-  let textModelID = s.textModelID;
-  if (s.apiMode === "apimart") {
-    if (s.apiKey.trim() && s.baseURL.trim() && s.textModelID.trim()) {
-      return {
-        apiKey: s.apiKey.trim(),
-        baseURL: cleanBaseURL(s.baseURL),
-        textModelID: s.textModelID.trim(),
-      };
-    }
-    const responsesProfile = s.profiles.find((p) => p.apiMode === "responses" && p.baseURL.trim());
-    if (!responsesProfile) {
-      return { apiKey: "", baseURL: "", textModelID: "" };
-    }
-    apiKey = "";
-    baseURL = responsesProfile.baseURL;
-    textModelID = responsesProfile.textModelID;
-    const k = await GetStoredAPIKey(keyringUserFor(responsesProfile.id)).catch(() => "");
-    if (k) apiKey = k;
-  } else if (s.apiMode !== "responses") {
-    const responsesProfile = s.profiles.find((p) => p.apiMode === "responses" && p.baseURL);
-    if (responsesProfile) {
-      baseURL = responsesProfile.baseURL;
-      textModelID = responsesProfile.textModelID;
-      const k = await GetStoredAPIKey(keyringUserFor(responsesProfile.id)).catch(() => "");
-      if (k) apiKey = k;
-    }
-  }
+  const selection = resolvePromptTextSelection({
+    apiMode: s.apiMode,
+    apiKey: s.apiKey,
+    baseURL: s.baseURL,
+    textModelID: s.textModelID,
+    profiles: s.profiles,
+    fhlTextAPIConfigured: !readRuntimePlatformState().isAndroid && s.fhlTextAPIConfigured,
+  });
+  if (!selection) return { apiKey: "", baseURL: "", textModelID: "" };
+
+  const apiKey = selection.source === "current"
+    ? s.apiKey
+    : selection.source === "fhl-text"
+      ? await GetStoredAPIKey(FHL_TEXT_API_KEYRING_USER).catch(() => "")
+      : await GetStoredAPIKey(keyringUserFor(selection.profile?.id || "")).catch(() => "");
   return {
     apiKey: apiKey.trim(),
-    baseURL: cleanBaseURL(baseURL),
-    textModelID: textModelID.trim(),
+    baseURL: cleanBaseURL(selection.baseURL),
+    textModelID: selection.textModelID.trim(),
   };
+}
+
+function promptOptimizeFailureMessage(error: unknown, profile: {
+  baseURL: string;
+  textModelID: string;
+}): string {
+  const detail = String((error as any)?.message ?? error ?? "").trim();
+  const isFHLTextRequest = isOfficialFHLProfile({
+    apiMode: "responses",
+    baseURL: profile.baseURL,
+  });
+  if (isFHLTextRequest) return `Prompt 优化失败：${formatFHLTextAPIError(error)}`;
+  return `Prompt 优化失败：${detail || "未知错误"}`;
 }
 
 function providerRequiresDirectAPIKey(apiMode: APIMode | string): boolean {
@@ -1552,7 +1852,12 @@ function hasActiveGenerationForWorkspace(state: StudioState, workspaceId: string
   const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
   const taskIds = workspace?.batchTaskIds ?? [];
   const hasActiveTask = sortedBatchTasksForWorkspace(workspaceId, taskIds, state.batchTasksById)
-    .some((task) => task.status === "queued" || task.status === "running" || startingContinuousTaskIds.has(task.id));
+    .some((task) => (
+      task.status === "queued"
+      || task.status === "running"
+      || task.launchState === "submitting"
+      || startingContinuousTaskIds.has(task.id)
+    ));
   if (hasActiveTask) return true;
   if (state.activeWorkspaceId === workspaceId && state.runningJobs.length > 0) return true;
   if (Object.values(state.runningJobMeta).some((meta) => meta.workspaceId === workspaceId)) return true;
@@ -1611,6 +1916,566 @@ function continuousQueueLimitForState(state: StudioState, apiMode: APIModeValue,
   return effectiveConcurrencyLimitForProfile(state, apiMode, apiProfileId);
 }
 
+function isContinuousPoolTask(task: BatchTaskRecord): boolean {
+  return task.continuousPoolTask === true;
+}
+
+function continuousPoolQueuedTasks(state: StudioState): BatchTaskRecord[] {
+  return Object.values(state.batchTasksById)
+    .filter((task) => (
+      isContinuousPoolTask(task)
+      && task.status === "queued"
+      && !task.jobId
+      && task.launchState !== "submitting"
+      && !startingContinuousTaskIds.has(task.id)
+    ))
+    .sort((a, b) => (
+      a.createdAt - b.createdAt
+      || a.workspaceId.localeCompare(b.workspaceId)
+      || a.slotIndex - b.slotIndex
+      || a.id.localeCompare(b.id)
+    ));
+}
+
+function continuousPoolInFlightByProfile(state: StudioState): Record<string, number> {
+  const counts: Record<string, number> = {};
+  const taskJobIds = new Set<string>();
+
+  for (const task of Object.values(state.batchTasksById)) {
+    const profileId = String(task.apiProfileId || "").trim();
+    if (!profileId) continue;
+    const inFlight = task.launchState === "submitting"
+      || startingContinuousTaskIds.has(task.id)
+      || task.status === "running"
+      || (task.status === "queued" && !!task.jobId);
+    if (!inFlight) continue;
+    counts[profileId] = (counts[profileId] ?? 0) + 1;
+    if (task.jobId) taskJobIds.add(task.jobId);
+  }
+
+  // A cancelled Wails task remains here until backend emits settled:<jobId>.
+  // Its BatchTaskRecord is terminal already, so the retained job metadata must
+  // still count against the assigned profile's capacity.
+  for (const [jobId, meta] of Object.entries(state.runningJobMeta)) {
+    const profileId = String(meta.apiProfileId || "").trim();
+    if (!profileId || taskJobIds.has(jobId)) continue;
+    counts[profileId] = (counts[profileId] ?? 0) + 1;
+  }
+  return counts;
+}
+
+function fhlPoolInFlightTotal(state: StudioState, counts = continuousPoolInFlightByProfile(state)): number {
+  const poolProfileIds = new Set(enabledFHLPoolProfiles(state).map((profile) => profile.id));
+  let total = 0;
+  for (const profileId of poolProfileIds) total += Math.max(0, normalizeConcurrencyLimit(counts[profileId] ?? 0));
+  return total;
+}
+
+function assignContinuousPoolProfile(
+  taskId: string,
+  profile: UpstreamProfile,
+  taskAPIMode: "images" | "responses",
+): boolean {
+  const store = useStudioStore;
+  const state = store.getState();
+  const task = state.batchTasksById[taskId];
+  if (!task || !isContinuousPoolTask(task) || task.status !== "queued" || task.jobId || startingContinuousTaskIds.has(task.id)) {
+    return false;
+  }
+  const workspace = state.workspaces.find((entry) => entry.id === task.workspaceId);
+  const taskIds = workspace?.batchTaskIds ?? [];
+  const assignedTask: BatchTaskRecord = {
+    ...task,
+    // A queued task owns the transport selected when it was submitted. Do not
+    // read the current global mode here: users may switch it while waiting.
+    apiMode: taskAPIMode,
+    apiProfileId: profile.id,
+    apiProfileName: profile.name,
+    apiBaseURL: cleanBaseURL(profile.baseURL),
+    requestPolicy: profile.requestPolicy,
+    imagesNewAPICompat: taskAPIMode === "images" && profile.imagesNewAPICompat === true,
+    textModelID: taskAPIMode === "responses" ? FHL_TEXT_MODEL_ID : profile.textModelID,
+    imageModelID: profile.imageModelID,
+    queuedReason: "continuous_pool",
+    updatedAt: Date.now(),
+  };
+  const batchTasksById = { ...state.batchTasksById, [task.id]: assignedTask };
+  const patch = taskRuntimePatchForWorkspace(task.workspaceId, taskIds, batchTasksById);
+  store.setState((current) => ({
+    batchTasksById,
+    workspaces: patchWorkspaceRuntime(current.workspaces, task.workspaceId, patch),
+    ...(current.activeWorkspaceId === task.workspaceId ? activeRuntimePatch(patch) : {}),
+  } as Partial<StudioState>));
+  return true;
+}
+
+type ReservedContinuousPoolWave = {
+  waveId: string;
+  tasks: BatchTaskRecord[];
+};
+
+function patchContinuousPoolTasks(
+  taskIds: readonly string[],
+  update: (task: BatchTaskRecord) => BatchTaskRecord,
+) {
+  const store = useStudioStore;
+  const taskIdSet = new Set(taskIds);
+  store.setState((state) => {
+    const batchTasksById = { ...state.batchTasksById };
+    const affectedWorkspaceIds = new Set<string>();
+    for (const taskId of taskIdSet) {
+      const task = batchTasksById[taskId];
+      if (!task) continue;
+      batchTasksById[taskId] = update(task);
+      affectedWorkspaceIds.add(task.workspaceId);
+    }
+    if (affectedWorkspaceIds.size === 0) return {};
+    let workspaces = state.workspaces;
+    let activePatch: WorkspacePatch = {};
+    for (const workspaceId of affectedWorkspaceIds) {
+      const workspace = workspaces.find((entry) => entry.id === workspaceId);
+      const patch = taskRuntimePatchForWorkspace(workspaceId, workspace?.batchTaskIds ?? [], batchTasksById);
+      workspaces = patchWorkspaceRuntime(workspaces, workspaceId, patch);
+      if (state.activeWorkspaceId === workspaceId) activePatch = { ...activePatch, ...activeRuntimePatch(patch) };
+    }
+    return {
+      batchTasksById,
+      workspaces,
+      ...activePatch,
+    } as Partial<StudioState>;
+  });
+}
+
+function reserveContinuousPoolWave(): ReservedContinuousPoolWave | null {
+  const store = useStudioStore;
+  const state = store.getState();
+  const queue = continuousPoolQueuedTasks(state);
+  if (queue.length === 0) return null;
+  const capacityMode = fhlTransportModeForState(state);
+  const profiles = fhlPoolProfileCapacityProjection(state, capacityMode);
+  const totalLimit = fhlPoolTotalCapacity(state, capacityMode);
+  if (totalLimit <= 0) return null;
+  const plan = planContinuousPoolWave(
+    queue,
+    profiles,
+    continuousPoolInFlightByProfile(state),
+    continuousPoolRoundRobinCursor,
+    totalLimit,
+  );
+  if (plan.assignments.length === 0) return null;
+
+  const now = Date.now();
+  const waveId = `wave-${cryptoIDFallback()}`;
+  const actualProfiles = new Map(enabledFHLPoolProfiles(state).map((profile) => [profile.id, profile]));
+  const reservedTasks: BatchTaskRecord[] = [];
+  const nextTasksById = { ...state.batchTasksById };
+  const affectedWorkspaceIds = new Set<string>();
+  for (const assignment of plan.assignments) {
+    const task = nextTasksById[assignment.task.id];
+    const profile = actualProfiles.get(assignment.profile.id);
+    if (!task || !profile || task.status !== "queued" || task.jobId || task.launchState === "submitting") continue;
+    const apiMode = task.apiMode === "responses" ? "responses" : "images";
+    const reservedTask: BatchTaskRecord = {
+      ...task,
+      runId: task.runId || waveId,
+      apiMode,
+      apiProfileId: profile.id,
+      apiProfileName: profile.name,
+      apiBaseURL: cleanBaseURL(profile.baseURL),
+      requestPolicy: profile.requestPolicy,
+      imagesNewAPICompat: apiMode === "images" && profile.imagesNewAPICompat === true,
+      textModelID: apiMode === "responses" ? FHL_TEXT_MODEL_ID : profile.textModelID,
+      imageModelID: profile.imageModelID,
+      launchState: "submitting",
+      launchAttempt: (task.launchAttempt ?? 0) + 1,
+      launchStartedAt: now,
+      queuedReason: "continuous_pool",
+      errorMessage: undefined,
+      updatedAt: now,
+    };
+    nextTasksById[task.id] = reservedTask;
+    reservedTasks.push(reservedTask);
+    affectedWorkspaceIds.add(task.workspaceId);
+  }
+  if (reservedTasks.length === 0) return null;
+
+  continuousPoolRoundRobinCursor = plan.nextCursor;
+  store.setState((current) => {
+    let workspaces = current.workspaces;
+    let activePatch: WorkspacePatch = {};
+    for (const workspaceId of affectedWorkspaceIds) {
+      const workspace = workspaces.find((entry) => entry.id === workspaceId);
+      const patch = taskRuntimePatchForWorkspace(workspaceId, workspace?.batchTaskIds ?? [], nextTasksById);
+      workspaces = patchWorkspaceRuntime(workspaces, workspaceId, patch);
+      if (current.activeWorkspaceId === workspaceId) activePatch = { ...activePatch, ...activeRuntimePatch(patch) };
+    }
+    return {
+      batchTasksById: nextTasksById,
+      workspaces,
+      ...activePatch,
+    } as Partial<StudioState>;
+  });
+  return { waveId, tasks: reservedTasks };
+}
+
+function releaseUnavailableContinuousPoolProfiles(profileErrors: ReadonlyMap<string, string>) {
+  if (profileErrors.size === 0) return;
+  for (const profileId of profileErrors.keys()) unavailableContinuousPoolProfileIds.add(profileId);
+  useStudioStore.setState((current) => ({
+    fhlPoolEffectiveConcurrencyByProfileId: {
+      ...current.fhlPoolEffectiveConcurrencyByProfileId,
+      ...Object.fromEntries([...profileErrors.keys()].map((profileId) => [profileId, 0])),
+    },
+  }));
+  const state = useStudioStore.getState();
+  const affected = Object.values(state.batchTasksById)
+    .filter((task) => (
+      task.status === "queued"
+      && !task.jobId
+      && !!task.apiProfileId
+      && profileErrors.has(task.apiProfileId)
+    ));
+  patchContinuousPoolTasks(affected.map((task) => task.id), (task) => ({
+    ...task,
+    apiProfileId: undefined,
+    apiProfileName: undefined,
+    apiBaseURL: undefined,
+    launchState: undefined,
+    launchStartedAt: undefined,
+    queuedReason: "continuous_pool",
+    errorMessage: profileErrors.get(String(task.apiProfileId || "")) || "API is unavailable",
+    updatedAt: Date.now(),
+  }));
+  const labels = enabledFHLPoolProfiles(state)
+    .filter((profile) => profileErrors.has(profile.id))
+    .map((profile) => profile.name)
+    .join(", ");
+  state.pushToast(`${labels || "FHL API"} is unavailable; queued tasks will use the remaining APIs`, "warn", 5200);
+}
+
+function permanentCredentialFailureText(...parts: unknown[]) {
+  const text = parts.map((part) => String(part || "")).join("\n");
+  if (/content[_ -]?policy|unsafe|safety system/i.test(text)) return false;
+  return /\b(?:401|403)\b|unauthorized|forbidden|invalid api key|api key.*invalid|authentication/i.test(text)
+    && !/rate[_ -]?limit|too many requests|concurrency limit/i.test(text);
+}
+
+function markContinuousPoolProfileUnavailableForTask(task: BatchTaskRecord, reason: string) {
+  const profileId = String(task.apiProfileId || "").trim();
+  if (!profileId || !task.continuousPoolTask || !permanentCredentialFailureText(reason, task.errorMessage, task.lastLogLine)) return false;
+  releaseUnavailableContinuousPoolProfiles(new Map([[profileId, reason || "API credential rejected"]]));
+  void requestContinuousPoolPump();
+  return true;
+}
+
+function browserCredentialForContinuousTask(
+  state: StudioState,
+  task: BatchTaskRecord,
+  apiKey: string,
+): BrowserJobSubmitManyCredential | null {
+  const profileId = String(task.apiProfileId || "").trim();
+  const context = retryContextFromOriginalTask(state, task);
+  if (!profileId || !context.activeProfile) return null;
+  const baseURL = cleanBaseURL(context.baseURL);
+  if (!baseURL) return null;
+  return {
+    apiProfileId: profileId,
+    apiProfileName: task.apiProfileName || context.activeProfile.name,
+    apiKey,
+    baseURL,
+    apiMode: task.apiMode,
+    requestPolicy: context.requestPolicy,
+    imagesNewAPICompat: context.imagesNewAPICompat,
+    textModelID: context.textModelID,
+    imageModelID: context.imageModelID,
+  };
+}
+
+async function submitContinuousPoolWave(wave: ReservedContinuousPoolWave) {
+  const store = useStudioStore;
+  const keyReadStartedAt = Date.now();
+  const profileIds = [...new Set(wave.tasks.map((task) => String(task.apiProfileId || "").trim()).filter(Boolean))];
+  const keyResults = await Promise.all(profileIds.map(async (profileId) => {
+    const snapshot = store.getState();
+    try {
+      const apiKey = validateAPIKeyForHeader(await apiKeyForProfileOrState(snapshot, profileId));
+      return { profileId, apiKey, error: "" };
+    } catch (error: any) {
+      return { profileId, apiKey: "", error: error?.message || "API key is unavailable" };
+    }
+  }));
+  const profileErrors = new Map(keyResults.filter((result) => !result.apiKey).map((result) => [result.profileId, result.error]));
+  releaseUnavailableContinuousPoolProfiles(profileErrors);
+
+  const latestState = store.getState();
+  const cancelledBeforeSubmitIds = wave.tasks
+    .filter((reserved) => latestState.batchTasksById[reserved.id]?.status === "cancelled")
+    .map((reserved) => reserved.id);
+  patchContinuousPoolTasks(cancelledBeforeSubmitIds, (task) => ({
+    ...task,
+    launchState: undefined,
+    launchStartedAt: undefined,
+    updatedAt: Date.now(),
+  }));
+  const keyByProfileId = new Map(keyResults.filter((result) => !!result.apiKey).map((result) => [result.profileId, result.apiKey]));
+  const currentTasks = wave.tasks
+    .map((reserved) => latestState.batchTasksById[reserved.id])
+    .filter((task): task is BatchTaskRecord => (
+      !!task
+      && task.status === "queued"
+      && task.launchState === "submitting"
+      && task.launchAttempt === reservedLaunchAttempt(wave.tasks, task.id)
+      && !!task.apiProfileId
+      && keyByProfileId.has(task.apiProfileId)
+    ));
+  const credentialByProfileId = new Map<string, BrowserJobSubmitManyCredential>();
+  for (const task of currentTasks) {
+    const profileId = String(task.apiProfileId || "");
+    if (credentialByProfileId.has(profileId)) continue;
+    const credential = browserCredentialForContinuousTask(latestState, task, keyByProfileId.get(profileId) || "");
+    if (credential) credentialByProfileId.set(profileId, credential);
+  }
+  const missingContexts = new Map<string, string>();
+  for (const task of currentTasks) {
+    const profileId = String(task.apiProfileId || "");
+    if (!credentialByProfileId.has(profileId)) missingContexts.set(profileId, "API profile context is unavailable");
+  }
+  releaseUnavailableContinuousPoolProfiles(missingContexts);
+
+  const readyState = store.getState();
+  const readyTasks = currentTasks.filter((task) => {
+    const current = readyState.batchTasksById[task.id];
+    return current?.launchState === "submitting" && !!current.apiProfileId && credentialByProfileId.has(current.apiProfileId);
+  }).map((task) => readyState.batchTasksById[task.id]);
+  if (readyTasks.length === 0) {
+    void requestContinuousPoolPump();
+    return;
+  }
+
+  const request: BrowserJobSubmitManyRequest = {
+    runId: wave.waveId,
+    credentials: [...credentialByProfileId.values()],
+    tasks: readyTasks.map((task) => ({
+      clientTaskId: task.id,
+      runId: task.runId,
+      workspaceId: task.workspaceId,
+      mode: task.mode,
+      prompt: task.prompt,
+      size: task.size,
+      quality: task.quality,
+      outputFormat: task.outputFormat,
+      seed: Number.isFinite(Number(task.seed)) ? Number(task.seed) : 0,
+      negativePrompt: task.negativePrompt || "",
+      styleTag: task.styleTag || "",
+      sourceImagePaths: task.sourceImagePaths ?? [],
+      batchSourcePath: task.batchSourcePath || "",
+      batchSourceSlotIndex: task.batchSourceSlotIndex,
+      maskB64: task.maskB64 || "",
+      apiProfileId: String(task.apiProfileId || ""),
+      continuousGenerateTest: true,
+      continuousBatchIndex: task.slotIndex,
+    })),
+  };
+
+  const submitStartedAt = Date.now();
+  let response: BrowserJobSubmitManyResponse;
+  try {
+    response = await submitBrowserJobGroups(request);
+  } catch {
+    try {
+      response = await submitBrowserJobGroups(request);
+    } catch (error: any) {
+      const message = `Batch proxy submission failed: ${error?.message ?? error}`;
+      patchContinuousPoolTasks(readyTasks.map((task) => task.id), (task) => (
+        task.status === "cancelled" ? {
+          ...task,
+          launchState: undefined,
+          launchStartedAt: undefined,
+          updatedAt: Date.now(),
+        } : {
+          ...task,
+          status: "queued",
+          launchState: undefined,
+          launchStartedAt: undefined,
+          queuedReason: "continuous_pool",
+          errorMessage: message,
+          updatedAt: Date.now(),
+        }
+      ));
+      store.getState().pushToast("Batch task proxy is unavailable; tasks remain queued", "error", 5200);
+      return;
+    }
+  }
+
+  const resultByTaskId = new Map(response.results.map((result) => [result.clientTaskId, result]));
+  const successfulGroups: JobGroupSnapshot[] = [];
+  const cancelledJobIds: string[] = [];
+  const cancelledTaskIds: string[] = [];
+  const failedTaskMessages = new Map<string, string>();
+  const missingTaskIds: string[] = [];
+  for (const task of readyTasks) {
+    const result = resultByTaskId.get(task.id);
+    if (!result) {
+      missingTaskIds.push(task.id);
+      continue;
+    }
+    if (!result.ok || !result.group) {
+      failedTaskMessages.set(task.id, result.error || "Task registration failed");
+      continue;
+    }
+    const currentTask = store.getState().batchTasksById[task.id];
+    if (currentTask?.status === "cancelled") {
+      cancelledTaskIds.push(task.id);
+      cancelledJobIds.push(...result.group.slots.map((slot) => slot.jobId));
+    }
+    successfulGroups.push(result.group);
+  }
+
+  for (const group of successfulGroups) applyBrowserJobGroupToStore(group);
+  patchContinuousPoolTasks(cancelledTaskIds, (task) => ({
+    ...task,
+    launchState: undefined,
+    launchStartedAt: undefined,
+    updatedAt: Date.now(),
+  }));
+  patchContinuousPoolTasks([...failedTaskMessages.keys()], (task) => (
+    task.status === "cancelled" ? {
+      ...task,
+      launchState: undefined,
+      launchStartedAt: undefined,
+      updatedAt: Date.now(),
+    } : {
+      ...task,
+      status: "failed",
+      launchState: undefined,
+      launchStartedAt: undefined,
+      queuedReason: undefined,
+      errorMessage: failedTaskMessages.get(task.id) || "Task registration failed",
+      lastLogLine: failedTaskMessages.get(task.id) || "Task registration failed",
+      updatedAt: Date.now(),
+    }
+  ));
+  patchContinuousPoolTasks(missingTaskIds, (task) => (
+    task.status === "cancelled" ? {
+      ...task,
+      launchState: undefined,
+      launchStartedAt: undefined,
+      updatedAt: Date.now(),
+    } : {
+      ...task,
+      status: "queued",
+      launchState: undefined,
+      launchStartedAt: undefined,
+      queuedReason: "continuous_pool",
+      errorMessage: "Batch proxy returned no result for this task",
+      updatedAt: Date.now(),
+    }
+  ));
+  syncBrowserJobSubscriptions(store.getState().jobGroupsByWorkspace);
+  if (cancelledJobIds.length > 0) void cancelBrowserJobs(cancelledJobIds);
+  for (const group of successfulGroups) {
+    scheduleAutoRetriesForBrowserGroup(group);
+    for (const slot of group.slots) {
+      if (slot.status === "succeeded") {
+        void syncHistoryItemFromBrowserJobSlot(group, slot, { updateWorkspaceSelection: true });
+      }
+    }
+  }
+  if (import.meta.env.DEV) {
+    console.info("[continuous-pool] wave submitted", {
+      taskCount: readyTasks.length,
+      profileCount: credentialByProfileId.size,
+      keyReadMs: submitStartedAt - keyReadStartedAt,
+      submitMs: Date.now() - submitStartedAt,
+    });
+  }
+  void requestContinuousPoolPump();
+}
+
+function reservedLaunchAttempt(tasks: readonly BatchTaskRecord[], taskId: string) {
+  return tasks.find((task) => task.id === taskId)?.launchAttempt;
+}
+
+async function pumpContinuousPoolQueuePass(): Promise<void> {
+  const store = useStudioStore;
+  const initialState = store.getState();
+  const initialQueue = continuousPoolQueuedTasks(initialState);
+  if (initialQueue.length === 0) return;
+  if (!isAndroidTaskProxyMode() && shouldUseBackgroundTaskProxyForSubmit(initialQueue[0].apiMode)) {
+    const wave = reserveContinuousPoolWave();
+    if (wave) await submitContinuousPoolWave(wave);
+    return;
+  }
+
+  while (true) {
+      const state = store.getState();
+      const queue = continuousPoolQueuedTasks(state);
+      if (queue.length === 0) return;
+
+      const inFlightByProfileId = continuousPoolInFlightByProfile(state);
+      const taskAPIModeForCapacity = fhlTransportModeForState(state);
+      const totalLimit = fhlPoolTotalCapacity(state, taskAPIModeForCapacity);
+      if (totalLimit <= 0 || fhlPoolInFlightTotal(state, inFlightByProfileId) >= totalLimit) return;
+      const poolProfiles = enabledFHLPoolProfiles(state);
+      const profilesWithEffectiveCapacity = fhlPoolProfileCapacityProjection(state, taskAPIModeForCapacity);
+
+      let taskToStart: BatchTaskRecord | null = null;
+      let profileToUse: UpstreamProfile | null = null;
+      let nextCursor = continuousPoolRoundRobinCursor;
+      let needsAssignment = false;
+
+      for (const task of queue) {
+        const assignedProfileId = String(task.apiProfileId || "").trim();
+        if (assignedProfileId) {
+          const profile = poolProfiles.find((entry) => entry.id === assignedProfileId) ?? null;
+          if (!profile) continue;
+          const limit = fhlPoolSlotConcurrencyLimit(state, task.apiMode, profile.id);
+          if (limit <= 0 || (inFlightByProfileId[profile.id] ?? 0) >= limit) continue;
+          taskToStart = task;
+          profileToUse = profile;
+          break;
+        }
+
+        const selection = selectNextContinuousPoolProfile(
+          profilesWithEffectiveCapacity,
+          inFlightByProfileId,
+          continuousPoolRoundRobinCursor,
+        );
+        if (!selection.profile) continue;
+        taskToStart = task;
+        profileToUse = poolProfiles.find((entry) => entry.id === selection.profile?.id) ?? null;
+        nextCursor = selection.nextCursor;
+        needsAssignment = true;
+        break;
+      }
+
+      if (!taskToStart || !profileToUse) return;
+      if (needsAssignment) {
+        continuousPoolRoundRobinCursor = nextCursor;
+        const taskAPIMode = taskToStart.apiMode === "responses" ? "responses" : "images";
+        if (!assignContinuousPoolProfile(taskToStart.id, profileToUse, taskAPIMode)) continue;
+      }
+      await startContinuousQueuedTask(taskToStart.id);
+  }
+}
+
+function requestContinuousPoolPump(): Promise<void> {
+  continuousPoolPumpRequested = true;
+  if (!continuousPoolPumpPromise) {
+    continuousPoolPumpPromise = (async () => {
+      try {
+        while (continuousPoolPumpRequested) {
+          continuousPoolPumpRequested = false;
+          await pumpContinuousPoolQueuePass();
+        }
+      } finally {
+        continuousPoolPumpPromise = null;
+      }
+    })();
+  }
+  return continuousPoolPumpPromise;
+}
+
 function markWorkspaceTasks(
   workspaceId: string,
   taskIds: string[],
@@ -1656,6 +2521,7 @@ function scheduleAutoRetryForTask(task: BatchTaskRecord, reasonOverride?: string
   const historyById = retryHistoryByIdForState(state);
   if (!isRetryableBatchTask(task, historyById)) return;
   const reason = String(reasonOverride || autoRetryReasonForTask(task, historyById) || "").trim();
+  if (markContinuousPoolProfileUnavailableForTask(task, reason)) return;
   if (!isTransientGenerationFailureText(reason, task.errorMessage, task.lastLogLine)) return;
 
   const reducedLimit = recordTransientFailureForTask(task, reason);
@@ -1692,10 +2558,23 @@ function scheduleAutoRetryForTask(task: BatchTaskRecord, reasonOverride?: string
     const latestTaskIds = latestWorkspace?.batchTaskIds ?? [];
     const latestHistoryById = retryHistoryByIdForState(latestState);
     if (!latestTaskIds.includes(latestTask.id) || !isRetryableBatchTask(latestTask, latestHistoryById)) return;
+    const failoverProfile = nextFHLPoolProfileForMultiReferenceRetry(latestState, latestTask);
+    const retryTask = failoverProfile
+      ? {
+          ...latestTask,
+          apiProfileId: failoverProfile.id,
+          apiProfileName: failoverProfile.name,
+          apiBaseURL: cleanBaseURL(failoverProfile.baseURL),
+          requestPolicy: failoverProfile.requestPolicy,
+          imagesNewAPICompat: failoverProfile.imagesNewAPICompat === true,
+          textModelID: failoverProfile.textModelID,
+          imageModelID: failoverProfile.imageModelID,
+        }
+      : latestTask;
     const retryTasksById: Record<string, BatchTaskRecord> = {
       ...latestState.batchTasksById,
       [latestTask.id]: {
-        ...latestTask,
+        ...retryTask,
         autoRetryCount: (latestTask.autoRetryCount ?? 0) + 1,
         autoRetryScheduledAt: undefined,
         updatedAt: Date.now(),
@@ -1707,6 +2586,13 @@ function scheduleAutoRetryForTask(task: BatchTaskRecord, reasonOverride?: string
       workspaces: patchWorkspaceRuntime(current.workspaces, latestTask.workspaceId, retryPatch),
       ...(current.activeWorkspaceId === latestTask.workspaceId ? activeRuntimePatch(retryPatch) : {}),
     } as Partial<StudioState>));
+    if (failoverProfile) {
+      useStudioStore.getState().pushToast(
+        `原 FHL API 暂时不可用，正在改用 ${failoverProfile.name} 重试这次多参考图任务`,
+        "info",
+        3600,
+      );
+    }
     void useStudioStore.getState().retryBatchTask(latestTask.id, { automatic: true, useTaskProfile: true });
   }, AUTO_RETRY_DELAY_MS);
   autoRetryTimersByTaskId.set(task.id, timer);
@@ -1719,7 +2605,11 @@ function scheduleAutoRetriesForBrowserGroup(group: JobGroupSnapshot) {
     const state = useStudioStore.getState();
     const task = Object.values(state.batchTasksById).find((entry) => (
       entry.workspaceId === group.workspaceId
-      && (entry.jobId === slot.jobId || entry.slotIndex === slotIndexForGroupSlot(group, slot))
+      && (
+        entry.id === group.clientTaskId
+        || entry.jobId === slot.jobId
+        || entry.slotIndex === slotIndexForGroupSlot(group, slot)
+      )
     ));
     if (task) scheduleAutoRetryForTask(task, missingFinalImage ? "Missing final image" : (slot.errorMessage || task.errorMessage || slot.stage || "Generation failed"));
   }
@@ -1785,18 +2675,12 @@ async function startContinuousQueuedTask(taskId: string): Promise<boolean> {
       cleanedAPIKey = validateAPIKeyForHeader(taskAPIKey);
     } catch (error: any) {
       const message = error?.message ?? "API key format invalid";
-      store.setState({ errorMessage: message, errorRawPath: null });
-      store.getState().pushToast(message, "error", 4200);
-      startingContinuousTaskIds.delete(taskId);
-      return false;
+      return failQueuedStart(message);
     }
   }
   const cleanedBaseURL = cleanBaseURL(taskContext.baseURL);
   if (!cleanedBaseURL) {
-    store.setState({ errorMessage: "Base URL is required for the queued task", errorRawPath: null });
-    store.getState().pushToast("Base URL is required for the queued task", "error", 4200);
-    startingContinuousTaskIds.delete(taskId);
-    return false;
+    return failQueuedStart("Base URL is required for the queued task");
   }
   if (!shouldUseBackgroundTaskProxyForSubmit(task.apiMode)) {
     const latestTask = store.getState().batchTasksById[taskId];
@@ -1829,6 +2713,7 @@ async function startContinuousQueuedTask(taskId: string): Promise<boolean> {
       proxyURL: s.proxyURL,
       requestPolicy: taskContext.requestPolicy,
       apiMode: task.apiMode,
+      apiProfileId: task.apiProfileId || "",
       imagesNewAPICompat: taskContext.imagesNewAPICompat,
       noPromptRevision: true,
       concurrencyLimit: taskContext.concurrencyLimit,
@@ -1851,6 +2736,10 @@ async function startContinuousQueuedTask(taskId: string): Promise<boolean> {
       batchProcessLink,
     }, {
       onSettled: () => {
+        if (task.continuousPoolTask) {
+          void requestContinuousPoolPump();
+          return;
+        }
         void pumpContinuousQueue(workspaceId, task.apiMode);
       },
     });
@@ -1959,14 +2848,17 @@ async function pumpContinuousQueue(workspaceId: string, apiMode: APIModeValue) {
     const next = queue.find((task) => {
       const limit = continuousQueueLimitForState(state, apiMode, task.apiProfileId);
       if (limit <= 0) return false;
-      const active = runningOrSubmittedTaskCountForWorkspace(
-        workspaceId,
-        taskIds,
-        state.batchTasksById,
-        apiMode,
-        task.apiProfileId,
-        startingContinuousTaskIds,
-      );
+      const profileId = String(task.apiProfileId || "").trim();
+      const active = profileId
+        ? (continuousPoolInFlightByProfile(state)[profileId] ?? 0)
+        : runningOrSubmittedTaskCountForWorkspace(
+          workspaceId,
+          taskIds,
+          state.batchTasksById,
+          apiMode,
+          undefined,
+          startingContinuousTaskIds,
+        );
       return limit - active > 0;
     });
     if (!next) break;
@@ -1993,21 +2885,37 @@ async function submitCurrentRequest(
 ): Promise<void> {
   const s = get();
   const batchProcess = normalizeBatchProcessConfig(s.batchProcess);
-  const batchProcessMode = s.mode === "edit" && s.editSourceMode === "batch";
+  const requestedBatchProcessMode = s.mode === "edit" && s.editSourceMode === "batch";
+  const hasBatchQueueSources = batchProcess.discoveredSources.length > 0;
+  const hasManualEditFallbackSource = s.sources.length > 0 || !!s.currentImage;
+  const batchProcessMode = requestedBatchProcessMode && (hasBatchQueueSources || !hasManualEditFallbackSource);
+  const fallbackToManualEditFromEmptyBatch = requestedBatchProcessMode && !hasBatchQueueSources && hasManualEditFallbackSource;
   const continuousGenerateTest = s.continuousGenerateTest === true && !batchProcessMode;
+  const activeProfile = s.profiles.find((profile) => profile.id === s.activeProfileId);
+  const activeProfileUsesFHLTransport = isOfficialFHLTransportProfile(
+    activeProfile,
+    s.baseURL,
+    activeProfile?.apiMode ?? s.apiMode,
+  );
+  const enabledFHLPool = enabledFHLPoolProfiles(s);
+  const hasEnabledFHLPool = enabledFHLPool.length > 0;
+  const firstContinuousFHLPoolProfile = continuousGenerateTest ? enabledFHLPool[0] : undefined;
+  const batchUsesFHLPool = batchProcessMode && activeProfileUsesFHLTransport && hasEnabledFHLPool;
+  const fhlPoolSubmit = continuousGenerateTest || batchUsesFHLPool;
+  const fhlPoolTaskCount = fhlPoolTotalCapacity(s, fhlTransportModeForState(s));
   if (!continuousGenerateTest && !batchProcessMode && hasActiveGenerationForWorkspace(s, s.activeWorkspaceId)) {
     const message = "当前已有任务正在生成。连续生成模式关闭时不会并发提交，避免误点后重复扣费。";
     set({ errorMessage: message, errorRawPath: null });
     s.pushToast(message, "warn", 4200);
     return;
   }
-  if (!currentProviderHasRequiredKey(s)) {
+  if (!fhlPoolSubmit && !currentProviderHasRequiredKey(s)) {
     set({ errorMessage: "请填写 API Key", errorRawPath: null });
     return;
   }
 
   let cleanedAPIKey = "";
-  if (providerRequiresDirectAPIKey(s.apiMode)) {
+  if (!fhlPoolSubmit && providerRequiresDirectAPIKey(s.apiMode)) {
     try {
     cleanedAPIKey = validateAPIKeyForHeader(s.apiKey);
   } catch (error: any) {
@@ -2034,42 +2942,71 @@ async function submitCurrentRequest(
     set({ errorMessage: "Prompt is required after prompt prefix merge", errorRawPath: null });
     return;
   }
-  if (!s.baseURL.trim()) {
+  if (!fhlPoolSubmit && !s.baseURL.trim()) {
     set({ errorMessage: "请填写 Base URL", errorRawPath: null });
     return;
   }
 
-  const cleanedBaseURL = cleanBaseURL(s.baseURL);
-  const batchSelectedSources = batchProcessMode
+  const cleanedBaseURL = fhlPoolSubmit ? "" : cleanBaseURL(s.baseURL);
+  let batchSelectedSources = batchProcessMode
     ? batchProcess.discoveredSources.filter((source) => source.selected !== false)
     : [];
-  const batchFixedSources = batchProcessMode ? s.sources : [];
+  let batchFixedSources = batchProcessMode ? s.sources : [];
   const batchSourceSlotIndex = batchProcessMode
     ? clampBatchSourceSlotIndex(batchProcess.batchSourceSlotIndex, batchFixedSources.length)
     : 0;
   const batchCount = batchProcessMode
     ? batchSelectedSources.length
     : (continuousGenerateTest ? 1 : normalizeBatchCount(s.batchCount));
-  const activeProfile = s.profiles.find((profile) => profile.id === s.activeProfileId);
-  const effectiveAPIMode = effectiveAPIModeForSubmit(s.mode, activeProfile?.apiMode ?? s.apiMode);
-  const concurrencyLimit = effectiveConcurrencyLimitForProfile(s, effectiveAPIMode, activeProfile?.id || s.activeProfileId);
-  const apiProfileSnapshot = apiProfileSnapshotForSubmit(activeProfile, s.activeProfileId);
+  const effectiveAPIMode = fhlPoolSubmit
+    ? fhlTransportModeForState(s)
+    : effectiveAPIModeForSubmit(s, activeProfile, activeProfile?.apiMode ?? s.apiMode);
+  const effectiveTextModelID = activeProfileUsesFHLTransport && effectiveAPIMode === "responses"
+    ? FHL_TEXT_MODEL_ID
+    : s.textModelID;
+  const effectiveImagesNewAPICompat = effectiveAPIMode === "images" && s.imagesNewAPICompat === true;
+  const concurrencyLimit = continuousGenerateTest && firstContinuousFHLPoolProfile
+    ? fhlPoolSlotConcurrencyLimit(s, effectiveAPIMode, firstContinuousFHLPoolProfile.id)
+    : fhlPoolSubmit
+      ? fhlPoolTaskCount
+      : effectiveConcurrencyLimitForProfile(s, effectiveAPIMode, activeProfile?.id || s.activeProfileId);
+  const apiProfileSnapshot: { apiProfileId?: string; apiProfileName?: string } = continuousGenerateTest
+    ? apiProfileSnapshotForSubmit(firstContinuousFHLPoolProfile, firstContinuousFHLPoolProfile?.id ?? "")
+    : batchUsesFHLPool
+      ? {}
+      : apiProfileSnapshotForSubmit(activeProfile, s.activeProfileId);
   const autoAspectInput = autoAspectSizeInputFromState(s);
-  const activeCount = workspaceRunningCount(s, effectiveAPIMode, apiProfileSnapshot.apiProfileId);
+  const activeCount = fhlPoolSubmit
+    ? fhlPoolInFlightTotal(s)
+    : workspaceRunningCount(s, effectiveAPIMode, apiProfileSnapshot.apiProfileId);
+
+  if (continuousGenerateTest && !hasEnabledFHLPool) {
+    const message = "Continuous generation requires at least one enabled FHL API slot in the pool";
+    set({ errorMessage: message, errorRawPath: null });
+    get().pushToast(message, "warn", 4200);
+    return;
+  }
+  if (continuousGenerateTest && concurrencyLimit <= 0) {
+    const message = "API 1 has no available FHL concurrency capacity";
+    set({ errorMessage: message, errorRawPath: null });
+    get().pushToast(message, "warn", 4200);
+    return;
+  }
 
   if (batchProcessMode) {
     if (batchProcess.discoveredSources.length === 0) {
+      const message = "批量图生图队列为空。请点击参考图栏右侧的批量图片按钮加入图片，或关闭批量图生图开关后按普通图生图生成。";
       set({
-        errorMessage: "No batch input directory or files are available for batch edit",
+        errorMessage: message,
         errorRawPath: null,
       });
+      get().pushToast(message, "warn", 4200);
       return;
     }
     if (batchSelectedSources.length === 0) {
-      set({
-        errorMessage: "Please select at least one batch source image",
-        errorRawPath: null,
-      });
+      const message = "请至少选择一张批量图生图源图。";
+      set({ errorMessage: message, errorRawPath: null });
+      get().pushToast(message, "warn", 3200);
       return;
     }
     if (batchProcess.outputMode === "custom_dir" && !batchProcess.outputDir.trim()) {
@@ -2093,13 +3030,58 @@ async function submitCurrentRequest(
       });
       return;
     }
-  } else if (continuousGenerateTest && activeCount > 0) {
-    get().pushToast("Continuous mode is already running tasks; new submit was not queued", "warn", 3600);
+  }
+
+  if (batchProcessMode && shouldUseBackgroundTaskProxyForSubmit(effectiveAPIMode)) {
+    const materializedBatch = await materializeBatchSourcesForBrowserProxy(batchSelectedSources, batchFixedSources);
+    if (!materializedBatch.ok) {
+      const message = `批量图源 ${materializedBatch.failedLabel} 无法写入本地输入目录，请重新选择图片或重启测试模式后再试`;
+      set({ errorMessage: message, errorRawPath: null });
+      get().pushToast(message, "error", 5200);
+      return;
+    }
+    if (materializedBatch.changed) {
+      const materializedSelectedByPath = new Map(
+        batchSelectedSources.map((source, index) => [source.path, materializedBatch.selectedSources[index]]),
+      );
+      batchSelectedSources = materializedBatch.selectedSources;
+      batchFixedSources = materializedBatch.fixedSources;
+      set({
+        sources: batchFixedSources,
+        batchProcess: {
+          ...batchProcess,
+          discoveredSources: batchProcess.discoveredSources.map((source) => {
+            const nextSource = materializedSelectedByPath.get(source.path);
+            return nextSource ? { ...nextSource, selected: source.selected } : source;
+          }),
+        },
+      });
+    }
+    if (
+      batchSelectedSources.some((source) => isVirtualImagePath(source.path))
+      || batchFixedSources.some((source) => isVirtualImagePath(source.path))
+    ) {
+      const message = "批量图源仍包含无法给后台任务读取的内存图片，请重新选择图片后再试";
+      set({ errorMessage: message, errorRawPath: null });
+      get().pushToast(message, "error", 5200);
+      return;
+    }
   }
 
   let editSourcePaths: string[] = [];
-  let preparedSources = s.sources;
+  let preparedSources = recoverPanoramaSourceMetadata(s.sources, s.history);
+  if (preparedSources !== s.sources) {
+    set((state) => ({
+      sources: preparedSources,
+      workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, {
+        sources: preparedSources,
+      }),
+    }));
+  }
   let materializedImplicitCurrentImage: RetryAutoAspectSource | null = null;
+  if (fallbackToManualEditFromEmptyBatch) {
+    get().pushToast("批量队列为空，已按普通图生图使用当前参考图提交。", "info", 2600);
+  }
   if (s.mode === "edit" && !batchProcessMode) {
     if (shouldUseBackgroundTaskProxyForSubmit(effectiveAPIMode)) {
       const materializedSources = await materializeEditSourcesForBrowserProxy(preparedSources);
@@ -2141,7 +3123,7 @@ async function submitCurrentRequest(
     imageModelID: autoAspectInput.imageModelID,
     mode: s.mode,
   });
-  let batchAutoSizes: Array<SizeValue | null> = [];
+  const batchAutoSizes: Array<SizeValue | null> = [];
   const editAutoAspectResolution = normalizeAutoAspectResolutionValue(batchProcess.autoAspectResolution);
   const editAutoAspectEnabled = s.mode === "edit" && !!editAutoAspectResolution && (batchProcessMode || !s.editAutoAspectUserLocked);
   if (editAutoAspectEnabled && !batchProcessMode) {
@@ -2251,13 +3233,14 @@ async function submitCurrentRequest(
     seed: s.seed,
     negativePrompt: s.negativePrompt,
     baseURL: cleanedBaseURL,
-    textModelID: s.textModelID,
+    textModelID: effectiveTextModelID,
     imageModelID: s.imageModelID,
     proxyMode: s.proxyMode,
     proxyURL: s.proxyURL,
     requestPolicy: s.requestPolicy,
     apiMode: effectiveAPIMode,
-    imagesNewAPICompat: effectiveAPIMode === "images" && s.imagesNewAPICompat === true,
+    apiProfileId: apiProfileSnapshot.apiProfileId || "",
+    imagesNewAPICompat: effectiveImagesNewAPICompat,
     noPromptRevision: true,
     concurrencyLimit,
     partialImages: 1,
@@ -2282,6 +3265,7 @@ async function submitCurrentRequest(
     ? batchFixedSources.map((src) => src.path).filter(Boolean)
     : [];
   const preparedPanoramaRoundtrip = panoramaRoundtripFromSources(preparedSources);
+  const submissionRunId = `run-${cryptoIDFallback()}`;
 
   const submittedTasks = batchProcessMode
     ? batchSelectedSources.map((source, index) => {
@@ -2291,6 +3275,7 @@ async function submitCurrentRequest(
           ? [...batchFixedSources, source]
           : [];
         return createBatchTaskRecord({
+          runId: submissionRunId,
           workspaceId,
           slotIndex,
           mode: s.mode,
@@ -2301,10 +3286,10 @@ async function submitCurrentRequest(
           autoAspectResolution: editAutoAspectEnabled ? batchProcess.autoAspectResolution || undefined : undefined,
           quality: s.quality,
           outputFormat: s.outputFormat,
-          requestPolicy: s.requestPolicy,
-          imagesNewAPICompat: effectiveAPIMode === "images" && s.imagesNewAPICompat === true,
-          textModelID: s.textModelID,
-          imageModelID: s.imageModelID,
+          requestPolicy: batchUsesFHLPool ? undefined : s.requestPolicy,
+          imagesNewAPICompat: batchUsesFHLPool ? undefined : effectiveImagesNewAPICompat,
+          textModelID: batchUsesFHLPool ? undefined : effectiveTextModelID,
+          imageModelID: batchUsesFHLPool ? undefined : s.imageModelID,
           seed: s.seed ? s.seed + index : 0,
           negativePrompt: s.negativePrompt,
           styleTag: s.styleTag,
@@ -2314,7 +3299,8 @@ async function submitCurrentRequest(
           batchSourcePath: source.path,
           batchSourceSlotIndex,
           maskB64,
-          queuedReason: "batch_shared_concurrency",
+          continuousPoolTask: batchUsesFHLPool,
+          queuedReason: batchUsesFHLPool ? "continuous_pool" : "batch_shared_concurrency",
           batchOutputMode: batchProcess.outputMode,
           batchOutputDir: batchProcess.outputMode === "custom_dir" ? batchProcess.outputDir : "",
           batchOutputPrefix: "processed-",
@@ -2323,6 +3309,7 @@ async function submitCurrentRequest(
     : Array.from({ length: batchCount }, (_, index) => {
         const slotIndex = batchSlotStart + index;
         return createBatchTaskRecord({
+          runId: submissionRunId,
           workspaceId,
           slotIndex,
           mode: s.mode,
@@ -2333,10 +3320,10 @@ async function submitCurrentRequest(
           autoAspectResolution: editAutoAspectEnabled ? batchProcess.autoAspectResolution : undefined,
           quality: s.quality,
           outputFormat: s.outputFormat,
-          requestPolicy: s.requestPolicy,
-          imagesNewAPICompat: effectiveAPIMode === "images" && s.imagesNewAPICompat === true,
-          textModelID: s.textModelID,
-          imageModelID: s.imageModelID,
+          requestPolicy: fhlPoolSubmit ? undefined : s.requestPolicy,
+          imagesNewAPICompat: fhlPoolSubmit ? undefined : effectiveImagesNewAPICompat,
+          textModelID: fhlPoolSubmit ? undefined : effectiveTextModelID,
+          imageModelID: fhlPoolSubmit ? undefined : s.imageModelID,
           seed: s.seed ? s.seed + index : 0,
           negativePrompt: s.negativePrompt,
           styleTag: s.styleTag,
@@ -2344,7 +3331,8 @@ async function submitCurrentRequest(
           sourceImages: s.mode === "edit" ? preparedSources : undefined,
           panoramaRoundtrip: preparedPanoramaRoundtrip,
           maskB64,
-          queuedReason: continuousGenerateTest && concurrencyLimit > 0 ? "local_concurrency" : undefined,
+          continuousPoolTask: fhlPoolSubmit,
+          queuedReason: fhlPoolSubmit ? "continuous_pool" : undefined,
         });
       });
   const submittedTaskIds = submittedTasks.map((task) => task.id);
@@ -2365,6 +3353,15 @@ async function submitCurrentRequest(
   } as Partial<StudioState>));
 
   if (batchProcessMode) {
+    if (batchUsesFHLPool) {
+      void requestContinuousPoolPump();
+      get().pushToast(
+        `已提交 ${submittedTasks.length} 个 FHL 池批量任务，当前总上限 ${concurrencyLimit}`,
+        "info",
+        2600,
+      );
+      return;
+    }
     void pumpContinuousQueue(workspaceId, effectiveAPIMode);
     get().pushToast(
       `已提交 ${submittedTasks.length} 个批量任务，最大并发 ${concurrencyLimit}`,
@@ -2374,12 +3371,13 @@ async function submitCurrentRequest(
     return;
   }
 
+  if (continuousGenerateTest) {
+    void requestContinuousPoolPump();
+    get().pushToast(`已向 ${firstContinuousFHLPoolProfile?.name ?? "API 1"} 加入 1 个单图任务`, "info", 2200);
+    return;
+  }
+
   if (shouldUseBackgroundTaskProxyForSubmit(effectiveAPIMode)) {
-    if (continuousGenerateTest && concurrencyLimit > 0) {
-      void pumpContinuousQueue(workspaceId, effectiveAPIMode);
-      get().pushToast(`Added to continuous queue, max concurrency ${concurrencyLimit}`, "info", 2200);
-      return;
-    }
     try {
       const submitJobGroup = isAndroidTaskProxyMode() ? submitAndroidJobGroup : submitBrowserJobGroup;
       const response = await submitJobGroup({
@@ -2400,8 +3398,8 @@ async function submitCurrentRequest(
         apiMode: effectiveAPIMode,
         ...apiProfileSnapshot,
         requestPolicy: s.requestPolicy,
-        imagesNewAPICompat: effectiveAPIMode === "images" && s.imagesNewAPICompat === true,
-        textModelID: s.textModelID,
+        imagesNewAPICompat: effectiveImagesNewAPICompat,
+        textModelID: effectiveTextModelID,
         imageModelID: s.imageModelID,
         continuousGenerateTest,
         continuousBatchIndex: batchSlotStart,
@@ -2496,9 +3494,7 @@ async function buildHistoryItemFromBrowserSlot(
 ): Promise<HistoryItem | null> {
   const savedPath = String(slot.savedPath || existing?.savedPath || "").trim();
   if (slot.status !== "succeeded" || !savedPath) return null;
-  const imageB64 = existing?.imageB64 || await ReadImageAsBase64(savedPath).catch(() => "");
-  if (!imageB64) return null;
-  const dims = getImageDimensionsFromBase64(imageB64);
+  const mediaRef = await RegisterMediaAsset(savedPath, existing?.thumbPath || "").catch(() => null);
   const seedBase = Number.isFinite(Number(group.seed)) ? Number(group.seed) : 0;
   const batchIndex = slotIndexForGroupSlot(group, slot);
   const parentSourcePath = group.mode === "edit"
@@ -2528,15 +3524,21 @@ async function buildHistoryItemFromBrowserSlot(
     styleTag: group.styleTag || undefined,
     batchIndex: batchIndex >= 0 ? batchIndex : slot.batchIndex,
     elapsedSec: Number.isFinite(Number(slot.elapsedSec)) ? Number(slot.elapsedSec) : existing?.elapsedSec,
-    width: dims?.w ?? existing?.width,
-    height: dims?.h ?? existing?.height,
+    imageId: mediaRef?.imageId || existing?.imageId,
+    thumbPath: mediaRef?.thumbPath || existing?.thumbPath,
+    previewUrl: mediaRef?.previewUrl || existing?.previewUrl,
+    fullUrl: mediaRef?.fullUrl || existing?.fullUrl,
+    width: mediaRef?.width || existing?.width,
+    height: mediaRef?.height || existing?.height,
+    previewWidth: mediaRef?.previewWidth || existing?.previewWidth,
+    previewHeight: mediaRef?.previewHeight || existing?.previewHeight,
     sourceImages,
     panoramaRoundtrip,
     panoramaProject: panoramaProjectFromEditSources(sourceImages, panoramaRoundtrip),
     parentId: parentSourcePath || undefined,
     savedPath,
     rawPath: String(slot.rawPath || existing?.rawPath || ""),
-    imageB64,
+    imageB64: undefined,
     imageBlob: null,
     previewBlob: null,
     previewOnly: true,
@@ -2633,7 +3635,14 @@ function sourceIdentityForBrowserGroupSlot(group: JobGroupSnapshot, slot: JobGro
   const state = useStudioStore.getState();
   const workspace = state.workspaces.find((entry) => entry.id === group.workspaceId);
   const slotIndex = slotIndexForGroupSlot(group, slot);
-  const task = findTaskForJobSlot(workspace?.batchTaskIds ?? [], state.batchTasksById, group.workspaceId, slotIndex, slot.jobId);
+  const task = findTaskForJobSlot(
+    workspace?.batchTaskIds ?? [],
+    state.batchTasksById,
+    group.workspaceId,
+    slotIndex,
+    slot.jobId,
+    group.clientTaskId,
+  );
   const sourceImages = task ? sourceImagesForTask(task) : sourceImagesFromPaths(group.sourceImagePaths);
   return {
     batchSourcePath: task?.batchSourcePath,
@@ -2753,6 +3762,13 @@ function clearBrowserJobSubscription(jobId: string) {
   browserJobSubscriptions.delete(jobId);
 }
 
+function clearBrowserWorkspaceSubscription(workspaceId: string) {
+  const off = browserWorkspaceSubscriptions.get(workspaceId);
+  if (!off) return;
+  try { off(); } catch {}
+  browserWorkspaceSubscriptions.delete(workspaceId);
+}
+
 async function syncHistoryItemFromBrowserJobSlot(
   group: JobGroupSnapshot,
   slot: JobGroupSnapshot["slots"][number],
@@ -2841,9 +3857,29 @@ async function syncHistoryItemFromBrowserJobSlot(
   }
 }
 
+function browserJobEventIsTerminal(event: BrowserJobEvent) {
+  return event.type === "cancelled" || event.type === "error" || event.type === "terminal";
+}
+
+function applyBrowserJobEvent(event: BrowserJobEvent) {
+  const terminal = browserJobEventIsTerminal(event);
+  const workspace = useStudioStore.getState().workspaces.find((entry) => entry.id === event.group.workspaceId);
+  if (!isJobGroupVisibleForWorkspace(workspace, event.group)) return terminal;
+  applyBrowserJobGroupToStore(event.group);
+  if (event.type === "terminal" && event.slot.status === "succeeded") {
+    void syncHistoryItemFromBrowserJobSlot(event.group, event.slot, {
+      updateWorkspaceSelection: true,
+    });
+  }
+  if (terminal) {
+    void pumpContinuousQueue(event.group.workspaceId, normalizeAPIMode(event.group.apiMode));
+    void requestContinuousPoolPump();
+  }
+  return terminal;
+}
+
 function ensureBrowserJobSubscription(jobId: string) {
   if (!jobId || browserJobSubscriptions.has(jobId)) return;
-  const subscribe = isAndroidTaskProxyMode() ? subscribeToAndroidJob : subscribeToBrowserJob;
   const reconcileIfStreamEndedEarly = () => {
     const workspaceId = resolveWorkspaceIdForBrowserJob(jobId);
     const shouldRefresh = browserJobStillLooksActive(jobId);
@@ -2851,26 +3887,9 @@ function ensureBrowserJobSubscription(jobId: string) {
     if (!shouldRefresh || !workspaceId) return;
     void refreshBrowserJobGroupsForWorkspace(workspaceId, jobId);
   };
-  const off = subscribe(jobId, (event) => {
-    const workspace = useStudioStore.getState().workspaces.find((entry) => entry.id === event.group.workspaceId);
-    if (!isJobGroupVisibleForWorkspace(workspace, event.group)) {
-      if (event.type === "cancelled" || event.type === "error" || event.type === "terminal") {
-        clearBrowserJobSubscription(jobId);
-      }
-      return;
-    }
-    applyBrowserJobGroupToStore(event.group);
-    if (event.type === "terminal" && event.slot.status === "succeeded") {
-      void syncHistoryItemFromBrowserJobSlot(event.group, event.slot, {
-        updateWorkspaceSelection: true,
-      });
+  const off = subscribeToBrowserJob(jobId, (event) => {
+    if (applyBrowserJobEvent(event)) {
       clearBrowserJobSubscription(jobId);
-      void pumpContinuousQueue(event.group.workspaceId, normalizeAPIMode(event.group.apiMode));
-      return;
-    }
-    if (event.type === "cancelled" || event.type === "error" || event.type === "terminal") {
-      clearBrowserJobSubscription(jobId);
-      void pumpContinuousQueue(event.group.workspaceId, normalizeAPIMode(event.group.apiMode));
     }
   }, () => {
     reconcileIfStreamEndedEarly();
@@ -2880,7 +3899,53 @@ function ensureBrowserJobSubscription(jobId: string) {
   browserJobSubscriptions.set(jobId, off);
 }
 
+function browserWorkspaceHasActiveJobs(
+  groupsByWorkspace: Record<string, JobGroupSnapshot[]>,
+  workspaceId: string,
+) {
+  return (groupsByWorkspace[workspaceId] ?? []).some((group) => runningJobIdsFromGroup(group).length > 0);
+}
+
+function ensureBrowserWorkspaceSubscription(workspaceId: string) {
+  if (!workspaceId || browserWorkspaceSubscriptions.has(workspaceId)) return;
+  const reconcileIfStreamEndedEarly = () => {
+    const shouldRefresh = browserWorkspaceHasActiveJobs(useStudioStore.getState().jobGroupsByWorkspace, workspaceId);
+    clearBrowserWorkspaceSubscription(workspaceId);
+    if (!shouldRefresh) return;
+    void refreshBrowserJobGroupsForWorkspace(workspaceId).finally(() => {
+      syncBrowserJobSubscriptions(useStudioStore.getState().jobGroupsByWorkspace);
+    });
+  };
+  const off = subscribeToBrowserWorkspace(workspaceId, (event) => {
+    if (applyBrowserJobEvent(event)) {
+      syncBrowserJobSubscriptions(useStudioStore.getState().jobGroupsByWorkspace);
+    }
+  }, () => {
+    reconcileIfStreamEndedEarly();
+  }, () => {
+    reconcileIfStreamEndedEarly();
+  });
+  browserWorkspaceSubscriptions.set(workspaceId, off);
+}
+
 function syncBrowserJobSubscriptions(groupsByWorkspace: Record<string, JobGroupSnapshot[]>) {
+  if (!isAndroidTaskProxyMode()) {
+    for (const jobId of Array.from(browserJobSubscriptions.keys())) clearBrowserJobSubscription(jobId);
+    const liveWorkspaceIds = new Set<string>();
+    for (const [workspaceId, groups] of Object.entries(groupsByWorkspace)) {
+      if (!groups.some((group) => runningJobIdsFromGroup(group).length > 0)) continue;
+      liveWorkspaceIds.add(workspaceId);
+      ensureBrowserWorkspaceSubscription(workspaceId);
+    }
+    for (const workspaceId of Array.from(browserWorkspaceSubscriptions.keys())) {
+      if (!liveWorkspaceIds.has(workspaceId)) clearBrowserWorkspaceSubscription(workspaceId);
+    }
+    return;
+  }
+
+  for (const workspaceId of Array.from(browserWorkspaceSubscriptions.keys())) {
+    clearBrowserWorkspaceSubscription(workspaceId);
+  }
   const liveIds = new Set<string>();
   for (const groups of Object.values(groupsByWorkspace)) {
     for (const group of groups) {
@@ -2939,6 +4004,56 @@ const imageActions = createImageActions({
   },
 });
 
+function initialWorkspaceForBootstrap(id: string, outputFormat: OutputFormatValue): Workspace {
+  return {
+    id,
+    name: "图片 1",
+    promptPrefix: "",
+    prompt: "",
+    optimizationGuidance: "",
+    negativePrompt: "",
+    mode: "generate",
+    size: DEFAULT_FHL_SIZE,
+    quality: "medium",
+    outputFormat,
+    seed: 0,
+    batchCount: 1,
+    continuousGenerateTest: false,
+    editSourceMode: "manual",
+    editAutoAspectUserLocked: false,
+    batchProcess: defaultBatchProcessConfig(),
+    styleTag: "",
+    sources: [],
+    currentImageId: null,
+    batchResultIds: [],
+    batchTaskIds: [],
+    selectedBatchTaskId: null,
+    batchSinglePreviewOpen: false,
+    resultGridOpen: false,
+    historyGalleryOpen: false,
+    historyGallerySinglePreviewId: null,
+    historyGallerySort: "newest",
+    runningJobIds: [],
+    jobsTotal: 0,
+    jobsCompleted: 0,
+    jobsFailed: 0,
+    progress: null,
+    streamPreview: null,
+    streamPreviews: {},
+    lastLogLine: "",
+    errorMessage: null,
+    errorRawPath: null,
+    lastPayload: null,
+  };
+}
+
+function isE2EOnlyBootstrap(): boolean {
+  if (typeof window === "undefined") return false;
+  return (window as Window & {
+    __IMAGE_STUDIO_E2E_BOOTSTRAP?: { e2eOnly?: boolean };
+  }).__IMAGE_STUDIO_E2E_BOOTSTRAP?.e2eOnly === true;
+}
+
 export const useStudioStore = create<StudioState>((set, get) => ({
   apiKey: "",
   mode: "generate",
@@ -2946,7 +4061,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   prompt: "",
   optimizationGuidance: "",
   negativePrompt: "",
-  size: "1024x1024",
+  size: DEFAULT_FHL_SIZE,
   quality: "medium",
   outputFormat: "png",
   seed: 0,
@@ -2957,6 +4072,11 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   proxyMode: "system",
   proxyURL: "",
   apiMode: "responses",
+  fhlTransportMode: "images",
+  fhlTextAPIConfigured: false,
+  fhlTextAPIKeyHint: "",
+  fhlTextAPITestStatus: "unconfigured",
+  fhlTextAPITestMessage: "",
   requestPolicy: "openai",
   imagesNewAPICompat: false,
   noPromptRevision: true,
@@ -2989,7 +4109,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   history: [],
   historyHasMore: false,
   historyLoading: false,
-  historyCursorBeforeDayStart: null,
+  historyCursor: null,
   batchResults: [],
   selectedBatchTaskId: null,
   resultGridOpen: false,
@@ -3027,6 +4147,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   promptHistory: [],
   batchCount: 1,
   continuousGenerateTest: false,
+  fhlPoolPerAPIConcurrencyLimit: DEFAULT_CONCURRENCY_LIMIT,
+  fhlPoolEffectiveConcurrencyByProfileId: {},
   editSourceMode: "manual",
   batchProcess: defaultBatchProcessConfig(),
   presets: [],
@@ -3053,8 +4175,18 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       upstreamReturnTarget: "app",
     });
   },
+  setFHLTransportMode: (mode) => {
+    const fhlTransportMode = mode === "responses" ? "responses" : "images";
+    persistFHLTransportMode(fhlTransportMode);
+    const state = get();
+    const activeProfile = state.profiles.find((profile) => profile.id === state.activeProfileId);
+    set({
+      fhlTransportMode,
+      ...(activeProfile ? activeProfileRuntimePatch(activeProfile, fhlTransportMode) : {}),
+    });
+  },
   openStarPrompt: () => {
-    if (isMac) return;
+    if (!usesWindowsDesktopUI) return;
     set({ starPromptOpen: true, starPromptSource: "manual" });
   },
   dismissStarPrompt: () => {
@@ -3086,7 +4218,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       optimizationGuidance: "",
       negativePrompt: "",
       mode: "generate",
-      size: "1024x1024",
+      size: DEFAULT_FHL_SIZE,
       quality: "medium",
       outputFormat: "png",
       seed: 0,
@@ -3121,7 +4253,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       optimizationGuidance: "",
       negativePrompt: "",
       mode: "generate",
-      size: "1024x1024",
+      size: DEFAULT_FHL_SIZE,
       quality: "medium",
       outputFormat: "png",
       seed: 0,
@@ -3164,33 +4296,32 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }));
     get().pushToast("Current workspace draft has been reset", "success", 2200);
   },
-  setContinuousPressureLimit: async (limit) => {
-    const normalized = normalizeConcurrencyLimit(limit);
-    const activeId = get().activeProfileId;
-    if (!activeId) {
-      get().pushToast("Select an API profile before changing the saved concurrency limit", "warn", 2600);
-      return;
-    }
-    const ok = await get().updateProfile(activeId, { concurrencyLimit: normalized });
-    if (!ok) {
-      get().pushToast("Failed to update the saved concurrency limit", "error", 2600);
-      return;
-    }
-    get().pushToast(normalized > 0 ? `Saved concurrency limit set to ${normalized}` : "Saved concurrency limit cleared", "success", 2200);
-    if (normalized > 0) {
-      void pumpContinuousQueue(get().activeWorkspaceId, effectiveAPIModeForSubmit(get().mode, get().apiMode));
-    }
+  setFHLPoolPerAPIConcurrencyLimit: async (limit) => {
+    const normalized = normalizeFHLPoolPerAPIConcurrencyLimit(limit);
+    persistFHLPoolPerAPIConcurrencyLimit(normalized);
+    set({ fhlPoolPerAPIConcurrencyLimit: normalized });
+    const enabledCount = enabledFHLPoolProfiles(get()).length;
+    get().pushToast(
+      `FHL 每 API 并发已设为 ${normalized}，当前总上限 ${enabledCount * normalized}`,
+      "success",
+      2600,
+    );
+    void requestContinuousPoolPump();
   },
   runContinuousPressureTest: async (count) => {
-    const total = Math.max(1, Math.min(100, Math.floor(Number(count) || 1)));
+    const total = Math.max(1, Math.min(500, Math.floor(Number(count) || 1)));
     const state = get();
     if (!state.continuousGenerateTest) {
       get().pushToast("Enable continuous generation before starting this test", "warn", 2600);
       return;
     }
-    const effectiveAPIMode = effectiveAPIModeForSubmit("generate", state.apiMode);
+    const effectiveAPIMode: APIModeValue = fhlTransportModeForState(state);
     if (!shouldUseBackgroundTaskProxyForSubmit(effectiveAPIMode)) {
       get().pushToast("Continuous pressure test is only available in browser task proxy mode", "warn", 3000);
+      return;
+    }
+    if (enabledFHLPoolProfiles(state).length === 0) {
+      get().pushToast("Enable at least one FHL API slot in the continuous pool before starting this test", "warn", 3200);
       return;
     }
     if (state.mode !== "generate") {
@@ -3200,9 +4331,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const latest = get();
     const workspaceId = latest.activeWorkspaceId;
     const startIndex = nextBatchSlotStartForWorkspace(latest, workspaceId);
-    const activeProfile = latest.profiles.find((profile) => profile.id === latest.activeProfileId);
-    const apiProfileSnapshot = apiProfileSnapshotForSubmit(activeProfile, latest.activeProfileId);
-    const concurrencyLimit = effectiveConcurrencyLimitForProfile(latest, effectiveAPIMode, activeProfile?.id || latest.activeProfileId);
     const resolvedSize = normalizeSizeSelection(latest.size, {
       apiMode: effectiveAPIMode,
       requestPolicy: latest.requestPolicy,
@@ -3210,28 +4338,26 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       mode: latest.mode,
     });
     const createdAt = Date.now();
+    const pressureRunId = `run-${cryptoIDFallback()}`;
     const submittedTasks = Array.from({ length: total }, (_, index) => {
       const slotIndex = startIndex + index;
       return createBatchTaskRecord({
+        runId: pressureRunId,
         workspaceId,
         slotIndex,
         mode: "generate",
         apiMode: effectiveAPIMode,
-        ...apiProfileSnapshot,
         prompt: pressurePrompt(slotIndex),
         size: resolvedSize,
         quality: latest.quality,
         outputFormat: latest.outputFormat,
-        requestPolicy: latest.requestPolicy,
-        imagesNewAPICompat: effectiveAPIMode === "images" && latest.imagesNewAPICompat === true,
-        textModelID: latest.textModelID,
-        imageModelID: latest.imageModelID,
         seed: latest.seed ? latest.seed + index : 0,
         negativePrompt: latest.negativePrompt,
         styleTag: latest.styleTag,
         sourceImagePaths: [],
         maskB64: "",
-        queuedReason: concurrencyLimit > 0 ? "local_concurrency" : undefined,
+        continuousPoolTask: true,
+        queuedReason: "continuous_pool",
         createdAt: createdAt + index,
       });
     });
@@ -3266,7 +4392,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         ...runtimePatch,
       }),
     } as Partial<StudioState>));
-    void pumpContinuousQueue(workspaceId, effectiveAPIMode);
+    void requestContinuousPoolPump();
     get().pushToast(`Queued ${total} continuous generation tasks`, "success", 2600);
   },
   workspaces: [],
@@ -3401,6 +4527,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     // Persist the key into keyring, then sync the CLI config.
     set({ apiKey: trimmed });
     await SetStoredAPIKey(keyringUserFor(activeId), trimmed);
+    clearContinuousPoolProfileRuntimeLimit(activeId);
     if (trimmed) {
       syncCLIConfigQuietly(cliConfigFromState(get(), { apiKey: trimmed }));
     } else {
@@ -3408,10 +4535,29 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
   },
 
-  createProfile: async (input) => profileActions.createProfile(input),
-  updateProfile: async (id, patch) => profileActions.updateProfile(id, patch),
-  deleteProfile: async (id) => profileActions.deleteProfile(id),
-  duplicateProfile: async (id) => profileActions.duplicateProfile(id),
+  createProfile: async (input) => {
+    const id = await profileActions.createProfile(input);
+    unavailableContinuousPoolProfileIds.delete(id);
+    void requestContinuousPoolPump();
+    return id;
+  },
+  updateProfile: async (id, patch) => {
+    const updated = await profileActions.updateProfile(id, patch);
+    if (updated) {
+      clearContinuousPoolProfileRuntimeLimit(id);
+      void requestContinuousPoolPump();
+    }
+    return updated;
+  },
+  deleteProfile: async (id) => {
+    clearContinuousPoolProfileRuntimeLimit(id);
+    return profileActions.deleteProfile(id);
+  },
+  duplicateProfile: async (id) => {
+    const duplicated = await profileActions.duplicateProfile(id);
+    if (duplicated) void requestContinuousPoolPump();
+    return duplicated;
+  },
   setActiveProfile: async (id) => profileActions.setActiveProfile(id),
 
   clearError: () => {
@@ -3452,12 +4598,16 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const cancelledTaskIds = sortedBatchTasksForWorkspace(workspaceId, taskIds, s.batchTasksById)
       .filter((task) => task.status === "queued" || task.status === "running")
       .map((task) => task.id);
+    const retainedFHLPoolJobIds = new Set(
+      Object.entries(s.runningJobMeta)
+        .filter(([jobId]) => shouldRetainFHLPoolCapacityOnCancel(s, jobId))
+        .map(([jobId]) => jobId),
+    );
     if (isBackgroundTaskProxyMode()) {
-      for (const id of ids) {
-        try { await wailsCancel(id); } catch { /* ignore */ }
-      }
       const nextMeta = { ...get().runningJobMeta };
-      for (const id of ids) delete nextMeta[id];
+      for (const id of ids) {
+        if (!retainedFHLPoolJobIds.has(id)) delete nextMeta[id];
+      }
       const batchTasksById = markWorkspaceTasks(
         workspaceId,
         taskIds,
@@ -3485,15 +4635,18 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         runningJobMeta: nextMeta,
         workspaces: patchWorkspaceRuntime(get().workspaces, workspaceId, cancelledPatch),
       });
+      for (const id of ids) {
+        try { await wailsCancel(id); } catch { /* ignore */ }
+      }
+      if (cancelledTaskIds.some((id) => get().batchTasksById[id]?.continuousPoolTask)) {
+        void requestContinuousPoolPump();
+      }
       return;
     }
-    // Cancel every concurrent job in the batch.
-    for (const id of ids) {
-      try { await wailsCancel(id); } catch { /* ignore */ }
-      EventsOff(`progress:${id}`, `log:${id}`, `preview:${id}`, `result:${id}`, `error:${id}`);
-    }
     const nextMeta = { ...get().runningJobMeta };
-    for (const id of ids) delete nextMeta[id];
+    for (const id of ids) {
+      if (!retainedFHLPoolJobIds.has(id)) delete nextMeta[id];
+    }
     const batchTasksById = markWorkspaceTasks(
       workspaceId,
       taskIds,
@@ -3516,6 +4669,13 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       runningJobMeta: nextMeta,
       workspaces: patchWorkspaceRuntime(get().workspaces, workspaceId, runPatch),
     });
+    // Mark the task terminal before the backend can deliver a late event.
+    for (const id of ids) {
+      try { await wailsCancel(id); } catch { /* ignore */ }
+    }
+    if (cancelledTaskIds.some((id) => get().batchTasksById[id]?.continuousPoolTask)) {
+      void requestContinuousPoolPump();
+    }
   },
 
   selectBatchTask: (taskId) => {
@@ -3561,9 +4721,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
     clearAutoRetryTimer(task.id);
     const jobId = typeof task.jobId === "string" && task.jobId.trim() ? task.jobId.trim() : "";
-    if (jobId) {
-      try { await wailsCancel(jobId); } catch { /* best effort */ }
-    }
 
     const current = get();
     const currentTask = current.batchTasksById[task.id] ?? task;
@@ -3589,7 +4746,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     };
     const taskPatch = taskRuntimePatchForWorkspace(workspaceId, taskIds, batchTasksById);
     const nextMeta = { ...current.runningJobMeta };
-    if (jobId) delete nextMeta[jobId];
+    if (jobId && !shouldRetainFHLPoolCapacityOnCancel(current, jobId)) delete nextMeta[jobId];
     const cancelPatch: WorkspacePatch = {
       ...taskPatch,
       selectedBatchTaskId: null,
@@ -3611,13 +4768,20 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         historyGalleryOpen: false,
       } : {}),
     } as Partial<StudioState>));
+    if (jobId) {
+      try { await wailsCancel(jobId); } catch { /* best effort */ }
+    }
     get().pushToast(jobId
       ? "Cancelled running task; upstream work may already be billed"
       : "Cancelled queued task",
       "info",
       3600,
     );
-    void pumpContinuousQueue(workspaceId, task.apiMode);
+    if (task.continuousPoolTask) {
+      void requestContinuousPoolPump();
+    } else {
+      void pumpContinuousQueue(workspaceId, task.apiMode);
+    }
   },
 
   cancelQueuedBatchTasks: async () => {
@@ -3671,7 +4835,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
     const taskPatch = taskRuntimePatchForWorkspace(workspaceId, currentTaskIds, batchTasksById);
     const nextMeta = { ...current.runningJobMeta };
-    for (const jobId of cancelledJobIds) delete nextMeta[jobId];
+    for (const jobId of cancelledJobIds) {
+      if (!shouldRetainFHLPoolCapacityOnCancel(current, jobId)) delete nextMeta[jobId];
+    }
     const cancelPatch: WorkspacePatch = {
       ...taskPatch,
       selectedBatchTaskId: null,
@@ -3697,6 +4863,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     for (const jobId of cancelledJobIds) {
       try { await wailsCancel(jobId); } catch { /* best effort */ }
     }
+    if (queuedTasks.some((task) => task.continuousPoolTask)) void requestContinuousPoolPump();
   },
 
   clearFailedBatchTasks: async () => {
@@ -4228,6 +5395,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       get().pushToast(`不支持的图片类型: ${file.type || "(未知)"}，请用 PNG/JPG/WebP`, "warn", 3600);
       return null;
     }
+    anchorItem = recoverPanoramaItemMetadata(anchorItem, get().history);
     const roundtrip = resolvePanoramaRoundtripRef(anchorItem);
     if (!roundtrip) {
       get().pushToast("当前图片没有可贴回的 360 镜头信息", "warn", 3200);
@@ -4289,6 +5457,86 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   shareHistoryItem: async (item) => imageActions.shareHistoryItem(item),
 
   bootstrap: async () => {
+    if (isE2EOnlyBootstrap()) {
+      const workspaceId = genId();
+      const workspace = initialWorkspaceForBootstrap(workspaceId, "png");
+      applyTheme("system");
+      document.documentElement.style.setProperty("--font-scale", "1");
+      setKernelRuntimeMode("auto");
+      set({
+        apiKey: "",
+        profiles: [],
+        activeProfileId: "",
+        baseURL: "",
+        textModelID: "",
+        imageModelID: "",
+        mode: "generate",
+        promptPrefix: "",
+        prompt: "",
+        optimizationGuidance: "",
+        negativePrompt: "",
+        size: DEFAULT_FHL_SIZE,
+        quality: "medium",
+        outputFormat: "png",
+        seed: 0,
+        apiMode: "responses",
+        fhlTransportMode: "images",
+        fhlTextAPIConfigured: false,
+        fhlTextAPIKeyHint: "",
+        fhlTextAPITestStatus: "unconfigured",
+        fhlTextAPITestMessage: "",
+        requestPolicy: "openai",
+        imagesNewAPICompat: false,
+        sources: [],
+        currentImage: null,
+        sourcePreviewReturnImage: null,
+        history: [],
+        historyHasMore: false,
+        historyLoading: false,
+        historyCursor: null,
+        batchResults: [],
+        selectedBatchTaskId: null,
+        resultGridOpen: false,
+        historyGalleryOpen: false,
+        historyGallerySinglePreviewId: null,
+        materialGroups: [],
+        promptHistory: [],
+        presets: [],
+        runningJobs: [],
+        jobsTotal: 0,
+        jobsCompleted: 0,
+        jobsFailed: 0,
+        progress: null,
+        streamPreview: null,
+        streamPreviews: {},
+        runningJobMeta: {},
+        jobGroupsByWorkspace: {},
+        batchTasksById: {},
+        continuousGenerateTest: false,
+        fhlPoolPerAPIConcurrencyLimit: DEFAULT_CONCURRENCY_LIMIT,
+        fhlPoolEffectiveConcurrencyByProfileId: {},
+        editSourceMode: "manual",
+        batchProcess: defaultBatchProcessConfig(),
+        workspaces: [workspace],
+        activeWorkspaceId: workspaceId,
+        theme: "system",
+        fontScale: 1,
+        settingsOpen: false,
+        upstreamModalOpen: false,
+        errorMessage: null,
+        errorRawPath: null,
+        isRunning: false,
+        lastPayload: null,
+      });
+      document.documentElement.dataset.e2eStoreReady = "true";
+      return;
+    }
+    await migrateStableNamespaceData({
+      getKey: GetStoredAPIKey,
+      setKey: SetStoredAPIKey,
+    }).catch((error) => {
+      if (typeof console !== "undefined") console.warn("storage namespace migration failed", error);
+    });
     purgeForeignAPIKeyStorageKeys();
     const previewScenario = readPreviewScenario();
     if (previewScenario === "mac-workspace") {
@@ -4341,7 +5589,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         history: preview.history,
         historyHasMore: false,
         historyLoading: false,
-        historyCursorBeforeDayStart: null,
+        historyCursor: null,
         batchResults: [],
         resultGridOpen: false,
         historyGalleryOpen: false,
@@ -4432,6 +5680,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     // 2) Move legacy shared responses/images config into profiles and keyring.
     //    Existing localStorage values remain as fallback only.
     let profiles = loadStoredProfiles();
+    const fhlTransportMode = loadStoredFHLTransportMode();
     let activeProfileId = loadStoredActiveProfileId();
     if (profiles.length === 0 && ENABLE_LEGACY_PROFILE_MIGRATION) {
       // Build profiles from legacy shared config when no profiles exist.
@@ -4518,7 +5767,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     // Load backend-provided FHL defaults and reconcile them into profiles.
     const localFHLConfig = await loadLocalFHLConfig();
     const localFHLBaseURL = cleanBaseURL(localFHLConfig?.baseURL || FHL_BASE_URL);
-    const localFHLAPIMode: APIMode = localFHLConfig?.apiMode || "responses";
+    const localFHLAPIMode: APIMode = localFHLConfig?.apiMode || "images";
     const localFHLRequestPolicy: RequestPolicy = localFHLConfig?.requestPolicy || "openai";
     const localFHLTextModelID = (localFHLConfig?.textModelID || FHL_TEXT_MODEL_ID).trim();
     const localFHLImageModelID = (localFHLConfig?.imageModelID || FHL_IMAGE_MODEL_ID).trim();
@@ -4526,19 +5775,28 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     let fhlProfileId = profiles.find((profile) => (
       profile.id === FHL_PROFILE_ID
       || (
-        cleanBaseURL(profile.baseURL) === FHL_BASE_URL
-        && profile.imageModelID === FHL_IMAGE_MODEL_ID
+        isOfficialFHLProfile(profile)
+        && profile.imageModelID === ProviderPolicy.fhl.imageModelID
       )
     ))?.id;
 
-    if (!fhlProfileId && (profiles.length === 0 || localFHLConfig)) {
-      const profile = makeFHLResponsesProfile();
+    if (
+      !fhlProfileId
+      && (profiles.length === 0 || localFHLConfig)
+      && hasUpstreamProfileCapacity(profiles)
+    ) {
+      const profile = localFHLAPIMode === "responses"
+        ? makeFHLResponsesProfile()
+        : makeFHLImagesProfile();
       profiles = [...profiles, profile];
       fhlProfileId = profile.id;
       profilesChangedForFHL = true;
     }
 
-    if (fhlProfileId) {
+    // An explicit local FHL config remains the source of truth. Without one,
+    // preserve saved profiles so changing the fresh-install default is not a
+    // silent migration for existing users.
+    if (fhlProfileId && localFHLConfig) {
       profiles = profiles.map((profile) => {
         if (profile.id !== fhlProfileId) return profile;
         const next: UpstreamProfile = {
@@ -4564,7 +5822,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
 
     if (profiles.length === 0) {
-      const profile = makeFHLResponsesProfile();
+      const profile = makeFHLImagesProfile();
       profiles = [profile];
       activeProfileId = profile.id;
       profilesChangedForFHL = true;
@@ -4585,6 +5843,25 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       try { localStorage.setItem(CONCURRENCY_DEFAULT_V4_MIGRATION_KEY, "1"); } catch {}
     }
 
+    const storedFHLPoolPerAPILimit = loadStoredFHLPoolPerAPIConcurrencyLimit();
+    const legacyFHLPoolSharedLimit = storedFHLPoolPerAPILimit === null
+      ? loadLegacyFHLPoolSharedConcurrencyLimit()
+      : null;
+    const fhlPoolPerAPIConcurrencyLimit = resolveFHLPoolPerAPIConcurrencyLimit(
+      storedFHLPoolPerAPILimit,
+      legacyFHLPoolSharedLimit,
+    );
+    if (storedFHLPoolPerAPILimit === null) {
+      persistFHLPoolPerAPIConcurrencyLimit(fhlPoolPerAPIConcurrencyLimit);
+    }
+
+    profiles = profiles.map((profile) => {
+      if (!isOfficialFHLImagesProfile(profile) || profile.fhlImagesPoolSlot === undefined) return profile;
+      if (normalizeConcurrencyLimit(profile.concurrencyLimit) === FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT) return profile;
+      profilesChangedForFHL = true;
+      return { ...profile, concurrencyLimit: FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT };
+    });
+
     if (profilesChangedForFHL) {
       persistProfiles(profiles);
     }
@@ -4594,75 +5871,28 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       activeProfileId = activeProfile.id;
       persistActiveProfileId(activeProfileId);
     }
-    const apiMode: APIMode = activeProfile?.apiMode ?? "responses";
-    const requestPolicy: RequestPolicy = activeProfile?.requestPolicy ?? "openai";
-    const imagesNewAPICompat = apiMode === "images" && activeProfile?.imagesNewAPICompat === true;
-    const baseURL = activeProfile?.baseURL ?? "";
-    const textModelID = activeProfile?.textModelID ?? "";
-    const imageModelID = activeProfile?.imageModelID ?? "";
+    const activeRuntimeProfile = activeProfile
+      ? activeProfileRuntimePatch(activeProfile, fhlTransportMode)
+      : null;
+    const apiMode: APIMode = activeRuntimeProfile?.apiMode ?? "responses";
+    const requestPolicy: RequestPolicy = activeRuntimeProfile?.requestPolicy ?? "openai";
+    const imagesNewAPICompat = activeRuntimeProfile?.imagesNewAPICompat ?? false;
+    const baseURL = activeRuntimeProfile?.baseURL ?? "";
+    const textModelID = activeRuntimeProfile?.textModelID ?? "";
+    const imageModelID = activeRuntimeProfile?.imageModelID ?? "";
     const activeKey = activeProfile
       ? await GetStoredAPIKey(keyringUserFor(activeProfile.id)).catch(() => "")
       : "";
+    const fhlTextAPIKey = await loadFHLTextAPIKey().catch(() => "");
     // Apply theme + font scale to root immediately.
     applyTheme(theme);
     document.documentElement.style.setProperty("--font-scale", String(fontScale));
     setKernelRuntimeMode(kernelRuntimeMode);
-    // Restore trusted output roots before applying a custom output directory.
-    const trustedRoots = new Set(loadTrustedOutputRoots());
-    try {
-      const customOutput = localStorage.getItem(OUTPUT_DIR_KEY);
-      if (customOutput && customOutput.trim()) {
-        await SetOutputDir(customOutput).catch(() => undefined);
-        trustedRoots.add(customOutput.trim());
-      }
-    } catch {}
-    const effectiveOutput = await GetOutputDir().catch(() => "");
-    if (effectiveOutput) trustedRoots.add(effectiveOutput);
-    for (const root of trustedRoots) rememberTrustedOutputRoot(root);
-    await registerTrustedOutputRoots(Array.from(trustedRoots));
+    await GetOutputDir().catch(() => "");
     items = await hydrateHistoryPreviewRefs(items);
     // Make sure there's always at least one workspace.
     const wsId = genId();
-    const initialWorkspace: Workspace = {
-      id: wsId,
-      name: "图片 1",
-      promptPrefix: "",
-      prompt: "",
-      optimizationGuidance: "",
-      negativePrompt: "",
-      mode: "generate",
-      size: "1024x1024",
-      quality: "medium",
-      outputFormat,
-      seed: 0,
-      batchCount: 1,
-      continuousGenerateTest: false,
-      editSourceMode: "manual",
-      editAutoAspectUserLocked: false,
-      batchProcess: defaultBatchProcessConfig(),
-      styleTag: "",
-      sources: [],
-      currentImageId: null,
-      batchResultIds: [],
-      batchTaskIds: [],
-      selectedBatchTaskId: null,
-      batchSinglePreviewOpen: false,
-      resultGridOpen: false,
-      historyGalleryOpen: false,
-      historyGallerySinglePreviewId: null,
-      historyGallerySort: "newest",
-      runningJobIds: [],
-      jobsTotal: 0,
-      jobsCompleted: 0,
-      jobsFailed: 0,
-      progress: null,
-      streamPreview: null,
-      streamPreviews: {},
-      lastLogLine: "",
-      errorMessage: null,
-      errorRawPath: null,
-      lastPayload: null,
-    };
+    const initialWorkspace = initialWorkspaceForBootstrap(wsId, outputFormat);
     const restoredSession = loadWorkspaceSession(outputFormat);
     let restoredBatchTasksById = restoredSession?.batchTasksById ?? {};
     const serviceRestarted = isBrowserTaskProxyMode()
@@ -4671,6 +5901,16 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     let restoredWorkspaces = restoredSession?.workspaces ?? [initialWorkspace];
     if (serviceRestarted) {
       restoredWorkspaces = resetWorkspaceSourcesAfterServiceRestart(restoredWorkspaces);
+    }
+    const restoreHistoryIds = restoredWorkspaces.flatMap((workspace) => [
+      ...(workspace.batchResultIds ?? []),
+      ...(workspace.currentImageId ? [workspace.currentImageId] : []),
+    ]);
+    const restoredHistoryItems = await loadHistoryItemsByIds(restoreHistoryIds).catch(() => []);
+    if (restoredHistoryItems.length > 0) {
+      const byId = new Map(items.map((item) => [item.id, item]));
+      for (const item of restoredHistoryItems) byId.set(item.id, item);
+      items = Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt);
     }
     let jobGroupsByWorkspace: Record<string, JobGroupSnapshot[]> = {};
     if (isBackgroundTaskProxyMode()) {
@@ -4724,6 +5964,58 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         );
       }
     }
+    const restoredById = new Map(items.map((item) => [item.id, item]));
+    const rebuiltHistoryItems: HistoryItem[] = [];
+    for (const task of Object.values(restoredBatchTasksById)) {
+      const rebuilt = minimalHistoryItemFromBatchTask(task);
+      if (!rebuilt || restoredById.has(rebuilt.id)) continue;
+      restoredById.set(rebuilt.id, rebuilt);
+      rebuiltHistoryItems.push(rebuilt);
+    }
+    if (rebuiltHistoryItems.length > 0) {
+      items = Array.from(restoredById.values()).sort((a, b) => b.createdAt - a.createdAt);
+      await persistHistoryItems(rebuiltHistoryItems).catch(() => undefined);
+    }
+    const panoramaHistoryIds = panoramaHistoryIdsForMetadataRecovery(items);
+    const panoramaHistoryItems = await loadHistoryItemsByIds(panoramaHistoryIds).catch(() => []);
+    const panoramaSourcePaths = panoramaSourcePathsForMetadataRecovery(
+      items,
+      restoredBatchTasksById,
+      restoredWorkspaces.flatMap((workspace) => workspace.sources),
+    );
+    const panoramaSourceItems = await loadHistoryItemsBySavedPaths(panoramaSourcePaths).catch(() => []);
+    if (panoramaHistoryItems.length > 0 || panoramaSourceItems.length > 0) {
+      const byId = new Map(items.map((item) => [item.id, item]));
+      for (const item of panoramaHistoryItems) byId.set(item.id, item);
+      for (const item of panoramaSourceItems) byId.set(item.id, item);
+      items = Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt);
+    }
+    const recoveredPanoramaHistory = recoverPanoramaHistoryMetadata(items, restoredBatchTasksById);
+    items = recoveredPanoramaHistory.items;
+    const repairedPanoramaById = new Map(
+      recoveredPanoramaHistory.repaired.map((item) => [item.id, item]),
+    );
+    const recoveredItemsById = new Map(items.map((item) => [item.id, item]));
+    for (const workspace of restoredWorkspaces) {
+      if (!workspace.currentImageId || workspace.mode !== "edit" || workspace.sources.length === 0) continue;
+      const item = recoveredItemsById.get(workspace.currentImageId);
+      if (!item || item.panoramaRoundtrip) continue;
+      const recovered = recoverPanoramaItemMetadataFromTask(item, {
+        sourceImages: workspace.sources,
+        sourceImagePaths: workspace.sources.map((source) => source.path),
+      }, items);
+      if (recovered === item) continue;
+      recoveredItemsById.set(recovered.id, recovered);
+      repairedPanoramaById.set(recovered.id, recovered);
+    }
+    items = Array.from(recoveredItemsById.values()).sort((a, b) => b.createdAt - a.createdAt);
+    if (repairedPanoramaById.size > 0) {
+      await persistHistoryItems(Array.from(repairedPanoramaById.values())).catch(() => undefined);
+    }
+    restoredWorkspaces = restoredWorkspaces.map((workspace) => {
+      const sources = recoverPanoramaSourceMetadata(workspace.sources, items);
+      return sources === workspace.sources ? workspace : { ...workspace, sources };
+    });
     const restoredActiveWorkspace = restoredWorkspaces.find(
       (workspace) => workspace.id === restoredSession?.activeWorkspaceId,
     ) ?? restoredWorkspaces[0];
@@ -4758,10 +6050,15 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       outputFormat: restoredActiveWorkspace.outputFormat ?? outputFormat,
       seed: restoredActiveWorkspace.seed,
       continuousGenerateTest: restoredActiveWorkspace.continuousGenerateTest === true,
+      fhlPoolPerAPIConcurrencyLimit,
+      fhlTextAPIConfigured: !!fhlTextAPIKey,
+      fhlTextAPIKeyHint: fhlTextAPIKeyHint(fhlTextAPIKey),
+      fhlTextAPITestStatus: fhlTextAPIKey ? "saved" : "unconfigured",
+      fhlTextAPITestMessage: "",
       history: items,
-      historyHasMore: !!initialHistoryPage.nextCursor && items.length < MAX_HISTORY_ITEMS,
+      historyHasMore: !!initialHistoryPage.nextCursor,
       historyLoading: false,
-      historyCursorBeforeDayStart: initialHistoryPage.nextCursor?.beforeDayStart ?? null,
+      historyCursor: initialHistoryPage.nextCursor,
       batchResults: restoredBatchResults,
       resultGridOpen: !!restoredActiveWorkspace.resultGridOpen,
       historyGalleryOpen: restoredActiveWorkspace.historyGalleryOpen === true,
@@ -4779,6 +6076,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       jobGroupsByWorkspace,
       batchTasksById: restoredBatchTasksById,
       apiMode,
+      fhlTransportMode,
       requestPolicy,
       imagesNewAPICompat,
       baseURL,
@@ -5131,7 +6429,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   closeResultDetail: () => mediaActions.closeResultDetail(),
   openPanoramaViewer: async (item) => mediaActions.openPanoramaViewer(item),
   closePanoramaViewer: () => mediaActions.closePanoramaViewer(),
-  openPanoramaPastebackAligner: (item) => set({ panoramaAlignTarget: item }),
+  openPanoramaPastebackAligner: (item) => set({
+    panoramaAlignTarget: recoverPanoramaItemMetadata(item, get().history),
+  }),
   closePanoramaPastebackAligner: () => set({ panoramaAlignTarget: null }),
   materializeCurrentImage: async (item) => mediaActions.materializeCurrentImage(item),
   loadMoreHistory: async () => {
@@ -5141,19 +6441,31 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     deferredHistoryLoadPromise = (async () => {
       try {
         const currentHistory = get().history;
-        const cursorBeforeDayStart = get().historyCursorBeforeDayStart;
+        const state = get();
+        const direction = state.historyGalleryOpen && state.historyGallerySort === "oldest"
+          ? "oldest"
+          : "newest";
+        const cursor = state.historyCursor?.direction === direction ? state.historyCursor : null;
         const nextPage = await loadHistoryPage({
-          cursor: typeof cursorBeforeDayStart === "number" ? { beforeDayStart: cursorBeforeDayStart } : null,
+          cursor,
           limit: INITIAL_HISTORY_LOAD,
+          direction,
         });
         const existing = new Set(currentHistory.map((item) => item.id));
         const incoming = nextPage.items.filter((item) => !existing.has(item.id));
-        const merged = trimHistory([...currentHistory, ...incoming].sort((a, b) => b.createdAt - a.createdAt));
+        const recoveredPanoramaHistory = recoverPanoramaHistoryMetadata(
+          trimHistory([...currentHistory, ...incoming].sort((a, b) => b.createdAt - a.createdAt)),
+          state.batchTasksById,
+        );
+        const merged = recoveredPanoramaHistory.items;
         set({
           history: merged,
-          historyHasMore: !!nextPage.nextCursor && merged.length < MAX_HISTORY_ITEMS,
-          historyCursorBeforeDayStart: nextPage.nextCursor?.beforeDayStart ?? null,
+          historyHasMore: !!nextPage.nextCursor,
+          historyCursor: nextPage.nextCursor,
         });
+        if (recoveredPanoramaHistory.repaired.length > 0) {
+          void persistHistoryItems(recoveredPanoramaHistory.repaired);
+        }
         void backfillHistoryPreviewRefs(incoming);
       } catch (error) {
         if (typeof console !== "undefined") console.warn("load more history failed", error);
@@ -5193,6 +6505,132 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const nextURL = (url ?? get().proxyURL).trim();
     set({ proxyMode: normalizedMode, proxyURL: nextURL });
     persistProxyConfig(normalizedMode, nextURL);
+  },
+
+  testProfileConnection: async (profileId) => {
+    const s = get();
+    const cleanProfileId = String(profileId || "").trim();
+    const profile = s.profiles.find((item) => item.id === cleanProfileId);
+    if (!profile) {
+      s.pushToast("要测试的 API 配置已不存在", "warn", 4200);
+      return false;
+    }
+    if (s.isTestingKey) return false;
+
+    const effectiveAPIMode = effectiveAPIModeForSubmit(s, profile, profile.apiMode);
+    const profileAPIKey = await apiKeyForProfileOrState(s, profile.id);
+    if (providerRequiresDirectAPIKey(effectiveAPIMode) && !profileAPIKey.trim()) {
+      s.pushToast(`${profile.name} 尚未保存 API Key`, "warn", 4200);
+      return false;
+    }
+    if (!profile.baseURL.trim()) {
+      s.pushToast(`${profile.name} 缺少 Base URL`, "warn", 4200);
+      return false;
+    }
+
+    let cleanedAPIKey = "";
+    if (providerRequiresDirectAPIKey(effectiveAPIMode)) {
+      try {
+        cleanedAPIKey = validateAPIKeyForHeader(profileAPIKey);
+      } catch (error: any) {
+        s.pushToast(error?.message ?? `${profile.name} 的 API Key 无效`, "error", 6000);
+        return false;
+      }
+    }
+    const cleanedBaseURL = cleanBaseURL(profile.baseURL);
+    if (!cleanedBaseURL) {
+      s.pushToast(`${profile.name} 的 Base URL 无效`, "warn", 4200);
+      return false;
+    }
+
+    set({ isTestingKey: true });
+    s.pushToast(`正在测试 ${profile.name}...`, "info", 3200);
+    try {
+      await probeCurrentUpstream(cleanedBaseURL, cleanedAPIKey, s.proxyMode, s.proxyURL, effectiveAPIMode);
+      s.pushToast(`${profile.name} 连接测试成功`, "success");
+      return true;
+    } catch (error: any) {
+      s.pushToast(`${profile.name} 测试连接失败：${error?.message ?? error}`, "error", 6000);
+      return false;
+    } finally {
+      set({ isTestingKey: false });
+    }
+  },
+
+  refreshFHLTextAPIConfig: async () => {
+    const apiKey = await loadFHLTextAPIKey().catch(() => "");
+    const configured = !!apiKey;
+    const keyHint = configured ? fhlTextAPIKeyHint(apiKey) : "";
+    set((state) => {
+      const preserveResult = configured
+        && state.fhlTextAPIConfigured
+        && state.fhlTextAPIKeyHint === keyHint
+        && state.fhlTextAPITestStatus !== "unconfigured";
+      return {
+        fhlTextAPIConfigured: configured,
+        fhlTextAPIKeyHint: keyHint,
+        fhlTextAPITestStatus: configured
+          ? preserveResult ? state.fhlTextAPITestStatus : "saved"
+          : "unconfigured",
+        fhlTextAPITestMessage: preserveResult ? state.fhlTextAPITestMessage : "",
+      };
+    });
+  },
+
+  saveAndTestFHLTextAPI: async (apiKeyInput = "") => {
+    const input = apiKeyInput.trim();
+    let apiKey = "";
+    if (input) {
+      apiKey = validateFHLTextAPIKey(input);
+      await saveFHLTextAPIKey(apiKey);
+    } else {
+      apiKey = await loadFHLTextAPIKey();
+      if (!apiKey) throw new Error("请先输入 FHL 文本 API Key。");
+    }
+
+    const keyHint = fhlTextAPIKeyHint(apiKey);
+    set({
+      fhlTextAPIConfigured: true,
+      fhlTextAPIKeyHint: keyHint,
+      fhlTextAPITestStatus: "saved",
+      fhlTextAPITestMessage: "FHL 文本 API 已保存，等待响应测试。",
+    });
+    set({
+      fhlTextAPITestStatus: "testing",
+      fhlTextAPITestMessage: `正在测试 FHL Responses 文本响应（${FHL_TEXT_MODEL_ID}）...`,
+    });
+
+    try {
+      await testFHLTextAPIKey(apiKey, {
+        proxyMode: get().proxyMode,
+        proxyURL: get().proxyURL,
+      });
+      set({
+        fhlTextAPITestStatus: "success",
+        fhlTextAPITestMessage: `配置成功：FHL Responses 已返回 ${FHL_TEXT_MODEL_ID} 文本响应。`,
+      });
+      get().pushToast("FHL 文本 API 配置成功。", "success", 3600);
+      return true;
+    } catch (error) {
+      const detail = formatFHLTextAPIError(error);
+      set({
+        fhlTextAPITestStatus: "error",
+        fhlTextAPITestMessage: `已保存，文本测试失败：${detail}`,
+      });
+      get().pushToast(`FHL 文本 API 已保存，但测试失败：${detail}`, "warn", 6000);
+      return false;
+    }
+  },
+
+  deleteFHLTextAPIConfig: async () => {
+    await deleteFHLTextAPIKey();
+    set({
+      fhlTextAPIConfigured: false,
+      fhlTextAPIKeyHint: "",
+      fhlTextAPITestStatus: "unconfigured",
+      fhlTextAPITestMessage: "",
+    });
+    get().pushToast("FHL 文本 API 已删除。", "success", 3200);
   },
 
   testAPIKey: async () => {
@@ -5283,7 +6721,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       set({ prompt: trimmed });
       s.pushToast("Prompt optimization imported into the editor", "success");
     } catch (e: any) {
-      const msg = `Prompt 优化失败：${e?.message ?? e}`;
+      const msg = promptOptimizeFailureMessage(e, optimizeProfile);
       set({ errorMessage: msg, errorRawPath: null });
       s.pushToast(msg, "error", 6000);
     } finally {
@@ -5372,7 +6810,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       set({ prompt: trimmed });
       s.pushToast("Reverse prompt imported into the editor", "success");
     } catch (e: any) {
-      const msg = `反推提示词失败：${e?.message ?? e}`;
+      const detail = isOfficialFHLProfile({ apiMode: "responses", baseURL: reverseProfile.baseURL })
+        ? formatFHLTextAPIError(e)
+        : String(e?.message ?? e);
+      const msg = `反推提示词失败：${detail}`;
       set({ errorMessage: msg, errorRawPath: typeof e?.rawPath === "string" && e.rawPath ? e.rawPath : null });
       s.pushToast(msg, "error", 6000);
     } finally {
@@ -5510,6 +6951,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           proxyURL: s.proxyURL,
           requestPolicy: retryContext.requestPolicy,
           apiMode: retryContext.apiMode,
+          apiProfileId: retryContext.apiProfileSnapshot.apiProfileId || "",
           imagesNewAPICompat: retryContext.imagesNewAPICompat,
           noPromptRevision: true,
           concurrencyLimit: retryContext.concurrencyLimit,
@@ -5598,7 +7040,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       return;
     }
     const automaticRetry = options?.automatic === true;
-    const useTaskProfile = options?.useTaskProfile === true;
+    const useTaskProfile = options?.useTaskProfile === true || task.continuousPoolTask === true;
     if (!automaticRetry) clearAutoRetryTimer(task.id);
     if (task.status === "queued" || task.status === "running") {
       get().pushToast("This queued task is no longer eligible to start", "warn", 3000);
@@ -5722,9 +7164,13 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         "info",
         2600,
       );
-      if (activeRetry.status === "queued") void pumpContinuousQueue(workspaceId, activeRetry.apiMode);
+      if (activeRetry.status === "queued") {
+        if (activeRetry.continuousPoolTask) void requestContinuousPoolPump();
+        else void pumpContinuousQueue(workspaceId, activeRetry.apiMode);
+      }
       return;
     }
+    const continuousPoolTask = task.continuousPoolTask === true;
     const retryQueueLimit = batchSharedTask
       ? retryContext.concurrencyLimit
       : continuousQueueLimitForState(s, retryContext.apiMode, retryContext.apiProfileSnapshot.apiProfileId);
@@ -5753,6 +7199,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       ...task,
       apiMode: retryContext.apiMode,
       ...retryContext.apiProfileSnapshot,
+      apiBaseURL: retryContext.baseURL,
       size: retrySize,
       autoAspectResolution: retryAutoAspectResolution,
       requestPolicy: retryContext.requestPolicy,
@@ -5761,7 +7208,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       imageModelID: retryContext.imageModelID,
       status: "queued",
       updatedAt: Date.now(),
-      queuedReason: batchSharedTask ? "batch_shared_concurrency" : retryQueueLimit > 0 ? "local_concurrency" : undefined,
+      queuedReason: continuousPoolTask
+        ? "continuous_pool"
+        : batchSharedTask ? "batch_shared_concurrency" : retryQueueLimit > 0 ? "local_concurrency" : undefined,
       queuePriority: undefined,
       groupId: undefined,
       jobId: undefined,
@@ -5791,6 +7240,11 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       workspaces: patchWorkspaceRuntime(state.workspaces, workspaceId, optimisticPatch),
       ...(state.activeWorkspaceId === workspaceId ? { ...activeRuntimePatch(optimisticPatch), resultGridOpen: true, historyGalleryOpen: false } : {}),
     } as Partial<StudioState>));
+    if (queuedTask.continuousPoolTask) {
+      void requestContinuousPoolPump();
+      get().pushToast("Retry queued on its original FHL API slot", "info", 2200);
+      return;
+    }
     if (batchSharedTask) {
       void pumpContinuousQueue(workspaceId, queuedTask.apiMode);
       get().pushToast("Queued task already uses batch-shared concurrency; waiting for the queue pump", "info", 2200);
@@ -5825,6 +7279,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           proxyURL: s.proxyURL,
           requestPolicy: queuedTask.requestPolicy ?? retryContext.requestPolicy,
           apiMode: queuedTask.apiMode,
+          apiProfileId: queuedTask.apiProfileId || "",
           imagesNewAPICompat: queuedTask.apiMode === "images" && queuedTask.imagesNewAPICompat === true,
           noPromptRevision: true,
           concurrencyLimit: retryContext.concurrencyLimit,
@@ -5993,7 +7448,20 @@ async function launchOneJob(
   let offPreview = () => {};
   let offResult = () => {};
   let offError = () => {};
-  const cleanup = () => { offProgress(); offLog(); offPreview(); offResult(); offError(); };
+  let offSettled = () => {};
+  let terminalStatus: "success" | "error" | "cancelled" = "error";
+  let terminalHandled = false;
+  let settled = false;
+  const cleanupTerminalEventHandlers = () => { offProgress(); offLog(); offPreview(); offResult(); offError(); };
+  const cleanup = () => { cleanupTerminalEventHandlers(); offSettled(); };
+  const isCancelledTaskForJob = () => {
+    const task = Object.values(store.getState().batchTasksById).find((entry) => entry.jobId === jobId);
+    return task?.status === "cancelled";
+  };
+  const notifySettled = (status: "success" | "error" | "cancelled") => {
+    if (isFHLImagesPoolProfileId(store.getState(), snapshot.apiProfileId)) void requestContinuousPoolPump();
+    hooks?.onSettled?.(status);
+  };
   try {
     store.setState((state) => {
       const runtime = workspaceRuntimeFromState(state, snapshot.workspaceId);
@@ -6035,7 +7503,7 @@ async function launchOneJob(
       } as Partial<StudioState>;
     });
 
-    const removeFromRunning = (failed = false) => {
+    const removeFromRunning = (failed = false, releaseProfileCapacity = false) => {
       let completed = 0;
       let total = 0;
       store.setState((state) => {
@@ -6055,7 +7523,7 @@ async function launchOneJob(
           lastLogLine: remaining.length === 0 ? "" : runtime.lastLogLine,
         };
         const nextMeta = { ...state.runningJobMeta };
-        delete nextMeta[jobId];
+        if (releaseProfileCapacity) delete nextMeta[jobId];
         return {
           runningJobMeta: nextMeta,
           workspaces: patchWorkspaceRuntime(state.workspaces, snapshot.workspaceId, patch),
@@ -6064,22 +7532,37 @@ async function launchOneJob(
       });
       return { completed, total };
     };
+    const releaseReservedJob = () => {
+      store.setState((state) => {
+        if (!state.runningJobMeta[jobId]) return {};
+        const runningJobMeta = { ...state.runningJobMeta };
+        delete runningJobMeta[jobId];
+        return { runningJobMeta } as Partial<StudioState>;
+      });
+    };
 
-    offProgress = EventsOn(`progress:${jobId}`, (p: ProgressInfo) => {
+    const desktopEventGate = createDesktopJobEventGate();
+    offProgress = EventsOn(`progress:${jobId}`, (p: ProgressInfo, meta?: unknown) => {
+      if (!desktopEventGate.accept(meta)) return;
+      if (isCancelledTaskForJob()) return;
       const patch: WorkspacePatch = { progress: p };
       store.setState((state) => ({
         workspaces: patchWorkspaceRuntime(state.workspaces, snapshot.workspaceId, patch),
         ...(state.activeWorkspaceId === snapshot.workspaceId ? activeRuntimePatch(patch) : {}),
       } as Partial<StudioState>));
     });
-    offLog = EventsOn(`log:${jobId}`, (line: string) => {
+    offLog = EventsOn(`log:${jobId}`, (line: string, meta?: unknown) => {
+      if (!desktopEventGate.accept(meta)) return;
+      if (isCancelledTaskForJob()) return;
       const patch: WorkspacePatch = { lastLogLine: line };
       store.setState((state) => ({
         workspaces: patchWorkspaceRuntime(state.workspaces, snapshot.workspaceId, patch),
         ...(state.activeWorkspaceId === snapshot.workspaceId ? activeRuntimePatch(patch) : {}),
       } as Partial<StudioState>));
     });
-    offPreview = EventsOn(`preview:${jobId}`, (preview: StreamPreviewPayload) => {
+    offPreview = EventsOn(`preview:${jobId}`, (preview: StreamPreviewPayload, meta?: unknown) => {
+      if (!desktopEventGate.accept(meta)) return;
+      if (isCancelledTaskForJob()) return;
       store.setState((state) => (
         streamPreviewStatePatch(state, jobId, preview, {
           workspaceId: snapshot.workspaceId,
@@ -6095,8 +7578,17 @@ async function launchOneJob(
     });
 
     const startedAt = Date.now();
-    offResult = EventsOn(`result:${jobId}`, (r: any) => {
-      cleanup();
+    offResult = EventsOn(`result:${jobId}`, (r: any, meta?: unknown) => {
+      if (!desktopEventGate.accept(meta)) return;
+      if (terminalHandled || isCancelledTaskForJob()) {
+        terminalHandled = true;
+        terminalStatus = "cancelled";
+        cleanupTerminalEventHandlers();
+        return;
+      }
+      terminalHandled = true;
+      terminalStatus = "success";
+      cleanupTerminalEventHandlers();
       void (async () => {
         try {
           const elapsedSec = (Date.now() - startedAt) / 1000;
@@ -6226,7 +7718,6 @@ async function launchOneJob(
             && (task.jobId === jobId || task.historyItemId === historyItem.id || task.slotIndex === snapshot.batchIndex)
           ));
           if (completedTask) clearAutoRetryTimer(completedTask.id);
-          hooks?.onSettled?.("success");
           syncBatchOutputAfterSuccess(snapshot.batchProcessLink, historyItem.savedPath);
           if (autoPastedPanorama) {
             store.getState().pushToast("已自动贴回全景图", "success", 3200);
@@ -6247,7 +7738,7 @@ async function launchOneJob(
           );
           // Delay the star prompt until transient result overlays are closed.
           try {
-            if (!isMac
+            if (usesWindowsDesktopUI
                 && localStorage.getItem(STAR_PROMPTED_KEY) !== "1"
                 && !store.getState().starPromptOpen) {
               setTimeout(() => {
@@ -6272,12 +7763,21 @@ async function launchOneJob(
             ...(state.activeWorkspaceId === snapshot.workspaceId ? activeRuntimePatch(patch) : {}),
           } as Partial<StudioState>));
           removeFromRunning();
-          hooks?.onSettled?.("error");
+          terminalStatus = "error";
         }
       })();
     });
-    offError = EventsOn(`error:${jobId}`, (e: { message: string; rawPath?: string; apimartTaskId?: string }) => {
-      cleanup();
+    offError = EventsOn(`error:${jobId}`, (e: { message: string; rawPath?: string; apimartTaskId?: string }, meta?: unknown) => {
+      if (!desktopEventGate.accept(meta)) return;
+      if (terminalHandled || isCancelledTaskForJob()) {
+        terminalHandled = true;
+        terminalStatus = "cancelled";
+        cleanupTerminalEventHandlers();
+        return;
+      }
+      terminalHandled = true;
+      terminalStatus = "error";
+      cleanupTerminalEventHandlers();
       store.setState((state) => {
         const runtime = workspaceRuntimeFromState(state, snapshot.workspaceId);
         const prunedPreview = removeStreamPreview(runtime.streamPreviews, jobId);
@@ -6330,8 +7830,27 @@ async function launchOneJob(
         && (task.jobId === jobId || task.slotIndex === snapshot.batchIndex)
       ));
       if (failedTask) scheduleAutoRetryForTask(failedTask, e?.message ?? failedTask.errorMessage);
-      hooks?.onSettled?.("error");
     });
+    offSettled = EventsOn(`settled:${jobId}`, (_payload?: unknown, meta?: unknown) => {
+      desktopEventGate.observe(meta);
+      if (settled) return;
+      settled = true;
+      cleanup();
+      const cancelled = isCancelledTaskForJob();
+      store.setState((state) => {
+        if (!state.runningJobMeta[jobId]) return {};
+        const runningJobMeta = { ...state.runningJobMeta };
+        delete runningJobMeta[jobId];
+        return { runningJobMeta } as Partial<StudioState>;
+      });
+      notifySettled(cancelled ? "cancelled" : terminalStatus);
+    });
+    if (isCancelledTaskForJob()) {
+      cleanup();
+      releaseReservedJob();
+      notifySettled("cancelled");
+      return;
+    }
     const started = mode === "edit"
       ? await wailsEdit({ ...payload, requestedJobId: jobId } as backend.GenerateOptions)
       : await wailsGenerate({ ...payload, requestedJobId: jobId } as backend.GenerateOptions);
@@ -6388,7 +7907,7 @@ async function launchOneJob(
       && (task.jobId === jobId || task.slotIndex === snapshot.batchIndex)
     ));
     if (failedTask) scheduleAutoRetryForTask(failedTask, message);
-    hooks?.onSettled?.("error");
+    notifySettled("error");
   }
 }
 
@@ -6441,5 +7960,17 @@ useStudioStore.subscribe((state, prevState) => {
     || state.errorMessage !== prevState.errorMessage
     || state.errorRawPath !== prevState.errorRawPath;
   if (!workspaceSessionChanged) return;
-  persistWorkspaceSessionFromState(state);
+  const terminalChanged = state.jobsCompleted !== prevState.jobsCompleted
+    || state.jobsFailed !== prevState.jobsFailed
+    || (prevState.isRunning && !state.isRunning);
+  scheduleWorkspaceSessionPersistence(state, terminalChanged);
 });
+
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", () => flushWorkspaceSessionPersistence(useStudioStore.getState()));
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      flushWorkspaceSessionPersistence(useStudioStore.getState());
+    }
+  });
+}

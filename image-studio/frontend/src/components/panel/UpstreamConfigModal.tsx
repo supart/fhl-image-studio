@@ -1,18 +1,23 @@
 import { useState, useEffect, useMemo } from "react";
-import { Eye, EyeOff, HelpCircle, Info, Plug, Plus, Sparkles } from "lucide-react";
+import { Info, Plus, Sparkles } from "lucide-react";
 import { Modal } from "../common/Modal";
 import { useStudioStore } from "../../state/studioStore";
 import { GetStoredAPIKey } from "../../platform/runtime/host";
 import { normalizeAPIKeyInput, validateAPIKeyForHeader } from "../../lib/apiKey";
-import { ensureFHLProfiles, focusFHLAPIKeyInput } from "../../lib/fhlAPI";
 import { ensureAPIMartProfile, focusAPIMartAPIKeyInput } from "../../lib/apimartAPI";
-import { apiModeUsesBridgeStoredKey, keyringUserFor } from "../../lib/profiles";
+import {
+  apiModeUsesBridgeStoredKey,
+  hasUpstreamProfileCapacity,
+  keyringUserFor,
+  MAX_UPSTREAM_PROFILES,
+  upstreamProfileLimitMessage,
+} from "../../lib/profiles";
 import type { APIMode, RequestPolicy, UpstreamProfile } from "../../types/domain";
 import { FAQModal } from "./FAQModal";
-import { FHLAPIChoiceModal } from "./FHLAPIChoiceModal";
 import { APIMartAPIChoiceModal } from "./APIMartAPIChoiceModal";
 import { RunningHubAPIChoiceModal } from "./RunningHubAPIChoiceModal";
-import { FHLQuickConfigModal } from "./FHLQuickConfigModal";
+import { FHLImagesPoolConfig } from "./FHLImagesPoolConfig";
+import { FHLDesktopAPIConfig } from "./FHLDesktopAPIConfig";
 import { RunningHubQuickConfigModal } from "./RunningHubQuickConfigModal";
 import { UpstreamProfileEditor } from "./UpstreamProfileEditor";
 import { UpstreamProfileList } from "./UpstreamProfileList";
@@ -27,7 +32,7 @@ export function UpstreamConfigModal({
   open: boolean;
   onClose: () => void;
 }) {
-  const { isAndroidPhone, usesFluentUI, usesAppleUI } = usePlatform();
+  const { isAndroid, isAndroidPhone, usesFluentUI, usesAppleUI } = usePlatform();
   const {
     profiles, activeProfileId,
     createProfile, updateProfile, deleteProfile, duplicateProfile, setActiveProfile,
@@ -44,15 +49,14 @@ export function UpstreamConfigModal({
   const [savedKeyLoaded, setSavedKeyLoaded] = useState(false);
   const [savedKeyAvailable, setSavedKeyAvailable] = useState(false);
   const [faqOpen, setFaqOpen] = useState(false);
-  const [fhlChoiceOpen, setFHLChoiceOpen] = useState(false);
-  const [fhlQuickConfigOpen, setFHLQuickConfigOpen] = useState(false);
+  const [configView, setConfigView] = useState<"pool" | "advanced">("pool");
   const [apimartChoiceOpen, setAPIMartChoiceOpen] = useState(false);
   const [runningHubChoiceOpen, setRunningHubChoiceOpen] = useState(false);
   const [runningHubQuickConfigOpen, setRunningHubQuickConfigOpen] = useState(false);
 
   // 打开 modal / 切 selected → 重新加载草稿与 keyring 里的 apiKey
   useEffect(() => {
-    if (!open) return;
+    if (!open || configView !== "advanced") return;
     const sid = selectedId && profiles.some((p) => p.id === selectedId)
       ? selectedId
       : (activeProfileId || profiles[0]?.id || "");
@@ -84,7 +88,15 @@ export function UpstreamConfigModal({
       setSavedKeyLoaded(true);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, selectedId, profiles.length]);
+  }, [open, selectedId, profiles.length, configView]);
+
+  useEffect(() => {
+    if (!open) {
+      setConfigView("pool");
+      return;
+    }
+    setConfigView("pool");
+  }, [open]);
 
   // 列表切换 selected
   function selectProfile(id: string) {
@@ -116,17 +128,21 @@ export function UpstreamConfigModal({
     setDraft({ ...draft, ...patch });
   }
 
-  async function handleNew(apiMode: APIMode = "responses") {
-    const id = await createProfile({
-      apiMode,
-      requestPolicy: "openai",
-      setActive: profiles.length === 0, // 第一个自动 active,后续手动切
-    });
-    setSelectedId(id);
+  async function handleNew(apiMode: APIMode = "images") {
+    try {
+      const id = await createProfile({
+        apiMode,
+        requestPolicy: "openai",
+        setActive: profiles.length === 0, // 第一个自动 active,后续手动切
+      });
+      setSelectedId(id);
+    } catch (error: any) {
+      window.alert(error?.message ?? upstreamProfileLimitMessage());
+    }
   }
 
   function handleConfigureFHL() {
-    setFHLChoiceOpen(true);
+    setConfigView("pool");
   }
 
   function refreshSavedKeyState(id: string) {
@@ -150,28 +166,19 @@ export function UpstreamConfigModal({
       });
   }
 
-  async function handleUseExistingFHLAPI() {
-    setFHLChoiceOpen(false);
-    setFHLQuickConfigOpen(true);
-    return;
-    const store = useStudioStore.getState();
-    const pair = await ensureFHLProfiles(store);
-    const nextProfile = useStudioStore.getState().profiles.find((profile) => profile.id === pair.responsesId) ?? null;
-    setSelectedId(pair.responsesId);
-    setDraft(nextProfile);
-    refreshSavedKeyState(pair.responsesId);
-    focusFHLAPIKeyInput();
-  }
-
   async function handleConfigureAPIMart() {
     setAPIMartChoiceOpen(false);
-    const store = useStudioStore.getState();
-    const id = await ensureAPIMartProfile(store);
-    const nextProfile = useStudioStore.getState().profiles.find((profile) => profile.id === id) ?? null;
-    setSelectedId(id);
-    setDraft(nextProfile);
-    refreshSavedKeyState(id);
-    focusAPIMartAPIKeyInput();
+    try {
+      const store = useStudioStore.getState();
+      const id = await ensureAPIMartProfile(store);
+      const nextProfile = useStudioStore.getState().profiles.find((profile) => profile.id === id) ?? null;
+      setSelectedId(id);
+      setDraft(nextProfile);
+      refreshSavedKeyState(id);
+      focusAPIMartAPIKeyInput();
+    } catch (error: any) {
+      window.alert(error?.message ?? upstreamProfileLimitMessage());
+    }
   }
 
   function handleConfigureRunningHub() {
@@ -187,13 +194,18 @@ export function UpstreamConfigModal({
     if (!selectedId) return;
     const newId = await duplicateProfile(selectedId);
     if (newId) setSelectedId(newId);
+    else if (!hasUpstreamProfileCapacity(useStudioStore.getState().profiles)) window.alert(upstreamProfileLimitMessage());
   }
 
   async function handleDelete() {
     if (!draft) return;
     if (!window.confirm(`确认删除「${draft.name}」配置?对应的 API Key 也会从系统凭据存储清除。`)) return;
     const deletingId = draft.id;
-    await deleteProfile(deletingId);
+    const deleted = await deleteProfile(deletingId);
+    if (!deleted) {
+      window.alert("该配置仍有排队或运行中的任务，等待任务结束后再删除。");
+      return;
+    }
     // 删完 selected:切到第一个剩余(action 内部已经更新 active);UI 跟着
     const remaining = useStudioStore.getState().profiles;
     setSelectedId(remaining[0]?.id ?? "");
@@ -210,6 +222,7 @@ export function UpstreamConfigModal({
       textModelID: usesBridgeStoredKey ? "" : draft.textModelID,
       imageModelID: draft.imageModelID,
       concurrencyLimit: draft.concurrencyLimit,
+      continuousPoolEnabled: draft.apiMode === "images" && draft.continuousPoolEnabled === true,
       imagesNewAPICompat: draft.apiMode === "images" && draft.imagesNewAPICompat === true,
     };
     if (!usesBridgeStoredKey && draftKey.trim()) {
@@ -246,6 +259,33 @@ export function UpstreamConfigModal({
     }
     onClose();
     setTimeout(() => { void testAPIKey(); }, 0);
+  }
+
+  if (configView === "pool") {
+    return (
+      <Modal
+        open={open}
+        onClose={onClose}
+        title="上游配置"
+        width={920}
+        cardClassName="upstream-config-modal"
+        bodyClassName="upstream-config-modal-body"
+      >
+        {isAndroid ? (
+          <FHLImagesPoolConfig
+            active={open}
+            onClose={onClose}
+            onOpenAdvanced={() => setConfigView("advanced")}
+          />
+        ) : (
+          <FHLDesktopAPIConfig
+            active={open}
+            onClose={onClose}
+            onOpenAdvanced={() => setConfigView("advanced")}
+          />
+        )}
+      </Modal>
+    );
   }
 
   if (profiles.length === 0) {
@@ -361,6 +401,8 @@ export function UpstreamConfigModal({
           activeProfileId={activeProfileId}
           draftId={draft?.id}
           isAndroidPhone={isAndroidPhone}
+          profileLimit={MAX_UPSTREAM_PROFILES}
+          canCreateProfile={hasUpstreamProfileCapacity(profiles)}
           onSelectProfile={selectProfile}
           onHandleNew={() => handleNew()}
           onHandleDuplicate={handleDuplicate}
@@ -373,9 +415,9 @@ export function UpstreamConfigModal({
           <div className={`mb-3 border border-amber-300/70 bg-amber-50 px-3 py-2 text-amber-900 shadow-sm dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-100 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
-                <div className="text-[13px] font-semibold tracking-[0]">FHL 推荐配置</div>
-                <div className="mt-0.5 text-[11px] leading-5 opacity-85">Images API standard generations / edits - gpt-image-2</div>
-                <div className="mt-0.5 text-[11px] leading-5 font-semibold text-red-600 dark:text-red-300">不包含 API Key，用户需要粘贴自己的 FHL API Key。</div>
+                <div className="text-[13px] font-semibold tracking-[0]">FHL Images 连续池</div>
+                <div className="mt-0.5 text-[11px] leading-5 opacity-85">最多 10 个独立 Images API · gpt-image-2</div>
+                <div className="mt-0.5 text-[11px] leading-5 font-semibold text-red-600 dark:text-red-300">每个非空槽独立保存，不会自动创建 Responses 配置。</div>
               </div>
               <button
                 type="button"
@@ -383,7 +425,7 @@ export function UpstreamConfigModal({
                 className={`inline-flex h-9 shrink-0 items-center gap-1.5 border border-amber-500/60 bg-amber-400 px-3 text-[13px] font-bold tracking-[0] text-zinc-950 shadow-sm transition-colors hover:bg-amber-300 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
               >
                 <Sparkles className="h-4 w-4" />
-                一键配置 FHL
+                管理 Images 池
               </button>
             </div>
           </div>
@@ -450,22 +492,6 @@ export function UpstreamConfigModal({
         </section>
       </div>
     </Modal>
-    <FHLAPIChoiceModal
-      open={fhlChoiceOpen}
-      onClose={() => setFHLChoiceOpen(false)}
-      onUseExistingAPI={handleUseExistingFHLAPI}
-    />
-    <FHLQuickConfigModal
-      open={fhlQuickConfigOpen}
-      onClose={() => setFHLQuickConfigOpen(false)}
-      onOpenUpstream={(responsesId) => {
-        const nextProfile = useStudioStore.getState().profiles.find((profile) => profile.id === responsesId) ?? null;
-        setSelectedId(responsesId);
-        setDraft(nextProfile);
-        refreshSavedKeyState(responsesId);
-        setFHLQuickConfigOpen(false);
-      }}
-    />
     <APIMartAPIChoiceModal
       open={apimartChoiceOpen}
       onClose={() => setAPIMartChoiceOpen(false)}

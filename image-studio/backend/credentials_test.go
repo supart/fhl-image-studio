@@ -58,3 +58,26 @@ func TestStoredAPIKeyRejectsUnknownMode(t *testing.T) {
 		t.Fatal("expected unknown mode to be rejected")
 	}
 }
+
+func TestStoredAPIKeyAllowsVersionedProfileNamespace(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService()
+	mem := &memoryAPIKeyStore{values: map[string]string{}}
+	svc.apiKeys = mem
+
+	user := "profile:fhl-image-studio-v2.0.2.1-release:fhl-responses-default"
+	if err := svc.SetStoredAPIKey(user, "sk-versioned"); err != nil {
+		t.Fatalf("set versioned profile key: %v", err)
+	}
+	got, err := svc.GetStoredAPIKey(user)
+	if err != nil {
+		t.Fatalf("get versioned profile key: %v", err)
+	}
+	if got != "sk-versioned" {
+		t.Fatalf("got %q, want sk-versioned", got)
+	}
+	if _, ok := mem.values["api-key:profile:fhl-image-studio-v2.0.2.1-release:fhl-responses-default"]; !ok {
+		t.Fatalf("versioned profile key was not normalized into keyring namespace")
+	}
+}

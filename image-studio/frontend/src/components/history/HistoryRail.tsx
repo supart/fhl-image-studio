@@ -28,6 +28,7 @@ import { streamPreviewItemsFromPreviews } from "../../state/studioStore.streamPr
 import { sortedBatchTasksForWorkspace } from "../../state/batchTaskRecords";
 import { patchWorkspaceRuntime } from "../../state/workspaceRuntime";
 import { apiModeLabel, apiModeRequiresDirectAPIKey } from "../../lib/profiles";
+import { fhlTransportLabel, isOfficialFHLProfile } from "../../lib/providerPolicy";
 import { normalizeRuntimeText } from "../../lib/runtimeText.ts";
 
 export type ModeFilter = "all" | Mode;
@@ -39,7 +40,7 @@ export function HistoryRail() {
     compareB, setCompareB, pushToast, fullscreen,
     applyHistoryParams, regenerateFromHistory,
     openPanoramaPastebackAligner,
-    openResultDetail, saveHistoryItemAs, shareHistoryItem, apiKey, baseURL, apiMode,
+    openResultDetail, saveHistoryItemAs, shareHistoryItem, apiKey, baseURL, apiMode, fhlTransportMode,
     profiles, activeProfileId, setActiveProfile,
     openUpstreamConfig, openHistoryTimeline, openMaterialManager, testAPIKey, isTestingKey,
     historyRailCollapsed, setHistoryRailCollapsed,
@@ -56,7 +57,7 @@ export function HistoryRail() {
   const [dateF, setDateF] = useState<DateFilter>("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [activePromptGroup, setActivePromptGroup] = useState<HistoryPromptGroup | null>(null);
-  const { isAndroidPhone, isAndroidPad, isMac, isWindows, usesFluentUI, usesAndroidUI, usesAppleUI } = usePlatform();
+  const { isAndroidPhone, isAndroidPad, usesMacDesktopUI, usesWindowsDesktopUI, usesFluentUI, usesAndroidUI, usesAppleUI } = usePlatform();
   // 防快速连点产生竞态:每次点击递增 epoch,后台 materialize 全图 resolve
   // 时跟当前 epoch 比对,过时的就丢弃。之前的写法是先 await 再 setField,
   // 慢的请求会在用户已经点了另一张图之后把画布盖回去。
@@ -70,8 +71,8 @@ export function HistoryRail() {
     });
   }, [history, deferredQ, modeF, dateF]);
   const promptEntries = useMemo(() => buildHistoryPromptEntries(filtered), [filtered]);
-  const visibleDesktopEntries = isWindows ? promptEntries : promptEntries.slice(0, 6);
-  const desktopHistoryCollapsed = !isWindows && historyRailCollapsed;
+  const visibleDesktopEntries = usesWindowsDesktopUI ? promptEntries : promptEntries.slice(0, 6);
+  const desktopHistoryCollapsed = !usesWindowsDesktopUI && historyRailCollapsed;
   const androidPromptEntries = promptEntries.slice(0, 48);
   const androidFlatHistoryEntries = filtered.slice(0, 24);
   const androidHistoryEntriesCount = isAndroidPhone ? androidFlatHistoryEntries.length : androidPromptEntries.length;
@@ -98,6 +99,9 @@ export function HistoryRail() {
       ? normalizeRuntimeText(errorMessage)
       : "";
   const upstreamReady = !!baseURL.trim() && (!apiModeRequiresDirectAPIKey(apiMode) || !!apiKey.trim());
+  const activeFHLModeLabel = isOfficialFHLProfile({ apiMode, baseURL })
+    ? `${fhlTransportLabel(fhlTransportMode)} API`
+    : apiModeLabel(apiMode);
   const recentJobGroups = useMemo(
     () => jobGroupsByWorkspace[activeWorkspaceId] ?? [],
     [activeWorkspaceId, jobGroupsByWorkspace],
@@ -215,8 +219,8 @@ export function HistoryRail() {
     visibleBatchSlotCount,
     workspaceTaskBySlotIndex,
   ]);
-  const desktopFilterThreshold = isMac ? 8 : 4;
-  const showHistoryFilters = !isMac && (history.length > desktopFilterThreshold || q.trim().length > 0 || modeF !== "all" || dateF !== "all");
+  const desktopFilterThreshold = usesMacDesktopUI ? 8 : 4;
+  const showHistoryFilters = !usesMacDesktopUI && (history.length > desktopFilterThreshold || q.trim().length > 0 || modeF !== "all" || dateF !== "all");
   const historyFiltersActive = q.trim().length > 0 || modeF !== "all" || dateF !== "all";
   const showPhoneFilterToggle = isAndroidPhone && (history.length > 4 || historyFiltersActive);
   const showFilterControls = !isAndroidPhone ? showHistoryFilters : (filtersOpen || historyFiltersActive);
@@ -294,7 +298,7 @@ export function HistoryRail() {
 
   if (fullscreen) return null;
 
-  if (isWindows) {
+  if (usesWindowsDesktopUI) {
     return (
       <>
         <WindowsHistoryRail
@@ -302,6 +306,7 @@ export function HistoryRail() {
           apiKey={apiKey}
           apiMode={apiMode}
           baseURL={baseURL}
+          fhlTransportMode={fhlTransportMode}
           batchQueueCompleted={jobsCompleted}
           batchQueueMode={mode}
           batchQueueQuality={quality}
@@ -624,7 +629,9 @@ export function HistoryRail() {
             >
               {profiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
-                  {profile.name} · {apiModeLabel(profile.apiMode).replace(" API", "")}
+                  {profile.name} · {isOfficialFHLProfile(profile)
+                    ? fhlTransportLabel(fhlTransportMode)
+                    : apiModeLabel(profile.apiMode).replace(" API", "")}
                 </option>
               ))}
               <option value="__manage__">⚙ 管理配置...</option>
@@ -636,39 +643,39 @@ export function HistoryRail() {
           </p>
         )}
 
-          <div className={`mt-2 flex ${isAndroidPhone ? "gap-1" : "gap-1.5"} ${isMac ? "items-stretch" : ""}`}>
+          <div className={`mt-2 flex ${isAndroidPhone ? "gap-1" : "gap-1.5"} ${usesMacDesktopUI ? "items-stretch" : ""}`}>
           <button
             data-audit-id="open-upstream-config"
             onClick={() => openUpstreamConfig("app")}
-            className={`platform-action-btn flex-1 inline-flex min-h-[34px] items-center justify-center gap-1.5 border border-black/[0.08] px-3 text-[12px] font-medium text-zinc-700 transition-colors hover:border-[color:var(--accent)]/35 hover:text-[var(--accent)] dark:border-white/[0.08] dark:text-zinc-300 ${isAndroidPhone ? "py-1.5" : isMac ? "py-2.5" : "py-2"} ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
+            className={`platform-action-btn flex-1 inline-flex min-h-[34px] items-center justify-center gap-1.5 border border-black/[0.08] px-3 text-[12px] font-medium text-zinc-700 transition-colors hover:border-[color:var(--accent)]/35 hover:text-[var(--accent)] dark:border-white/[0.08] dark:text-zinc-300 ${isAndroidPhone ? "py-1.5" : usesMacDesktopUI ? "py-2.5" : "py-2"} ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
           >
             上游配置
           </button>
           <button
             onClick={testAPIKey}
             disabled={!upstreamReady || isTestingKey}
-            title="验证当前配置是否可连通"
-            className={`platform-action-btn inline-flex min-h-[34px] min-w-[84px] items-center justify-center gap-1.5 border border-black/[0.08] px-3 text-[12px] font-medium text-zinc-700 transition-colors hover:border-[color:var(--accent)]/35 hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[0.08] dark:text-zinc-300 ${isAndroidPhone ? "py-1.5" : isMac ? "py-2.5" : "py-2"} ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
+            title={upstreamReady ? "验证当前 API 是否可连通" : "请先选择并保存当前 Images API"}
+            className={`platform-action-btn inline-flex min-h-[34px] min-w-[84px] items-center justify-center gap-1.5 border border-black/[0.08] px-3 text-[12px] font-medium text-zinc-700 transition-colors hover:border-[color:var(--accent)]/35 hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[0.08] dark:text-zinc-300 ${isAndroidPhone ? "py-1.5" : usesMacDesktopUI ? "py-2.5" : "py-2"} ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
           >
-            {isTestingKey ? "检查中..." : isAndroidPhone ? "连通性" : "测试"}
+            {isTestingKey ? "检查中..." : isAndroidPhone ? "连通性" : "测试当前"}
           </button>
         </div>
 
         {!isAndroidPhone ? (
           <div className="mt-2 flex items-center justify-between gap-2">
             <p className="min-w-0 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-300">
-              {apiModeLabel(apiMode)}
+              {activeFHLModeLabel}
             </p>
           </div>
         ) : null}
       </div>
 
       <div className={`platform-card history-rail-summary-card border border-black/[0.05] bg-white/70 shadow-[var(--shadow-card)] dark:border-white/[0.06] dark:bg-white/[0.03] ${isAndroidPhone ? "p-2.5" : "p-3.5"} ${usesFluentUI ? "rounded-[12px]" : "rounded-[20px]"}`}>
-        <div className={`flex items-center justify-between ${isMac ? "gap-2.5" : "gap-2"}`}>
-          <h3 className={`${isMac ? "text-[12px]" : "text-[11px]"} font-semibold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-200`}>
+        <div className={`flex items-center justify-between ${usesMacDesktopUI ? "gap-2.5" : "gap-2"}`}>
+          <h3 className={`${usesMacDesktopUI ? "text-[12px]" : "text-[11px]"} font-semibold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-200`}>
             历史 <span className="font-mono-token text-zinc-500 dark:text-zinc-400">({filtered.length}{filtered.length !== history.length && `/${history.length}`})</span>
           </h3>
-          <div className={`history-rail-header-actions flex items-center ${isMac ? "gap-1.5 flex-wrap justify-end" : "gap-2"} shrink-0`}>
+          <div className={`history-rail-header-actions flex items-center ${usesMacDesktopUI ? "gap-1.5 flex-wrap justify-end" : "gap-2"} shrink-0`}>
             {showPhoneFilterToggle ? (
               <button
                 type="button"
@@ -682,20 +689,20 @@ export function HistoryRail() {
                 <Filter className="h-3 w-3" /> 筛选
               </button>
             ) : null}
-            {!isAndroidPhone && !isWindows && filtered.length > 6 ? (
+            {!isAndroidPhone && !usesWindowsDesktopUI && filtered.length > 6 ? (
               <button
                 type="button"
                 onClick={openHistoryTimeline}
-                className={`history-rail-header-btn platform-pill inline-flex min-h-[30px] items-center justify-center gap-1.5 ${isMac ? "min-w-[78px] px-2.5 py-1.5 text-[12px]" : "px-2.5 py-1 text-[11px]"} font-medium text-zinc-500 transition-colors hover:text-[var(--accent)] ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
+                className={`history-rail-header-btn platform-pill inline-flex min-h-[30px] items-center justify-center gap-1.5 ${usesMacDesktopUI ? "min-w-[78px] px-2.5 py-1.5 text-[12px]" : "px-2.5 py-1 text-[11px]"} font-medium text-zinc-500 transition-colors hover:text-[var(--accent)] ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
               >
                 <GalleryVerticalEnd className="h-3 w-3" /> 更多
               </button>
             ) : null}
-            {!isAndroidPhone && !isWindows ? (
+            {!isAndroidPhone && !usesWindowsDesktopUI ? (
               <button
                 type="button"
                 onClick={() => setHistoryRailCollapsed(!historyRailCollapsed)}
-                className={`history-rail-header-btn platform-pill inline-flex min-h-[30px] items-center justify-center gap-1.5 ${isMac ? "min-w-[78px] px-2.5 py-1.5 text-[12px]" : "px-2.5 py-1 text-[11px]"} font-medium text-zinc-500 transition-colors hover:text-[var(--accent)] ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
+                className={`history-rail-header-btn platform-pill inline-flex min-h-[30px] items-center justify-center gap-1.5 ${usesMacDesktopUI ? "min-w-[78px] px-2.5 py-1.5 text-[12px]" : "px-2.5 py-1 text-[11px]"} font-medium text-zinc-500 transition-colors hover:text-[var(--accent)] ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
               >
                 {historyRailCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                 {historyRailCollapsed ? "展开" : "折叠"}
@@ -735,9 +742,9 @@ export function HistoryRail() {
           </>
         )}
 
-        {!isAndroidPhone && !isMac && (
+        {!isAndroidPhone && !usesMacDesktopUI && (
           <p className="mt-2 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-300">
-            {isWindows
+            {usesWindowsDesktopUI
               ? "点击查看 · Shift+点击对比 · 双击设源图 · 右键更多"
               : isAndroidPad
               ? "点缩略图查看，Shift 可对比，双击可设为源图。"
@@ -761,7 +768,7 @@ export function HistoryRail() {
         </button>
       )}
 
-      {isMac && !desktopHistoryCollapsed && visibleDesktopEntries.length > 0 ? (
+      {usesMacDesktopUI && !desktopHistoryCollapsed && visibleDesktopEntries.length > 0 ? (
         <p className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
           单击查看 · 双击设源图 · Shift+点击对比 · 更多菜单查看完整操作
         </p>

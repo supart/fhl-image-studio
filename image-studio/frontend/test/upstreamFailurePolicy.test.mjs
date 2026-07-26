@@ -29,4 +29,5 @@ test("transient upstream classifier excludes configuration failures", async () =
   assert.equal(isTransientGenerationFailureText("HTTP 401 unauthorized invalid API key"), false);
   assert.equal(isTransientGenerationFailureText("余额不足，请充值"), false);
   assert.equal(isTransientGenerationFailureText("Image generation is not enabled for this group"), false);
+  assert.equal(isTransientGenerationFailureText("content_policy_error: request rejected by safety system"), false);
 });

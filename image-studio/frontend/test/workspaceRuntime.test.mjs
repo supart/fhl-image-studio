@@ -5,6 +5,7 @@ import {
   defaultBatchProcessConfig,
   normalizeBatchProcessConfig,
   patchWorkspaceRuntime,
+  workspaceRunningCount,
 } from "../src/state/workspaceRuntime.ts";
 
 function makeWorkspace(id, prompt) {
@@ -113,4 +114,17 @@ test("batch process defaults to auto aspect and preserves explicit manual size m
   assert.equal(normalizeBatchProcessConfig({ autoAspectResolution: "4k" }).autoAspectResolution, "4k");
   assert.equal(normalizeBatchProcessConfig({ autoAspectResolution: "" }).autoAspectResolution, "");
   assert.equal(normalizeBatchProcessConfig({ batchSourceSlotIndex: 3.8 }).batchSourceSlotIndex, 3);
+});
+
+test("profile-scoped running capacity spans Images and Responses tasks", () => {
+  const state = {
+    runningJobMeta: {
+      "images-job": { workspaceId: "ws-1", apiMode: "images", apiProfileId: "fhl-slot-one" },
+      "responses-job": { workspaceId: "ws-2", apiMode: "responses", apiProfileId: "fhl-slot-one" },
+      "other-responses-job": { workspaceId: "ws-2", apiMode: "responses", apiProfileId: "other-profile" },
+    },
+  };
+
+  assert.equal(workspaceRunningCount(state, "responses", "fhl-slot-one"), 2);
+  assert.equal(workspaceRunningCount(state, "responses"), 2);
 });

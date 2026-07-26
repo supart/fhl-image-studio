@@ -25,6 +25,7 @@ test("pending batch tasks expose a direct cancel button", () => {
 
   const canCancel = gridSource.match(/const canCancel = ([^;]+);/)?.[1] ?? "";
   assert.match(canCancel, /status === "local_queued"/);
+  assert.match(canCancel, /status === "submitting"/);
   assert.match(canCancel, /status === "queued"/);
   assert.match(canCancel, /status === "running"/);
   assert.doesNotMatch(canCancel, /cancelled|succeeded_no_image|missing/);
@@ -47,7 +48,9 @@ test("single tile retry runs independently from batch shared retry", () => {
   assert.match(storeSource, /const independentRetry = options\?\.independent === true/);
   assert.match(storeSource, /const batchSharedTask = !independentRetry && !!task\.batchOutputMode/);
   assert.match(storeSource, /const limit = continuousQueueLimitForState\(get\(\), queuedTask\.apiMode, queuedTask\.apiProfileId\)/);
-  assert.match(storeSource, /queuedReason: batchSharedTask \? "batch_shared_concurrency" : retryQueueLimit > 0 \? "local_concurrency" : undefined/);
+  assert.match(storeSource, /const continuousPoolTask = task\.continuousPoolTask === true/);
+  assert.match(storeSource, /queuedReason: continuousPoolTask[\s\S]+"continuous_pool"[\s\S]+batchSharedTask \? "batch_shared_concurrency" : retryQueueLimit > 0 \? "local_concurrency" : undefined/);
+  assert.match(storeSource, /if \(queuedTask\.continuousPoolTask\) \{[\s\S]+requestContinuousPoolPump/);
 });
 
 test("transient failures schedule one automatic task retry and temporary concurrency cap", () => {
@@ -73,7 +76,8 @@ test("single tile retry synchronizes duplicate running slot back onto the clicke
 });
 
 test("batch image-to-image now uses the shared queue instead of its own worker loop", () => {
-  assert.match(storeSource, /queuedReason: "batch_shared_concurrency"/);
+  assert.match(storeSource, /queuedReason: batchUsesFHLPool \? "continuous_pool" : "batch_shared_concurrency"/);
+  assert.match(storeSource, /if \(batchUsesFHLPool\) \{[\s\S]+requestContinuousPoolPump\(\)/);
   assert.match(storeSource, /pumpContinuousQueue\(workspaceId, effectiveAPIMode\)/);
   assert.match(storeSource, /已提交 \$\{submittedTasks\.length\} 个批量任务，最大并发 \$\{concurrencyLimit\}/);
   assert.doesNotMatch(storeSource, /runBatchTaskWithController|Started batch run:|normalizeBatchProcessConcurrency\(batchProcess\.concurrency\)/);
@@ -190,7 +194,7 @@ test("clear view copy describes clearing the current batch without deleting file
 
 test("one-click workspace reset keeps active queued and running batch tasks only", () => {
   const resetStart = storeSource.indexOf("resetCurrentWorkspaceDraft: () => {");
-  const resetEnd = storeSource.indexOf("setContinuousPressureLimit:", resetStart);
+  const resetEnd = storeSource.indexOf("setFHLPoolPerAPIConcurrencyLimit:", resetStart);
   assert.ok(resetStart >= 0 && resetEnd > resetStart);
   const resetBlock = storeSource.slice(resetStart, resetEnd);
   assert.match(resetBlock, /if \(state\.isOptimizingPrompt \|\| state\.isReversingPrompt\)/);
@@ -213,6 +217,22 @@ test("store keeps selected cancel compatibility while exposing cancelBatchTask",
   assert.match(storeSource, /const selectedId = typeof taskId === "string" \? taskId\.trim\(\) : ""/);
   assert.match(storeSource, /try \{ await wailsCancel\(jobId\); \} catch/);
   assert.match(storeSource, /await get\(\)\.cancelBatchTask\(selectedId\)/);
+});
+
+test("cancellation records the terminal state before asking the backend to stop", () => {
+  const globalCancelStart = storeSource.indexOf("cancel: async () => {");
+  const globalCancelEnd = storeSource.indexOf("selectBatchTask: (taskId)", globalCancelStart);
+  const globalCancelBlock = storeSource.slice(globalCancelStart, globalCancelEnd);
+  assert.ok(globalCancelStart >= 0 && globalCancelEnd > globalCancelStart);
+  assert.ok(globalCancelBlock.indexOf('status: "cancelled"') < globalCancelBlock.indexOf("await wailsCancel(id)"));
+  assert.match(globalCancelBlock, /const retainedFHLPoolJobIds = new Set\([\s\S]+shouldRetainFHLPoolCapacityOnCancel\(s, jobId\)/);
+
+  const taskCancelStart = storeSource.indexOf("cancelBatchTask: async (taskId) =>");
+  const taskCancelEnd = storeSource.indexOf("cancelQueuedBatchTasks: async () =>", taskCancelStart);
+  const taskCancelBlock = storeSource.slice(taskCancelStart, taskCancelEnd);
+  assert.ok(taskCancelStart >= 0 && taskCancelEnd > taskCancelStart);
+  assert.ok(taskCancelBlock.indexOf('status: "cancelled"') < taskCancelBlock.indexOf("await wailsCancel(jobId)"));
+  assert.match(taskCancelBlock, /if \(jobId && !shouldRetainFHLPoolCapacityOnCancel\(current, jobId\)\) delete nextMeta\[jobId\]/);
 });
 
 test("store exposes queue promotion for local queued tasks", () => {
@@ -244,7 +264,7 @@ test("current batch task grid normalizes visible labels while preserving task sl
   assert.match(gridSource, /aria-label=\{variant === "historyGallery" \? "完整相册时间排序" : "批次排列顺序"\}/);
   assert.match(gridSource, /sortBatchGridSlotsForDisplay/);
   assert.match(displayOrderSource, /batchGridSlotDisplayRank/);
-  assert.match(displayOrderSource, /status === "running"\) return 0/);
+  assert.match(displayOrderSource, /status === "running" \|\| status === "submitting"\) return 0/);
   assert.match(displayOrderSource, /status === "queued" \|\| status === "local_queued"/);
   assert.match(gridSource, /if \(variant === "historyGallery"\) return mapped;/);
 });
@@ -342,8 +362,8 @@ test("pending batch tasks expose clearer status chips and copy", () => {
   assert.match(gridSource, /label: "等待生成"/);
   assert.match(gridSource, /label: "正在生成"/);
   assert.match(gridSource, /label: "最终图缺失"/);
-  assert.match(gridSource, /等待共享并发空位/);
-  assert.match(gridSource, /共享并发队列里/);
+  assert.match(gridSource, /等待 API 并发空位/);
+  assert.match(gridSource, /API 并发队列里/);
   assert.match(gridSource, /badge: "处理中"/);
   assert.match(gridSource, /badge: "未提交"/);
   assert.match(gridSource, /badge: "最终图缺失"/);

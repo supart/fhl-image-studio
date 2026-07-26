@@ -1,46 +1,75 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v2.0.2.1"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to create or update
+        required: true
+        default: v2.0.3
 
 permissions:
   contents: write
 
+env:
+  NODE_VERSION: "24.13.1"
+  GO_VERSION: "1.26.3"
+  WAILS_VERSION: "v2.12.0"
+
 jobs:
-  windows-portable:
-    name: Build Windows portable package
-    runs-on: windows-latest
+  macos-and-source:
+    name: Build macOS arm64 and corresponding source
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25.5"
+          go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: |
-            go-cli/go.sum
+            go.work.sum
             image-studio/go.sum
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: image-studio/frontend/package-lock.json
-      - name: Install Wails CLI
-        shell: pwsh
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
-      - name: Build portable package
-        shell: pwsh
-        run: .\scripts\package-windows-portable-v2.0.2.ps1 -OutputRoot "$env:RUNNER_TEMP\release-assets"
-      - name: Check portable package safety
-        shell: pwsh
+      - name: Build macOS DMG
+        env:
+          FHL_REQUIRE_EXACT_TOOLCHAIN: "1"
+        run: bash scripts/package-local-macos-app.sh "$RUNNER_TEMP/release-assets"
+      - name: Verify macOS DMG and embedded CLI
         run: |
-          $root = Join-Path $env:RUNNER_TEMP "release-assets\FHL-Image-Studio-Desktop-V2.0.2.1-Windows-Portable"
-          $zip = Join-Path $env:RUNNER_TEMP "release-assets\FHL-Image-Studio-Desktop-V2.0.2.1-Windows-Portable.zip"
-          .\scripts\check-release-safety.ps1 -ReleaseRoot $root -ZipPath $zip
+          node scripts/verify-local-macos-release.mjs \
+            "image-studio/build/bin/FHL Studio.app" \
+            "$RUNNER_TEMP/release-assets/FHL-Image-Studio-Desktop-V2.0.3-macOS-AppleSilicon.dmg"
+      - name: Build and check complete source archive
+        run: bash scripts/package-release-source.sh "$RUNNER_TEMP/release-assets"
       - uses: actions/upload-artifact@v4
         with:
-          name: FHL-Image-Studio-Desktop-V2.0.2.1-Windows-Portable
-          path: ${{ runner.temp }}\release-assets\FHL-Image-Studio-Desktop-V2.0.2.1-Windows-Portable.zip
+          name: macos-and-source
+          path: |
+            ${{ runner.temp }}/release-assets/FHL-Image-Studio-Desktop-V2.0.3-macOS-AppleSilicon.dmg
+            ${{ runner.temp }}/release-assets/FHL-Image-Studio-Desktop-V2.0.3-Source.zip
+
+  publish:
+    name: Publish macOS release assets
+    runs-on: ubuntu-latest
+    needs: [macos-and-source]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Create SHA256 checksums
+        working-directory: release-assets
+        run: sha256sum *.zip *.dmg > SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
-          files: ${{ runner.temp }}\release-assets\FHL-Image-Studio-Desktop-V2.0.2.1-Windows-Portable.zip
+          tag_name: ${{ inputs.tag }}
+          name: FHL Image Studio macOS V2.0.3
+          body_path: RELEASE_NOTES_DESKTOP_V2.0.3.md
+          files: |
+            release-assets/FHL-Image-Studio-Desktop-V2.0.3-macOS-AppleSilicon.dmg
+            release-assets/FHL-Image-Studio-Desktop-V2.0.3-Source.zip
+            release-assets/SHA256SUMS.txt

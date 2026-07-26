@@ -72,7 +72,8 @@ test("generated image views render bottom-right pixel size badges", () => {
   assert.match(badgeSource, /naturalHeight/);
   assert.match(badgeSource, /image-pixel-size-badge/);
   assert.match(historyCss, /\.image-pixel-size-badge/);
-  assert.match(batchGridSource, /<ImagePixelSizeBadge width=\{item\.width\} height=\{item\.height\} src=\{fullSrc \|\| src\} className="batch-grid-pixel-size" \/>/);
+  assert.match(batchGridSource, /<ImagePixelSizeBadge width=\{item\.width\} height=\{item\.height\} className="batch-grid-pixel-size" \/>/);
+  assert.doesNotMatch(batchGridSource, /<ImagePixelSizeBadge[^>]*src=\{fullSrc \|\| src\}/);
   assert.match(historyTileSource, /historyFullSrc\(item, previewURL\)/);
   assert.match(historyTileSource, /renderPixelSizeBadge\("android-history-pixel-size"\)/);
   assert.match(historyTileSource, /windows-history-image-pixel-size/);
@@ -90,7 +91,6 @@ test("backend events expose real generated image dimensions separately from prev
   const typesSource = readFileSync(new URL("../../backend/types.go", import.meta.url), "utf8");
   const mediaSource = readFileSync(new URL("../../backend/media.go", import.meta.url), "utf8");
   const serviceSource = readFileSync(new URL("../../backend/service.go", import.meta.url), "utf8");
-  const importsSource = readFileSync(new URL("../../backend/imports.go", import.meta.url), "utf8");
 
   assert.match(typesSource, /type ResultPayload struct \{[\s\S]*?Width\s+int\s+.*json:"width,omitempty"[\s\S]*?Height\s+int\s+.*json:"height,omitempty"/);
   assert.match(typesSource, /type MediaAssetRef struct \{[\s\S]*?Width\s+int\s+.*json:"width,omitempty"[\s\S]*?PreviewWidth\s+int\s+.*json:"previewWidth,omitempty"/);
@@ -99,7 +99,4 @@ test("backend events expose real generated image dimensions separately from prev
   assert.match(mediaSource, /Height:\s+asset\.Height/);
   assert.match(serviceSource, /Width:\s+asset\.Width/);
   assert.match(serviceSource, /Height:\s+asset\.Height/);
-  assert.match(importsSource, /imageConfig\(full\)/);
-  assert.match(importsSource, /width, height = cfg\.Width, cfg\.Height/);
-  assert.match(importsSource, /ImportedImage\{Path: full, Width: width, Height: height\}/);
 });

@@ -9,6 +9,7 @@ import {
   type FHLQuickVerifyResult,
 } from "../../lib/fhlAPI";
 import { usePlatform } from "../../platform/context";
+import { FHLDesktopAPIConfig } from "./FHLDesktopAPIConfig";
 
 type VerificationSummary = {
   responsesId: string;
@@ -29,15 +30,39 @@ function validateFHLQuickAPIKey(value: string): string {
   return key;
 }
 
-export function FHLQuickConfigModal({
+type FHLQuickConfigModalProps = {
+  open: boolean;
+  onClose: () => void;
+  onOpenUpstream: (profileId: string) => void | Promise<void>;
+};
+
+export function FHLQuickConfigModal(props: FHLQuickConfigModalProps) {
+  const { isAndroid } = usePlatform();
+  if (!isAndroid) return <DesktopFHLQuickConfigModal {...props} />;
+  return <LegacyFHLQuickConfigModal {...props} />;
+}
+
+function DesktopFHLQuickConfigModal({
   open,
   onClose,
   onOpenUpstream,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onOpenUpstream: (responsesId: string) => void | Promise<void>;
-}) {
+}: FHLQuickConfigModalProps) {
+  return (
+    <Modal open={open} onClose={onClose} title="FHL API 配置" width={900}>
+      <FHLDesktopAPIConfig
+        active={open}
+        onClose={onClose}
+        onOpenAdvanced={() => void onOpenUpstream("")}
+      />
+    </Modal>
+  );
+}
+
+function LegacyFHLQuickConfigModal({
+  open,
+  onClose,
+  onOpenUpstream,
+}: FHLQuickConfigModalProps) {
   const { usesFluentUI } = usePlatform();
   const pushToast = useStudioStore((state) => state.pushToast);
   const [apiKeyInput, setAPIKeyInput] = useState("");
@@ -154,7 +179,7 @@ export function FHLQuickConfigModal({
 
   async function handleOpenUpstream() {
     if (!summary) return;
-    await onOpenUpstream(summary.responsesId);
+    await onOpenUpstream(summary.imagesId);
     onClose();
   }
 

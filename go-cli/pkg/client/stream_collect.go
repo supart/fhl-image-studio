@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"strings"
 	"sync/atomic"
 )
 
@@ -13,26 +12,43 @@ const fallbackResponseCap = 1 << 20 // 1 MB
 type responseCollector struct {
 	rawSink io.Writer
 
+	maxResponseBytes int64
+	maxLineBytes     int
+
 	receivedBytes atomic.Int64
 	pending       bytes.Buffer
 	fallback      bytes.Buffer
 	extractor     streamImageExtractor
+	terminalErr   error
 }
 
 func newResponseCollector(rawSink io.Writer) *responseCollector {
-	return &responseCollector{rawSink: rawSink}
+	return newResponseCollectorWithPartial(rawSink, nil)
 }
 
 func newResponseCollectorWithPartial(rawSink io.Writer, onPartial func(PartialImage)) *responseCollector {
 	return &responseCollector{
-		rawSink:   rawSink,
-		extractor: streamImageExtractor{onPartial: onPartial},
+		rawSink:          rawSink,
+		maxResponseBytes: maxHTTPResponseBytes,
+		maxLineBytes:     maxSSELineBytes,
+		extractor:        streamImageExtractor{onPartial: onPartial},
 	}
 }
 
 func (c *responseCollector) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
+	}
+	received := c.receivedBytes.Load()
+	if received > c.maxResponseBytes || int64(len(p)) > c.maxResponseBytes-received {
+		err := responseTooLargeError(c.maxResponseBytes)
+		c.terminalErr = err
+		return 0, err
+	}
+	if chunkExceedsSSELineLimit(c.pending.Bytes(), p, c.maxLineBytes) {
+		err := sseLineTooLargeError(c.maxLineBytes)
+		c.terminalErr = err
+		return 0, err
 	}
 	if c.rawSink != nil {
 		if _, err := c.rawSink.Write(p); err != nil {
@@ -54,6 +70,70 @@ func (c *responseCollector) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// writeSSELine avoids buffering and copying a line that NativeTransport has
+// already bounded and scanned. The transport's body limiter owns total bytes.
+func (c *responseCollector) writeSSELine(line []byte) error {
+	if len(line) > c.maxLineBytes {
+		err := sseLineTooLargeError(c.maxLineBytes)
+		c.terminalErr = err
+		return err
+	}
+	if c.rawSink != nil {
+		if n, err := c.rawSink.Write(line); err != nil {
+			return err
+		} else if n != len(line) {
+			return io.ErrShortWrite
+		}
+		if n, err := c.rawSink.Write([]byte{'\n'}); err != nil {
+			return err
+		} else if n != 1 {
+			return io.ErrShortWrite
+		}
+	}
+	c.receivedBytes.Add(int64(len(line) + 1))
+	c.consumeLine(line)
+	return nil
+}
+
+func (c *responseCollector) limitError() error {
+	if isResponseLimitError(c.terminalErr) {
+		return c.terminalErr
+	}
+	return nil
+}
+
+func chunkExceedsSSELineLimit(pending []byte, chunk []byte, maxLineBytes int) bool {
+	lineBytes := len(pending)
+	hasLast := lineBytes > 0
+	var last byte
+	if hasLast {
+		last = pending[lineBytes-1]
+	}
+
+	for _, b := range chunk {
+		if b == '\n' {
+			effectiveBytes := lineBytes
+			if hasLast && last == '\r' {
+				effectiveBytes--
+			}
+			if effectiveBytes > maxLineBytes {
+				return true
+			}
+			lineBytes = 0
+			hasLast = false
+			continue
+		}
+
+		lineBytes++
+		last = b
+		hasLast = true
+		if lineBytes > maxLineBytes && (lineBytes != maxLineBytes+1 || last != '\r') {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *responseCollector) finalize() {
 	if c.pending.Len() == 0 {
 		return
@@ -68,6 +148,9 @@ func (c *responseCollector) bytesReceived() int64 {
 }
 
 func (c *responseCollector) result() (ImageResult, error) {
+	if err := c.limitError(); err != nil {
+		return ImageResult{}, err
+	}
 	c.finalize()
 	if res, ok := c.extractor.result(); ok {
 		return res, nil
@@ -111,19 +194,19 @@ type streamImageExtractor struct {
 }
 
 func (e *streamImageExtractor) consume(line []byte) bool {
-	stripped := strings.TrimSpace(string(line))
-	if stripped == "" {
+	stripped := bytes.TrimSpace(line)
+	if len(stripped) == 0 {
 		return false
 	}
-	if strings.HasPrefix(stripped, "data: ") {
-		payload := strings.TrimSpace(stripped[6:])
-		if payload == "" || payload == "[DONE]" {
+	if bytes.HasPrefix(stripped, []byte("data: ")) {
+		payload := bytes.TrimSpace(stripped[6:])
+		if len(payload) == 0 || bytes.Equal(payload, []byte("[DONE]")) {
 			return true
 		}
 		return e.consumeJSONPayload(payload)
 	}
-	if strings.HasPrefix(stripped, "{") {
-		if res, ok := findImageResultInJSON(stripped); ok {
+	if stripped[0] == '{' {
+		if res, ok := findImageResultInJSONBytes(stripped); ok {
 			e.final = res
 			e.hasFinal = true
 			return true
@@ -132,9 +215,9 @@ func (e *streamImageExtractor) consume(line []byte) bool {
 	return false
 }
 
-func (e *streamImageExtractor) consumeJSONPayload(payload string) bool {
+func (e *streamImageExtractor) consumeJSONPayload(payload []byte) bool {
 	var ev Event
-	if err := decodeEvent(payload, &ev); err != nil {
+	if err := decodeEventBytes(payload, &ev); err != nil {
 		return false
 	}
 	evType, _ := ev["type"].(string)

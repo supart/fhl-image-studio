@@ -75,21 +75,110 @@ func TestEnsureManagedReadablePath(t *testing.T) {
 	}
 }
 
-func TestEnsureManagedReadablePathAllowsPortableIntermediateImage(t *testing.T) {
+func TestEnsureManagedReadablePathAllowsPortablePackageImageDirs(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv(publicRootEnvName, root)
 
 	svc := NewService()
-	intermediateDir := portableIntermediateDir(root)
-	if err := os.MkdirAll(intermediateDir, secureDirMode); err != nil {
+	cases := map[string]string{
+		"input":        portableInputDir(root),
+		"output":       portableOutputDir(root),
+		"intermediate": portableIntermediateDir(root),
+	}
+
+	for name, dir := range cases {
+		if err := os.MkdirAll(dir, secureDirMode); err != nil {
+			t.Fatal(err)
+		}
+		imagePath := filepath.Join(dir, name+".png")
+		if err := os.WriteFile(imagePath, []byte("png"), secureFileMode); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.ensureManagedReadablePath(imagePath, managedImageFile); err != nil {
+			t.Fatalf("expected portable %s image path to pass: %v", name, err)
+		}
+	}
+}
+
+func TestManagedOpenAndWritePathsRejectOutsideRoots(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(publicRootEnvName, "")
+	svc := NewService()
+	root := t.TempDir()
+	svc.addTrustedOutputRoot(root)
+
+	imagesDir := imagesSubdir(root)
+	logDir := logSubdir(root)
+	if err := os.MkdirAll(imagesDir, secureDirMode); err != nil {
 		t.Fatal(err)
 	}
-	imagePath := filepath.Join(intermediateDir, "partial.png")
+	if err := os.MkdirAll(logDir, secureDirMode); err != nil {
+		t.Fatal(err)
+	}
+	imagePath := filepath.Join(imagesDir, "managed.png")
+	logPath := filepath.Join(logDir, "managed.txt")
 	if err := os.WriteFile(imagePath, []byte("png"), secureFileMode); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(logPath, []byte("log"), secureFileMode); err != nil {
+		t.Fatal(err)
+	}
 
-	if _, err := svc.ensureManagedReadablePath(imagePath, managedImageFile); err != nil {
-		t.Fatalf("expected portable intermediate image path to pass: %v", err)
+	for _, path := range []string{imagePath, logPath} {
+		if _, err := svc.ensureManagedOpenPath(path); err != nil {
+			t.Fatalf("expected managed open path %s to pass: %v", path, err)
+		}
+	}
+	if allowed, err := svc.ensureManagedWritableDirectory(root); err != nil || allowed == "" {
+		t.Fatalf("expected trusted output root to be writable: %v", err)
+	}
+
+	outsideRoot := t.TempDir()
+	outsideFile := filepath.Join(outsideRoot, "outside.txt")
+	if err := os.WriteFile(outsideFile, []byte("secret"), secureFileMode); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ensureManagedOpenPath(outsideFile); err == nil {
+		t.Fatal("expected unmanaged open path to be rejected")
+	}
+	if _, err := svc.ensureManagedWritableDirectory(outsideRoot); err == nil {
+		t.Fatal("expected untrusted write directory to be rejected")
+	}
+}
+
+func TestManagedWritableDirectoryRejectsSymlinkEscape(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("creating symlinks on Windows requires an optional privilege")
+	}
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(publicRootEnvName, "")
+	svc := NewService()
+	root := t.TempDir()
+	outside := t.TempDir()
+	svc.addTrustedOutputRoot(root)
+	link := filepath.Join(root, "escape")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ensureManagedWritableDirectory(link); err == nil {
+		t.Fatal("expected writable symlink escape to be rejected")
+	}
+}
+
+func TestResetOutputDirRevokesCurrentOutputRoot(t *testing.T) {
+	t.Setenv(publicRootEnvName, "")
+	svc := NewService()
+	root := t.TempDir()
+	if err := svc.SetOutputDir(root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ensureManagedWritableDirectory(root); err != nil {
+		t.Fatalf("current output root should be writable: %v", err)
+	}
+	if err := svc.SetOutputDir(""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ensureManagedWritableDirectory(root); err == nil {
+		t.Fatal("reset output root should no longer be writable")
 	}
 }

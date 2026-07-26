@@ -1,4 +1,4 @@
-import type { MaterialOutputSyncItemLike, MaterialOutputSyncResultLike } from "./hostTypes";
+import type { MaterialOutputSyncItemLike, MaterialOutputSyncResultLike, MediaAssetRefLike } from "./hostTypes";
 
 export type ProjectImageKind = "input" | "output";
 type SaveProjectImageOptions = {
@@ -30,6 +30,13 @@ type ProjectBatchInputDirectory = {
 };
 
 const PROJECT_FILES_PREFIX = "/__image-studio-files";
+let lastProjectImageSaveError = "";
+
+export function takeLastProjectImageSaveError(): string {
+  const value = lastProjectImageSaveError;
+  lastProjectImageSaveError = "";
+  return value;
+}
 
 function isLocalPreviewHost(): boolean {
   if (typeof window === "undefined" || typeof window.location === "undefined") return false;
@@ -46,6 +53,7 @@ export async function saveProjectImage(
   options: SaveProjectImageOptions = {},
 ): Promise<SavedProjectImage | null> {
   if (!isLocalPreviewHost()) return null;
+  lastProjectImageSaveError = "";
   try {
     const response = await fetch(`${PROJECT_FILES_PREFIX}/save-image`, {
       method: "POST",
@@ -60,9 +68,17 @@ export async function saveProjectImage(
         directory: options.directory ?? "",
       }),
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      lastProjectImageSaveError = body
+        ? `本地图片保存接口返回 ${response.status}: ${body.slice(0, 500)}`
+        : `本地图片保存接口返回 ${response.status}`;
+      if (typeof console !== "undefined") console.warn(lastProjectImageSaveError);
+      return null;
+    }
     return await response.json() as SavedProjectImage;
   } catch (error) {
+    lastProjectImageSaveError = `本地图片保存接口请求失败: ${error instanceof Error ? error.message : String(error)}`;
     if (typeof console !== "undefined") console.warn("save project image failed", error);
     return null;
   }
@@ -80,6 +96,25 @@ export async function readProjectImage(path: string): Promise<string | null> {
     const data = await response.json() as { imageB64?: string };
     return data.imageB64 ?? null;
   } catch {
+    return null;
+  }
+}
+
+export async function registerProjectMedia(
+  savedPath: string,
+  thumbPath = "",
+): Promise<MediaAssetRefLike | null> {
+  if (!isLocalPreviewHost() || !savedPath.trim()) return null;
+  try {
+    const response = await fetch(`${PROJECT_FILES_PREFIX}/register-media`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ savedPath, thumbPath }),
+    });
+    if (!response.ok) return null;
+    return await response.json() as MediaAssetRefLike;
+  } catch (error) {
+    if (typeof console !== "undefined") console.warn("register project media failed", error);
     return null;
   }
 }

@@ -15,6 +15,7 @@ import { MacAdvancedPanel } from "./MacAdvancedPanel";
 import { MacComposePanel } from "./MacComposePanel";
 import { PanoramaStudioEntryModal } from "../panorama/PanoramaStudioEntryModal";
 import { resolvePromptTextCapability } from "../../lib/promptTextProfiles";
+import { mapFHLImagesProfilesToPoolSlots } from "../../lib/profiles";
 import { QUALITY_TIERS, STYLE_CHIPS } from "./panelOptions";
 import { PromptEditorSection } from "./PromptEditorSection";
 import { Section, Seg, SegItem } from "./panelChrome";
@@ -107,16 +108,16 @@ function PanoramaStudioEntryButton({
 export function ControlPanel() {
   const {
     apiKey, mode, promptPrefix, prompt, optimizationGuidance, negativePrompt, size, quality, seed, styleTag,
-    outputFormat, batchCount, continuousGenerateTest,
+    outputFormat, batchCount, continuousGenerateTest, fhlPoolPerAPIConcurrencyLimit, fhlPoolEffectiveConcurrencyByProfileId,
     sources, currentImage, reversePromptImage, editSourceMode, batchProcess,
     errorMessage, errorRawPath, isRunning, runningJobs, lastPayload, isTestingKey, isOptimizingPrompt, isReversingPrompt,
-    apiMode, requestPolicy, baseURL, textModelID, profiles, activeProfileId, imageModelID,
+    apiMode, requestPolicy, baseURL, textModelID, profiles, activeProfileId, imageModelID, fhlTextAPIConfigured,
     activeWorkspaceId, workspaces, jobGroupsByWorkspace, batchTasksById, batchResults, history,
     setField, clearError, pushToast,
     selectSourceImage, selectBatchInputDir, selectBatchInputFiles, chooseBatchOutputDir, importSourceImageFile, selectReversePromptImage, importReversePromptImageFile, clearReversePromptImage, removeSource, clearSources,
     openUpstreamConfig,
     submit, cancel, retryLast, retryFailedBatchTasks, cancelQueuedBatchTasks, clearFailedBatchTasks, optimizePrompt, reversePromptFromImage, resetCurrentWorkspaceDraft,
-    setContinuousPressureLimit,
+    setFHLPoolPerAPIConcurrencyLimit,
   } = useStudioStore();
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [promptPopover, setPromptPopover] = useState(false);
@@ -127,7 +128,7 @@ export function ControlPanel() {
   const [continuousSubmitHintOpen, setContinuousSubmitHintOpen] = useState(false);
   const [customConcurrency, setCustomConcurrency] = useState("");
   const [panoramaStudioOpen, setPanoramaStudioOpen] = useState(false);
-  const { isAndroid, isAndroidPhone, isAndroidPad, isMac, isWindows, usesAndroidUI, usesAppleUI, usesFluentUI } = usePlatform();
+  const { isAndroid, isAndroidPhone, isAndroidPad, usesMacDesktopUI, usesWindowsDesktopUI, usesAndroidUI, usesAppleUI, usesFluentUI } = usePlatform();
 
   if (isAndroidPhone) {
     return <AndroidPhoneComposePanel />;
@@ -149,6 +150,7 @@ export function ControlPanel() {
     baseURL,
     textModelID,
     profiles,
+    fhlTextAPIConfigured,
   });
   const activeStyleLabel = STYLE_CHIPS.find((item) => item.id === styleTag)?.label ?? styleTag;
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId);
@@ -161,7 +163,37 @@ export function ControlPanel() {
   const queuedBatchTaskCount = activeBatchTasks.filter((task) => task.status === "queued").length;
   const retryApiLabel = activeProfile?.name?.trim()
     || (apiMode === "apimart" ? "APIMart" : apiMode === "runninghub" ? "RunningHub" : apiMode === "images" ? "Images API" : "FHL");
-  const activeConcurrencyLimit = activeProfile?.concurrencyLimit ?? 0;
+  const perAPIConcurrencyLimit = fhlPoolPerAPIConcurrencyLimit;
+  const enabledFHLPoolSlots = mapFHLImagesProfilesToPoolSlots(profiles)
+    .filter((profile): profile is NonNullable<typeof profile> => profile?.continuousPoolEnabled === true);
+  const enabledFHLPoolAPICount = enabledFHLPoolSlots.length;
+  const fhlPoolTotalConcurrencyLimit = enabledFHLPoolAPICount * perAPIConcurrencyLimit;
+  const effectivePoolLimitForProfile = (profileId: string) => {
+    const override = fhlPoolEffectiveConcurrencyByProfileId[profileId];
+    return Number.isFinite(override) ? Math.max(0, Math.min(perAPIConcurrencyLimit, override)) : perAPIConcurrencyLimit;
+  };
+  const fhlPoolEffectiveTotalConcurrencyLimit = enabledFHLPoolSlots
+    .reduce((sum, profile) => sum + effectivePoolLimitForProfile(profile.id), 0);
+  const activePoolTasks = activeBatchTasks.filter((task) => task.continuousPoolTask === true);
+  const poolSubmittingCount = activePoolTasks.filter((task) => task.launchState === "submitting").length;
+  const poolRunningCount = activePoolTasks.filter((task) => (
+    task.launchState !== "submitting"
+    && (task.status === "running" || (task.status === "queued" && !!task.jobId))
+  )).length;
+  const poolQueuedCount = activePoolTasks.filter((task) => (
+    task.status === "queued" && task.launchState !== "submitting" && !task.jobId
+  )).length;
+  const poolSucceededCount = activePoolTasks.filter((task) => task.status === "succeeded").length;
+  const poolFailedCount = activePoolTasks.filter((task) => task.status === "failed" || task.status === "interrupted").length;
+  const poolOccupancyByProfileId = new Map<string, number>();
+  for (const task of Object.values(batchTasksById)) {
+    const profileId = String(task.apiProfileId || "").trim();
+    if (!profileId || task.continuousPoolTask !== true) continue;
+    const occupiesSlot = task.launchState === "submitting"
+      || task.status === "running"
+      || (task.status === "queued" && !!task.jobId);
+    if (occupiesSlot) poolOccupancyByProfileId.set(profileId, (poolOccupancyByProfileId.get(profileId) ?? 0) + 1);
+  }
   const batchImageToImageMode = mode === "edit" && editSourceMode === "batch";
   const batchImageToImageCount = batchImageToImageMode
     ? batchProcess.discoveredSources.filter((source) => source.selected !== false).length
@@ -176,8 +208,8 @@ export function ControlPanel() {
     || activeGenerationTaskCount > 0
     || activeBrowserJobCount > 0
   );
-  const showSharedConcurrency = continuousGenerateTest;
-  const customConcurrencySelected = activeConcurrencyLimit > 0 && activeConcurrencyLimit !== 2 && activeConcurrencyLimit !== 4;
+  const showPerAPIConcurrency = continuousGenerateTest;
+  const customConcurrencySelected = ![2, 4, 5].includes(perAPIConcurrencyLimit);
   const aspectPresets = aspectPresetsForAPIMode(apiMode, mode);
   const activeAspect = normalizeAspectSelection(
     deriveAspectPreset(size),
@@ -208,8 +240,8 @@ export function ControlPanel() {
       || sources[0]?.imageBlob
     )
   );
-  const compactMacCompose = isMac;
-  const compactWindowsCompose = isWindows;
+  const compactMacCompose = usesMacDesktopUI;
+  const compactWindowsCompose = usesWindowsDesktopUI;
   const advancedSummary = [
     negativePrompt.trim() ? "已填负向提示词" : "无负向限制",
     outputFormat.toUpperCase(),
@@ -260,31 +292,31 @@ export function ControlPanel() {
   function enableContinuousGenerateMode() {
     setField("continuousGenerateTest", true as any);
     setContinuousSubmitHintOpen(false);
-    pushToast("已开启连续生成模式，再点击生成会按共享并发排队", "success", 3200);
+    pushToast("已开启连续生成模式，再点击生成会按每 API 并发排队", "success", 3200);
   }
 
   function handleCustomConcurrencyCommit() {
     const raw = customConcurrency.trim();
     if (!raw) return;
     const parsed = Number(raw);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-      pushToast("自定义并发请输入大于 0 的数字；不限请点“ 不限 ”", "warn", 2600);
+    if (!Number.isFinite(parsed) || parsed < 1 || parsed > 5) {
+      pushToast("自定义并发请输入 1 到 5；单个 FHL API 最大并发为 5", "warn", 3000);
       return;
     }
-    const normalized = Math.max(1, Math.floor(parsed));
-    void setContinuousPressureLimit(normalized);
+    const normalized = Math.max(1, Math.min(5, Math.floor(parsed)));
+    void setFHLPoolPerAPIConcurrencyLimit(normalized);
     setCustomConcurrency("");
   }
 
   function handleCustomConcurrencyFocus() {
     if (!customConcurrency && customConcurrencySelected) {
-      setCustomConcurrency(String(activeConcurrencyLimit));
+      setCustomConcurrency(String(perAPIConcurrencyLimit));
     }
   }
 
   return (
-    <div data-audit-area="control-panel" className={`control-panel box-border flex shrink-0 flex-col overflow-y-auto border-r border-[var(--border)] bg-[var(--sidebar)] backdrop-blur-2xl ${usesAppleUI ? "liquid-sidebar" : ""} ${usesAndroidUI ? "android-surface-pane" : ""} ${isMac ? "w-[408px] gap-5 px-6 py-5" : "w-[372px] gap-4 px-5 py-4"} ${usesFluentUI ? "pt-3" : ""}`}>
-      <section className={`platform-card ${isMac ? "px-5 py-5" : "px-4 py-4"}`}>
+    <div data-audit-area="control-panel" className={`control-panel box-border flex shrink-0 flex-col overflow-y-auto border-r border-[var(--border)] bg-[var(--sidebar)] backdrop-blur-2xl ${usesAppleUI ? "liquid-sidebar" : ""} ${usesAndroidUI ? "android-surface-pane" : ""} ${usesMacDesktopUI ? "w-[408px] gap-5 px-6 py-5" : "w-[372px] gap-4 px-5 py-4"} ${usesFluentUI ? "pt-3" : ""}`}>
+      <section className={`platform-card ${usesMacDesktopUI ? "px-5 py-5" : "px-4 py-4"}`}>
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between gap-3">
@@ -306,7 +338,7 @@ export function ControlPanel() {
               </button>
             </div>
             {!isAndroid && (
-              <p className={`${isMac ? "mt-1 text-[12px] leading-6" : "mt-0.5 text-[11px] leading-relaxed"} text-zinc-500 dark:text-zinc-400`}>
+              <p className={`${usesMacDesktopUI ? "mt-1 text-[12px] leading-6" : "mt-0.5 text-[11px] leading-relaxed"} text-zinc-500 dark:text-zinc-400`}>
                 保持界面简洁，把注意力留给 prompt、参考图和结果。
               </p>
             )}
@@ -337,32 +369,32 @@ export function ControlPanel() {
             </div>
           </div>
           <div className="border-t border-black/[0.06] px-3 py-3 dark:border-white/[0.06]">
-            {showSharedConcurrency ? (
+            {showPerAPIConcurrency ? (
               <>
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-[12px] font-semibold text-zinc-800 dark:text-zinc-100">
-                    共享并发设置
+                    每 API 并发
                   </div>
                   <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
-                    当前 {activeConcurrencyLimit > 0 ? `${activeConcurrencyLimit} 并发` : "不限"}
+                    单图固定首个启用 API · 当前上限 {perAPIConcurrencyLimit} · 批量总上限 {fhlPoolTotalConcurrencyLimit}
                   </div>
                 </div>
                 <div className="mt-2 grid grid-cols-3 gap-2">
-                  {[0, 2, 4].map((limit) => (
+                  {[2, 4, 5].map((limit) => (
                     <button
                       key={limit}
                       type="button"
-                      onClick={() => void setContinuousPressureLimit(limit)}
-                      disabled={!activeProfileId}
-                      className={`h-10 w-full border px-2 text-[11px] font-semibold transition-[border-color,background-color,color,box-shadow] disabled:cursor-not-allowed disabled:opacity-45 ${activeConcurrencyLimit === limit ? "border-[color:var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)] shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent)_38%,transparent)]" : "border-black/[0.08] bg-white/88 text-zinc-700 hover:border-[color:var(--accent)]/40 hover:text-[var(--accent)] dark:border-white/[0.08] dark:bg-white/[0.06] dark:text-zinc-200"} rounded-[8px]`}
+                      onClick={() => void setFHLPoolPerAPIConcurrencyLimit(limit)}
+                      disabled={false}
+                      className={`h-10 w-full border px-2 text-[11px] font-semibold transition-[border-color,background-color,color,box-shadow] disabled:cursor-not-allowed disabled:opacity-45 ${perAPIConcurrencyLimit === limit ? "border-[color:var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)] shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent)_38%,transparent)]" : "border-black/[0.08] bg-white/88 text-zinc-700 hover:border-[color:var(--accent)]/40 hover:text-[var(--accent)] dark:border-white/[0.08] dark:bg-white/[0.06] dark:text-zinc-200"} rounded-[8px]`}
                     >
-                      {limit > 0 ? `${limit}并发` : "不限"}
+                      {limit === 5 ? "5/API 满载" : `${limit}/API`}
                     </button>
                   ))}
                 </div>
                 <label
                   className={`mt-2 flex min-w-0 items-center gap-2.5 border px-3 py-2.5 text-[11px] font-semibold transition-[border-color,background-color,color,box-shadow] ${customConcurrencySelected ? "border-[color:var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)] shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent)_38%,transparent)]" : "border-black/[0.08] bg-white/88 text-zinc-700 hover:border-[color:var(--accent)]/40 dark:border-white/[0.08] dark:bg-white/[0.06] dark:text-zinc-200"} focus-within:border-[color:var(--accent)] focus-within:bg-[var(--accent-soft)] focus-within:text-[var(--accent)] focus-within:shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent)_38%,transparent)] rounded-[8px]`}
-                  title="输入自定义并发数量，按 Enter 或离开输入框生效"
+                  title="输入每个 API 的并发数量，范围 1 到 5，按 Enter 或离开输入框生效"
                 >
                   <span className="shrink-0 text-[10px] uppercase tracking-[0.08em] text-current/70">
                     自定义
@@ -370,6 +402,7 @@ export function ControlPanel() {
                   <input
                     type="number"
                     min={1}
+                    max={5}
                     step={1}
                     value={customConcurrency}
                     onChange={(event) => setCustomConcurrency(event.target.value)}
@@ -380,16 +413,38 @@ export function ControlPanel() {
                         event.currentTarget.blur();
                       }
                     }}
-                    disabled={!activeProfileId}
+                    disabled={false}
                     aria-label="自定义并发"
-                    placeholder={customConcurrencySelected ? String(activeConcurrencyLimit) : "输入并发数量"}
+                    placeholder={customConcurrencySelected ? String(perAPIConcurrencyLimit) : "输入 1-5"}
                     className="min-w-[120px] flex-1 bg-transparent text-[12px] font-semibold outline-none placeholder:text-zinc-400 disabled:cursor-not-allowed"
                   />
-                  <span className="shrink-0 text-[11px] text-current/85">并发</span>
+                  <span className="shrink-0 text-[11px] text-current/85">/ API</span>
                 </label>
                 <p className="mt-2 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
-                  连续生成模式和批量图生图都会复用这里的上限。超过并发设置的任务会自动进入排队；批量图生图需要先设置明确并发值。
+                  连续单图每次只向首个启用 API 新增 1 张，超过该 API 空位时排队。批量图生图仍按 {enabledFHLPoolAPICount} 个已启用 API 轮询，总上限 = API 数 × 每 API 并发；单个 API 最大 5。
                 </p>
+                {activePoolTasks.length > 0 ? (
+                  <div data-audit-id="fhl-pool-live-status" className="mt-3 border-t border-black/[0.06] pt-2.5 dark:border-white/[0.06]">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-medium text-zinc-600 dark:text-zinc-300">
+                      <span>运行 {poolRunningCount}/{fhlPoolEffectiveTotalConcurrencyLimit}</span>
+                      <span>提交中 {poolSubmittingCount}</span>
+                      <span>排队 {poolQueuedCount}</span>
+                      <span>成功 {poolSucceededCount}</span>
+                      <span>失败 {poolFailedCount}</span>
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-5">
+                      {enabledFHLPoolSlots.map((profile) => (
+                        <span
+                          key={profile.id}
+                          className="min-w-0 truncate rounded-[6px] border border-black/[0.07] bg-white/70 px-1.5 py-1 text-center text-[9px] font-medium text-zinc-600 dark:border-white/[0.08] dark:bg-white/[0.05] dark:text-zinc-300"
+                          title={`${profile.name} 当前占用 ${poolOccupancyByProfileId.get(profile.id) ?? 0}/${effectivePoolLimitForProfile(profile.id)}`}
+                        >
+                          {profile.name} {poolOccupancyByProfileId.get(profile.id) ?? 0}/{effectivePoolLimitForProfile(profile.id)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </>
             ) : (
               <>
@@ -416,13 +471,13 @@ export function ControlPanel() {
                   ))}
                 </div>
                 <p className="mt-2 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
-                  这里控制的是单次提交要生成几张，属于当前这一批任务，不是多次并发。开启连续生成模式后，这一项会隐藏，并改由并发设置接管。
+                  这里控制的是单次提交要生成几张，属于当前这一批任务，不是多次并发。开启连续生成后，每次提交固定为 1 张。
                 </p>
               </>
             )}
           </div>
         </div>
-        {isMac && (
+        {usesMacDesktopUI && (
           <div className="mt-3">
             <div className="mb-2 text-[11px] uppercase tracking-[0.12em] text-zinc-400 dark:text-zinc-500">模式</div>
             <ModeSwitch
@@ -454,7 +509,7 @@ export function ControlPanel() {
         />
       ) : null}
 
-      {!isMac && (
+      {!usesMacDesktopUI && (
         <Section label="模式">
           <ModeSwitch
             mode={mode}
@@ -493,7 +548,9 @@ export function ControlPanel() {
           pushToast={pushToast}
           quality={quality}
           requestPolicy={requestPolicy}
-          sharedConcurrencyLimit={activeConcurrencyLimit}
+          perAPIConcurrencyLimit={perAPIConcurrencyLimit}
+          enabledAPICount={enabledFHLPoolAPICount}
+          totalConcurrencyLimit={fhlPoolTotalConcurrencyLimit}
           selectBatchInputDir={selectBatchInputDir}
           selectBatchInputFiles={selectBatchInputFiles}
           selectSourceImage={selectSourceImage}
@@ -532,7 +589,9 @@ export function ControlPanel() {
           pushToast={pushToast}
           quality={quality}
           requestPolicy={requestPolicy}
-          sharedConcurrencyLimit={activeConcurrencyLimit}
+          perAPIConcurrencyLimit={perAPIConcurrencyLimit}
+          enabledAPICount={enabledFHLPoolAPICount}
+          totalConcurrencyLimit={fhlPoolTotalConcurrencyLimit}
           selectBatchInputDir={selectBatchInputDir}
           selectBatchInputFiles={selectBatchInputFiles}
           selectSourceImage={selectSourceImage}
@@ -570,7 +629,9 @@ export function ControlPanel() {
           currentImage={currentImage}
           apiMode={apiMode}
           requestPolicy={requestPolicy}
-          sharedConcurrencyLimit={activeConcurrencyLimit}
+          perAPIConcurrencyLimit={perAPIConcurrencyLimit}
+          enabledAPICount={enabledFHLPoolAPICount}
+          totalConcurrencyLimit={fhlPoolTotalConcurrencyLimit}
           imageModelID={imageModelID}
           selectBatchInputDir={selectBatchInputDir}
           selectBatchInputFiles={selectBatchInputFiles}
@@ -617,7 +678,7 @@ export function ControlPanel() {
       />
 
       {/* 高级参数(可折叠)*/}
-      {isMac ? (
+      {usesMacDesktopUI ? (
         <MacAdvancedPanel
           advancedOpen={advancedOpen}
           advancedSummary={advancedSummary}

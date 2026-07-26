@@ -13,7 +13,9 @@ function blockFor(name) {
 
 test("manual retry rebuilds the request from the currently active API profile", () => {
   assert.match(storeSource, /function retrySubmitContextFromState/);
-  assert.match(storeSource, /const apiMode = effectiveAPIModeForSubmit\(mode, activeProfile\?\.apiMode \?\? state\.apiMode\)/);
+  assert.match(storeSource, /const apiMode = effectiveAPIModeForSubmit\(state, activeProfile, activeProfile\?\.apiMode \?\? state\.apiMode\)/);
+  assert.match(storeSource, /const activeProfileUsesFHLTransport = isOfficialFHLTransportProfile\([\s\S]+?activeProfile,\s*state\.baseURL,\s*activeProfile\?\.apiMode \?\? state\.apiMode/);
+  assert.match(storeSource, /activeProfileUsesFHLTransport && apiMode === "responses"/);
   assert.match(storeSource, /apiProfileSnapshot: apiProfileSnapshotForSubmit\(activeProfile, state\.activeProfileId\)/);
 
   const retryFailedJob = blockFor("retryFailedJob");
@@ -25,7 +27,7 @@ test("manual retry rebuilds the request from the currently active API profile", 
   assert.doesNotMatch(retryFailedJob, /apiProfileId: group\.apiProfileId/);
 
   const retryBatchTask = blockFor("retryBatchTask");
-  assert.match(retryBatchTask, /const useTaskProfile = options\?\.useTaskProfile === true/);
+  assert.match(retryBatchTask, /const useTaskProfile = options\?\.useTaskProfile === true \|\| task\.continuousPoolTask === true/);
   assert.match(retryBatchTask, /const retryContext = useTaskProfile \? retryContextFromOriginalTask\(s, task\) : retrySubmitContextFromState\(s, task\.mode\)/);
   assert.match(retryBatchTask, /const retryAPIKey = useTaskProfile \? await apiKeyForProfileOrState\(s, task\.apiProfileId\) : s\.apiKey/);
   assert.match(retryBatchTask, /const independentRetry = options\?\.independent === true/);
@@ -34,7 +36,10 @@ test("manual retry rebuilds the request from the currently active API profile", 
   assert.match(retryBatchTask, /\.\.\.retryContext\.apiProfileSnapshot/);
   assert.match(retryBatchTask, /void pumpContinuousQueue\(workspaceId, queuedTask\.apiMode\)/);
   assert.match(retryBatchTask, /const retryQueueLimit = batchSharedTask[\s\S]+continuousQueueLimitForState\(s, retryContext\.apiMode, retryContext\.apiProfileSnapshot\.apiProfileId\)/);
-  assert.match(retryBatchTask, /queuedReason: batchSharedTask \? "batch_shared_concurrency" : retryQueueLimit > 0 \? "local_concurrency" : undefined/);
+  assert.match(retryBatchTask, /const continuousPoolTask = task\.continuousPoolTask === true/);
+  assert.match(retryBatchTask, /queuedReason: continuousPoolTask[\s\S]+"continuous_pool"[\s\S]+batchSharedTask \? "batch_shared_concurrency" : retryQueueLimit > 0 \? "local_concurrency" : undefined/);
+  assert.match(retryBatchTask, /apiBaseURL: retryContext\.baseURL/);
+  assert.match(retryBatchTask, /if \(queuedTask\.continuousPoolTask\) \{[\s\S]+requestContinuousPoolPump/);
   assert.match(retryBatchTask, /const limit = continuousQueueLimitForState\(get\(\), queuedTask\.apiMode, queuedTask\.apiProfileId\)/);
   assert.match(retryBatchTask, /apiMode: queuedTask\.apiMode/);
   assert.match(retryBatchTask, /historyItemId: undefined/);
@@ -49,23 +54,35 @@ test("manual retry rebuilds the request from the currently active API profile", 
 test("switching API profiles keeps batch previews visible", () => {
   const setActiveProfileBlock = profileSource.match(/async setActiveProfile\(id: string\) \{[\s\S]+?\n    \},/)?.[0] ?? "";
   assert.match(setActiveProfileBlock, /activeProfileId: id/);
-  assert.match(setActiveProfileBlock, /apiMode: profile\.apiMode/);
+  assert.match(setActiveProfileBlock, /activeProfileRuntimePatch\(profile, before\.fhlTransportMode\)/);
   assert.doesNotMatch(setActiveProfileBlock, /resultGridOpen:\s*false/);
   assert.doesNotMatch(setActiveProfileBlock, /selectedBatchTaskId:\s*null/);
   assert.doesNotMatch(setActiveProfileBlock, /patchWorkspaceRuntime/);
 });
 
-test("header API profile switch waits for activation before more actions", () => {
-  assert.match(headerSource, /const \[switchingProfileId, setSwitchingProfileId\]/);
-  assert.match(headerSource, /const handleProfileSelect = async/);
-  assert.match(headerSource, /setSwitchingProfileId\(nextId\)/);
-  assert.match(headerSource, /await setActiveProfile\(nextId\)/);
-  assert.match(headerSource, /disabled=\{!!switchingProfileId\}/);
-  assert.match(headerSource, /value=\{switchingProfileId \?\? activeProfileId\}/);
-  assert.match(profileSource, /apiKey: ""/);
-  assert.match(profileSource, /if \(store\.getState\(\)\.activeProfileId === id\) \{/);
-  assert.match(profileSource, /store\.setState\(\{ apiKey \}\)/);
+test("header FHL entry opens one group configuration without switching profiles", () => {
+  assert.match(headerSource, /import \{ hasUsableFHLConfiguration \} from "\.\.\/\.\.\/lib\/profiles"/);
+  assert.match(headerSource, /const hasFHLConfiguration = hasUsableFHLConfiguration\(\{\s*apiKey,\s*apiMode,\s*baseURL,\s*profiles,\s*\}\);/);
+  assert.match(headerSource, /if \(hasFHLConfiguration\) \{\s*useStudioStore\.getState\(\)\.openUpstreamConfig\("app"\);/);
+  assert.match(headerSource, /data-audit-id="fhl-config"/);
+  assert.match(headerSource, /修改统一 FHL 配置/);
+  assert.doesNotMatch(headerSource, /fhlProfiles/);
+  assert.doesNotMatch(headerSource, /switchingProfileId/);
+  assert.doesNotMatch(headerSource, /handleProfileSelect/);
+  assert.doesNotMatch(headerSource, /<select/);
+  assert.doesNotMatch(headerSource, /setActiveProfile/);
 });
+
+test("queued batch tasks fall back to the active profile API key when keyring is empty", () => {
+  assert.match(storeSource, /async function apiKeyForProfileOrState/);
+  assert.match(storeSource, /const stored = await GetStoredAPIKey\(keyringUserFor\(cleanProfileId\)\)\.catch\(\(\) => ""\)/);
+  assert.match(storeSource, /if \(stored\.trim\(\)\) return stored;/);
+  assert.match(storeSource, /cleanProfileId === String\(state\.activeProfileId \|\| ""\)\.trim\(\) \? state\.apiKey : ""/);
+
+  assert.match(storeSource, /const taskAPIKey = await apiKeyForProfileOrState\(s, task\.apiProfileId\)/);
+  assert.match(storeSource, /cleanedAPIKey = validateAPIKeyForHeader\(taskAPIKey\)/);
+});
+
 test("retry restores auto-aspect size before normalizing for the active API", () => {
   assert.match(storeSource, /function retryAutoAspectResolutionForContext/);
   assert.match(storeSource, /context\.mode === "edit" && context\.batchSourcePath && workspace\?\.editSourceMode === "batch"/);

@@ -1,10 +1,12 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 
 const root = process.cwd();
 const androidSdkRoot = process.env.ANDROID_SDK_ROOT || process.env.ANDROID_HOME || `${root}/.tmp/android-sdk`;
 const javaHome = process.env.IMAGE_STUDIO_JAVA_HOME || process.env.JAVA_HOME || `${root}/.tmp/jdk/jdk-17.0.19+10/Contents/Home`;
 const androidUserHome = process.env.ANDROID_USER_HOME || `${root}/.tmp/android-home/.android`;
 const homeDir = process.env.HOME || `${root}/.tmp/android-home`;
+const androidWrapper = `${root}/android-shell/gradlew`;
 
 function runStep(step) {
   return new Promise((resolve, reject) => {
@@ -52,6 +54,7 @@ const steps = [
     cmd: "./gradlew",
     args: [":app:assembleDebug"],
     cwd: `${root}/android-shell`,
+    skipReason: existsSync(androidWrapper) ? "" : "android-shell/gradlew is not present in this desktop source package",
     env: {
       GRADLE_USER_HOME: `${root}/.tmp/gradle-home-arm64`,
       JAVA_HOME: javaHome,
@@ -81,6 +84,10 @@ const steps = [
 ];
 
 for (const step of steps) {
+  if (step.skipReason) {
+    console.log(`\n==> ${step.label} (skipped: ${step.skipReason})`);
+    continue;
+  }
   console.log(`\n==> ${step.label}`);
   await runStep(step);
 }

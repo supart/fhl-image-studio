@@ -8,7 +8,9 @@ export function MacComposeSources({
   clearSources,
   currentImageSavedPath,
   editSourceMode,
-  sharedConcurrencyLimit,
+  perAPIConcurrencyLimit,
+  enabledAPICount,
+  totalConcurrencyLimit,
   selectBatchInputDir,
   selectBatchInputFiles,
   selectSourceImage,
@@ -21,7 +23,9 @@ export function MacComposeSources({
   clearSources: () => void;
   currentImageSavedPath?: string | null;
   editSourceMode: EditSourceMode;
-  sharedConcurrencyLimit: number;
+  perAPIConcurrencyLimit: number;
+  enabledAPICount: number;
+  totalConcurrencyLimit: number;
   selectBatchInputDir: () => void;
   selectBatchInputFiles: () => void;
   selectSourceImage: () => void;
@@ -35,7 +39,9 @@ export function MacComposeSources({
         currentImageSavedPath={currentImageSavedPath}
         editSourceMode={editSourceMode}
         batchProcess={batchProcess}
-        sharedConcurrencyLimit={sharedConcurrencyLimit}
+        perAPIConcurrencyLimit={perAPIConcurrencyLimit}
+        enabledAPICount={enabledAPICount}
+        totalConcurrencyLimit={totalConcurrencyLimit}
         setEditSourceMode={setEditSourceMode}
         setBatchProcess={setBatchProcess}
         onChooseInputDir={selectBatchInputDir}

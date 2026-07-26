@@ -3,6 +3,7 @@ package fsio
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,14 +38,42 @@ func SaveImage(imageB64, outputPath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("decode base64: %w", err)
 	}
-	if err := os.WriteFile(outputPath, data, privateFileMode); err != nil {
+	resolvedPath, file, err := createUniqueOutputFile(outputPath)
+	if err != nil {
+		return "", fmt.Errorf("create image: %w", err)
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		_ = os.Remove(resolvedPath)
 		return "", fmt.Errorf("write image: %w", err)
 	}
-	abs, err := filepath.Abs(outputPath)
+	if err := file.Close(); err != nil {
+		_ = os.Remove(resolvedPath)
+		return "", fmt.Errorf("close image: %w", err)
+	}
+	abs, err := filepath.Abs(resolvedPath)
 	if err != nil {
-		return outputPath, nil //nolint:nilerr
+		return resolvedPath, nil //nolint:nilerr
 	}
 	return abs, nil
+}
+
+func createUniqueOutputFile(outputPath string) (string, *os.File, error) {
+	ext := filepath.Ext(outputPath)
+	stem := strings.TrimSuffix(outputPath, ext)
+	for suffix := 0; ; suffix++ {
+		candidate := outputPath
+		if suffix > 0 {
+			candidate = fmt.Sprintf("%s-%d%s", stem, suffix+1, ext)
+		}
+		file, err := os.OpenFile(candidate, os.O_WRONLY|os.O_CREATE|os.O_EXCL, privateFileMode)
+		if err == nil {
+			return candidate, file, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return "", nil, err
+		}
+	}
 }
 
 // DefaultOutputDir returns the default place to write images.
@@ -62,9 +91,6 @@ func DefaultOutputDir() string {
 // client.OutputFormat 默认。文件扩展名走 client.FileExtForFormat 标准化(jpeg→jpg)。
 func BuildImageName(mode client.Mode, prompt, timestamp, outputFormat string) string {
 	_ = mode
-	if len(timestamp) >= len("20060102-150405") {
-		timestamp = timestamp[:len("20060102-150405")]
-	}
 	ext := client.FileExtForFormat(outputFormat)
 	return fmt.Sprintf("%s-%s.%s", timestamp, promptSnippetForFileName(prompt), ext)
 }

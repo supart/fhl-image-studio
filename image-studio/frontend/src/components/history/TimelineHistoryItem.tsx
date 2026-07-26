@@ -27,7 +27,7 @@ export function TimelineHistoryItem({
   onToggleCompare: () => void;
   onOpenMenu: (x: number, y: number) => void;
 }) {
-  const { isMac, usesFluentUI } = usePlatform();
+  const { usesMacDesktopUI, usesFluentUI } = usePlatform();
   const previewURL = useBlobURL(item.previewBlob ?? item.imageBlob ?? null, item.imageB64 ?? null);
   const imageSrc = historyPreviewSrc(item, previewURL);
   const fullImageSrc = historyFullSrc(item, previewURL);
@@ -92,7 +92,7 @@ export function TimelineHistoryItem({
               </button>
               <span className="text-[10px] text-zinc-400/90 dark:text-zinc-500">双击设为源图</span>
             </div>
-            <div className={`${isMac ? "mt-3 flex flex-wrap items-center gap-2" : "mt-3 flex flex-wrap gap-2"}`}>
+            <div className={`${usesMacDesktopUI ? "mt-3 flex flex-wrap items-center gap-2" : "mt-3 flex flex-wrap gap-2"}`}>
               <button onClick={onSelect} className={`platform-pill inline-flex min-h-[34px] min-w-[78px] items-center justify-center px-3 py-1.5 text-[11px] font-medium text-zinc-600 hover:text-[var(--accent)] ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}>查看</button>
               <button onClick={onReuse} className={`platform-pill inline-flex min-h-[34px] min-w-[96px] items-center justify-center px-3 py-1.5 text-[11px] font-medium text-zinc-600 hover:text-[var(--accent)] ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}>设为源图</button>
               <button onClick={onToggleCompare} className={`platform-pill inline-flex min-h-[30px] min-w-[68px] items-center justify-center px-2.5 text-[11px] font-medium ${isCompare ? "text-[var(--accent)]" : "text-zinc-500 hover:text-[var(--accent)]"} ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}>对比</button>

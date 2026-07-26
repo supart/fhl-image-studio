@@ -5,6 +5,8 @@ import {
   type BrowserJobEvent,
   type BrowserJobListResponse,
   type BrowserJobSubmitPayload,
+  type BrowserJobSubmitManyRequest,
+  type BrowserJobSubmitManyResponse,
   type BrowserJobSubmitResponse,
 } from "./browserJobContracts.ts";
 
@@ -35,6 +37,17 @@ export async function submitBrowserJobGroup(payload: BrowserJobSubmitPayload): P
     body: JSON.stringify(payload),
   });
   return readJSON<BrowserJobSubmitResponse>(response);
+}
+
+export async function submitBrowserJobGroups(
+  payload: BrowserJobSubmitManyRequest,
+): Promise<BrowserJobSubmitManyResponse> {
+  const response = await fetch(`${BROWSER_JOB_PROXY_PREFIX}/submit-many`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return readJSON<BrowserJobSubmitManyResponse>(response);
 }
 
 export async function listBrowserJobGroups(workspaceId: string, limit = 50): Promise<BrowserJobListResponse> {
@@ -74,8 +87,8 @@ function parseSSEPayload(raw: string): BrowserJobEvent | null {
   }
 }
 
-export function subscribeToBrowserJob(
-  jobId: string,
+function subscribeToBrowserEventStream(
+  query: { jobId?: string; workspaceId?: string },
   onEvent: (event: BrowserJobEvent) => void,
   onError?: (error: Error) => void,
   onClose?: () => void,
@@ -84,7 +97,8 @@ export function subscribeToBrowserJob(
   void (async () => {
     try {
       const url = new URL(`${browserOrigin()}${BROWSER_JOB_PROXY_PREFIX}/events`);
-      url.searchParams.set("jobId", jobId);
+      if (query.workspaceId) url.searchParams.set("workspaceId", query.workspaceId);
+      else if (query.jobId) url.searchParams.set("jobId", query.jobId);
       const response = await fetch(url.toString(), {
         method: "GET",
         headers: { Accept: "text/event-stream" },
@@ -119,4 +133,22 @@ export function subscribeToBrowserJob(
     }
   })();
   return () => controller.abort();
+}
+
+export function subscribeToBrowserJob(
+  jobId: string,
+  onEvent: (event: BrowserJobEvent) => void,
+  onError?: (error: Error) => void,
+  onClose?: () => void,
+) {
+  return subscribeToBrowserEventStream({ jobId }, onEvent, onError, onClose);
+}
+
+export function subscribeToBrowserWorkspace(
+  workspaceId: string,
+  onEvent: (event: BrowserJobEvent) => void,
+  onError?: (error: Error) => void,
+  onClose?: () => void,
+) {
+  return subscribeToBrowserEventStream({ workspaceId }, onEvent, onError, onClose);
 }

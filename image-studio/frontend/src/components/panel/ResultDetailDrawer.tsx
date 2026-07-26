@@ -1,18 +1,19 @@
 import { ClipboardCopy, Compass, Folder, RotateCw, Save, Share2, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
 import type React from "react";
 import {
   buildHistoryItemDragExport,
   writeImageFileDragData,
   writeInternalHistoryItemDragData,
 } from "../../lib/dragExport.ts";
-import { historyPreviewSrc, useBlobURL } from "../../lib/images";
+import { dataURLFromBase64, historyPreviewSrc, useBlobURL } from "../../lib/images";
 import { apiSourceDetailLabel } from "../history/historyApiSource";
 import { qualityLabel, sizeLabel } from "../history/historyLabels";
 import { useHistoryContextMenu } from "../history/useHistoryContextMenu";
 import { usePlatform } from "../../platform/context";
 import { submitShortcutLabel } from "../../platform";
 import { androidSaveHint, androidTarget, openOutputLocationForPlatform } from "../../platform/android/bridge";
-import { BeginNativeFileDrag, OpenOutputDir } from "../../platform/runtime/host";
+import { BeginNativeFileDrag, OpenOutputDir, ReadImageAsBase64 } from "../../platform/runtime/host";
 import { resolvePanoramaRoundtripRef } from "../../panorama/core";
 import { useStudioStore } from "../../state/studioStore";
 import { ContextMenu } from "../common/ContextMenu";
@@ -36,17 +37,43 @@ export function ResultDetailDrawer() {
   const deleteHistoryItem = useStudioStore((s) => s.deleteHistoryItem);
   const saveHistoryItemAs = useStudioStore((s) => s.saveHistoryItemAs);
   const shareHistoryItem = useStudioStore((s) => s.shareHistoryItem);
-  const { isMac, usesFluentUI } = usePlatform();
+  const { isMacHost, usesFluentUI } = usePlatform();
 
-  if (!item) return null;
   const detail = item;
-  const canRepastePanorama = !!resolvePanoramaRoundtripRef(detail);
+  const [failedPreviewKey, setFailedPreviewKey] = useState("");
+  const [savedPathFallback, setSavedPathFallback] = useState({ key: "", src: "" });
+  const canRepastePanorama = !!detail && !!resolvePanoramaRoundtripRef(detail);
   const canOpenPanorama = true;
 
-  const created = new Date(detail.createdAt).toLocaleString();
-  const previewURL = useBlobURL(detail.previewBlob ?? detail.imageBlob ?? null, detail.imageB64 ?? null);
-  const imageSrc = historyPreviewSrc(detail, previewURL);
-  const dragSpec = buildHistoryItemDragExport(detail, imageSrc);
+  const created = detail ? new Date(detail.createdAt).toLocaleString() : "";
+  const previewURL = useBlobURL(detail?.previewBlob ?? detail?.imageBlob ?? null, detail?.imageB64 ?? null);
+  const previewKey = `${detail?.id ?? ""}|${detail?.previewUrl ?? ""}`;
+  const savedPathKey = `${detail?.id ?? ""}|${detail?.savedPath ?? ""}`;
+  const previewUrlFailed = !!detail?.previewUrl && failedPreviewKey === previewKey;
+  const savedPathFallbackURL = savedPathFallback.key === savedPathKey ? savedPathFallback.src : "";
+  const fallbackImageSrc = previewURL
+    || (detail?.imageB64 ? dataURLFromBase64(detail.imageB64) : "")
+    || savedPathFallbackURL;
+  const imageSrc = detail && previewUrlFailed
+    ? fallbackImageSrc
+    : detail ? historyPreviewSrc(detail, previewURL) : "";
+
+  useEffect(() => {
+    if (!detail || !previewUrlFailed || fallbackImageSrc || !detail.savedPath) return;
+    let active = true;
+    void ReadImageAsBase64(detail.savedPath)
+      .then((imageB64) => {
+        if (active && imageB64) {
+          setSavedPathFallback({ key: savedPathKey, src: dataURLFromBase64(imageB64) });
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [detail, fallbackImageSrc, previewUrlFailed, savedPathKey]);
+
+  const dragSpec = detail ? buildHistoryItemDragExport(detail, imageSrc) : null;
   const {
     buildMenu,
     closeMenu,
@@ -75,21 +102,28 @@ export function ResultDetailDrawer() {
     pushToast,
   });
 
+  if (!detail) return null;
+  const resolvedDetail = detail;
+
+  function handlePreviewLoadError() {
+    if (imageSrc === resolvedDetail.previewUrl) setFailedPreviewKey(previewKey);
+  }
+
   function handlePreviewDragStart(event: React.DragEvent<HTMLDivElement>) {
     if (!dragSpec) {
       event.preventDefault();
       return;
     }
     event.stopPropagation();
-    if (isMac && detail.savedPath) {
+    if (isMacHost && resolvedDetail.savedPath) {
       event.preventDefault();
-      void BeginNativeFileDrag(detail.savedPath).catch((error) => {
+      void BeginNativeFileDrag(resolvedDetail.savedPath).catch((error) => {
         console.error("[drag-export] native-file-drag failed", error);
       });
       return;
     }
     event.dataTransfer.effectAllowed = "copy";
-    writeInternalHistoryItemDragData(event.dataTransfer, detail);
+    writeInternalHistoryItemDragData(event.dataTransfer, resolvedDetail);
     writeImageFileDragData(event.dataTransfer, dragSpec);
   }
 
@@ -100,7 +134,7 @@ export function ResultDetailDrawer() {
     );
   }
 
-  function useAsNextPrompt(text: string) {
+  function applyAsNextPrompt(text: string) {
     setField("prompt", text);
     pushToast(`已应用为下次提示词，${submitShortcutLabel} 可直接提交`, "success");
     close();
@@ -127,10 +161,13 @@ export function ResultDetailDrawer() {
             className={`flex items-center justify-center border border-black/[0.08] bg-[var(--surface)] p-2 dark:border-white/[0.06] ${usesFluentUI ? "rounded-[10px]" : "rounded-[16px]"}`}
           >
             <img
+              data-testid="image-studio-result-detail-preview"
+              data-preview-fallback={previewUrlFailed ? (imageSrc ? "ready" : "loading") : "none"}
               src={imageSrc}
               alt="生成结果"
               decoding="async"
               draggable={false}
+              onError={handlePreviewLoadError}
               className={`max-h-[300px] max-w-full object-contain ${usesFluentUI ? "rounded-[8px]" : "rounded-[12px]"}`}
             />
           </div>
@@ -185,7 +222,7 @@ export function ResultDetailDrawer() {
                   <ClipboardCopy className="h-3 w-3" />
                   复制
                 </Btn>
-                <Btn onClick={() => useAsNextPrompt(detail.prompt)}>
+                <Btn onClick={() => applyAsNextPrompt(detail.prompt)}>
                   <RotateCw className="h-3 w-3" />
                   用作下次提示词
                 </Btn>
@@ -209,7 +246,7 @@ export function ResultDetailDrawer() {
                   <ClipboardCopy className="h-3 w-3" />
                   复制
                 </Btn>
-                <Btn primary onClick={() => useAsNextPrompt(detail.revisedPrompt!)}>
+                <Btn primary onClick={() => applyAsNextPrompt(detail.revisedPrompt!)}>
                   <RotateCw className="h-3 w-3" />
                   用作下次提示词
                 </Btn>

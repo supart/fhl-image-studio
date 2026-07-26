@@ -9,6 +9,7 @@ import type {
   StreamPreviewMap,
   Workspace,
 } from "../types/domain";
+import { providerModeLabel } from "../lib/providerPolicy.ts";
 
 export type APIModeValue = "responses" | "images" | "apimart" | "runninghub";
 
@@ -63,11 +64,7 @@ export function normalizeAPIMode(mode: string): APIModeValue {
 }
 
 export function apiModeLabel(mode: string): string {
-  const normalized = normalizeAPIMode(mode);
-  if (normalized === "images") return "Images API";
-  if (normalized === "apimart") return "APIMart 异步 API";
-  if (normalized === "runninghub") return "RunningHub bridge";
-  return "Responses API";
+  return providerModeLabel(normalizeAPIMode(mode));
 }
 
 export function normalizeConcurrencyLimit(value: unknown): number {
@@ -113,6 +110,10 @@ export function normalizeBatchProcessConcurrency(value: unknown): number {
   return Math.max(1, Math.min(MAX_BATCH_PROCESS_CONCURRENCY, Math.floor(n)));
 }
 
+function isVolatileMemoryPath(value: unknown): boolean {
+  return typeof value === "string" && value.trim().startsWith("memory://");
+}
+
 export function normalizeBatchProcessConfig(value: unknown): BatchProcessConfig {
   const source = value && typeof value === "object"
     ? value as Partial<BatchProcessConfig>
@@ -141,8 +142,9 @@ export function normalizeBatchProcessConfig(value: unknown): BatchProcessConfig 
       });
     }
   }
+  const inputDir = typeof source.inputDir === "string" ? source.inputDir.trim() : "";
   return {
-    inputDir: typeof source.inputDir === "string" ? source.inputDir.trim() : "",
+    inputDir: isVolatileMemoryPath(inputDir) ? "" : inputDir,
     outputMode: source.outputMode === "custom_dir" ? "custom_dir" : "source_dir",
     outputDir: typeof source.outputDir === "string" ? source.outputDir.trim() : "",
     concurrency: normalizeBatchProcessConcurrency(source.concurrency),
@@ -280,7 +282,9 @@ export function workspaceRunningCount(
 ): number {
   const cleanProfileId = String(apiProfileId || "").trim();
   return Object.values(s.runningJobMeta)
-    .filter((job) => job.apiMode === apiMode)
-    .filter((job) => !cleanProfileId || job.apiProfileId === cleanProfileId)
+    // A profile is the capacity owner. When it is known, Images and Responses
+    // jobs must share its limit across a global FHL transport switch. Calls
+    // without a profile ID keep the historic API-mode fallback behavior.
+    .filter((job) => cleanProfileId ? job.apiProfileId === cleanProfileId : job.apiMode === apiMode)
     .length;
 }
