@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, CheckCircle2, LoaderCircle, Save, Settings2, TestTube2, Trash2 } from "lucide-react";
 import { validateAPIKeyForHeader } from "../../lib/apiKey";
 import {
+  apiModeRequiresDirectAPIKey,
   FHL_BASE_URL,
   FHL_IMAGE_MODEL_ID,
   FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT,
   FHL_IMAGES_POOL_SLOT_COUNT,
   mapFHLImagesProfilesToPoolSlots,
+  normalizeFHLImagesPoolKeyHint,
 } from "../../lib/profiles";
 import { usePlatform } from "../../platform/context";
 import { useStudioStore } from "../../state/studioStore";
@@ -120,6 +122,18 @@ export function FHLImagesPoolConfig({
     })));
   }
 
+  async function activateConfiguredPoolFallbackIfNeeded() {
+    const state = useStudioStore.getState();
+    const currentConnectionReady = !!state.baseURL.trim()
+      && (!apiModeRequiresDirectAPIKey(state.apiMode) || !!state.apiKey.trim());
+    if (currentConnectionReady) return;
+
+    const fallback = mapFHLImagesProfilesToPoolSlots(state.profiles).find((profile) => (
+      !!profile && normalizeFHLImagesPoolKeyHint(profile.fhlImagesPoolKeyHint) !== undefined
+    ));
+    if (fallback) await setActiveProfile(fallback.id);
+  }
+
   async function testSavedPoolSlot(index: number, profile: UpstreamProfile): Promise<boolean> {
     setTestingSlotIndex(index);
     setSlotConnectionResults((current) => ({ ...current, [index]: { status: "testing" } }));
@@ -205,6 +219,7 @@ export function FHLImagesPoolConfig({
           });
         }
       }
+      await activateConfiguredPoolFallbackIfNeeded();
       refreshAfterMutation({ clearAllKeys: true });
       if (autoTest) {
         const pendingMessage = `${transportLabel} 连续池配置已保存，正在自动测试连接...`;
