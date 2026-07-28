@@ -150,11 +150,11 @@ jobs:
         working-directory: image-studio
         shell: pwsh
         env:
-          IMAGE_STUDIO_PRODUCT_VERSION: "2.0.3"
-          IMAGE_STUDIO_FRONTEND_VERSION: "2.0.3"
-          VITE_APP_VERSION: "2.0.3"
+          IMAGE_STUDIO_PRODUCT_VERSION: "2.0.3.1"
+          IMAGE_STUDIO_FRONTEND_VERSION: "2.0.3.1"
+          VITE_APP_VERSION: "2.0.3.1"
           IMAGE_STUDIO_STORAGE_NAMESPACE: fhl-image-studio-desktop
-        run: wails build -platform windows/amd64 -clean -ldflags "-X github.com/yuanhua/image-gptcodex/pkg/client.Version=2.0.3"
+        run: wails build -platform windows/amd64 -clean -ldflags "-X github.com/yuanhua/image-gptcodex/pkg/client.Version=2.0.3.1"
 
   macos-arm64:
     name: macOS Apple Silicon package
@@ -179,7 +179,7 @@ jobs:
           bash scripts/package-local-macos-app.sh "$RUNNER_TEMP/release-assets"
           node scripts/verify-local-macos-release.mjs \
             "image-studio/build/bin/FHL Studio.app" \
-            "$RUNNER_TEMP/release-assets/FHL-Image-Studio-Desktop-V2.0.3-macOS-AppleSilicon.dmg"
+            "$RUNNER_TEMP/release-assets/FHL-Image-Studio-Desktop-V2.0.3.1-macOS-AppleSilicon.dmg"
 
   release-hygiene:
     name: Release hygiene

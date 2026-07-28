@@ -12,7 +12,7 @@ import { openExternalURLForPlatform } from "../../platform/android/bridge";
 import { OpenExternalURL } from "../../platform/runtime/host";
 
 const BRAND_TITLE = "FHL Image Studio 方汤圆版";
-const BRAND_VERSION = "V2.0.3";
+const BRAND_VERSION = "V2.0.3.1";
 const HEADER_LOGO_SRC = "favicon.png";
 const FHL_QQ_GROUP = "207550870";
 const FHL_QQ_PROMO = `FHL官方QQ交流群:${FHL_QQ_GROUP} 进群免费获取GPT image2生图福利！`;

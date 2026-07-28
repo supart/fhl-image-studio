@@ -1,7 +1,7 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
   "name": "fhl-studio",
-  "outputfilename": "FHL Studio 方汤圆版 V2.0.3",
+  "outputfilename": "FHL Studio 方汤圆版 V2.0.3.1",
   "frontend:install": "npm ci",
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
@@ -13,7 +13,7 @@
   "info": {
     "companyName": "YuanHua",
     "productName": "FHL Studio",
-    "productVersion": "2.0.3",
+    "productVersion": "2.0.3.1",
     "copyright": "Copyright © 2026",
     "comments": "Independent FHL image generation/editing GUI built with Wails (Go + React/TS)"
   }

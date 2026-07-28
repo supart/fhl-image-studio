@@ -2,7 +2,8 @@
 
 ## Development Track
 
-- Desktop, CLI, Skill, source package, and finished packages are version `V2.0.3`.
+- The current macOS desktop, CLI, Skill, source package, and DMG are version `V2.0.3.1`.
+- The existing Windows Portable release remains `V2.0.3` and is not an asset of the `V2.0.3.1` macOS release.
 - Windows uses Wails/WebView2 and a Portable ZIP. macOS uses Wails/WKWebView, Apple Silicon, macOS 13+, and a DMG.
 - macOS keeps native host capabilities but intentionally renders the Windows-parity Fluent desktop UI.
 - Imported external images must be materialized into managed paths. Packaged E2E checks must cover reference previews, batch images, and result previews.

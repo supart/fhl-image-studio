@@ -42,7 +42,7 @@ const (
 	defaultOutputFormat  = "png"
 )
 
-var packageVersion = "V2.0.3"
+var packageVersion = "V2.0.3.1"
 
 type multiFlag []string
 

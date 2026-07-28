@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT_ROOT="${1:-${OUTPUT_ROOT:-$ROOT_DIR/release-assets}}"
-PACKAGE_NAME="FHL-Image-Studio-Desktop-V2.0.3-Source"
+PACKAGE_NAME="FHL-Image-Studio-Desktop-V2.0.3.1-Source"
 
 mkdir -p "$OUTPUT_ROOT"
 OUTPUT_ROOT="$(cd "$OUTPUT_ROOT" && pwd)"

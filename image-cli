@@ -45,7 +45,7 @@ build_source_cli() {
     CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
       -trimpath \
       -buildvcs=false \
-      -ldflags "-s -w -X github.com/yuanhua/image-gptcodex/pkg/client.Version=2.0.3" \
+      -ldflags "-s -w -X github.com/yuanhua/image-gptcodex/pkg/client.Version=2.0.3.1" \
       -o "$temporary" \
       ./cmd/gptcodex-image
   ); then

@@ -1,4 +1,4 @@
-# FHL Studio V2.0.3 for macOS
+# FHL Studio V2.0.3.1 for macOS
 
 ## 系统要求
 
@@ -21,11 +21,17 @@
 - 日志：`~/Library/Logs/FHL Studio`
 - API 凭据：macOS Keychain
 
-发布包不包含 API Key、用户图片、历史记录、日志或本机设置。
+发布包使用默认设置，不包含 API Key、用户图片、历史记录、日志或本机设置。
+
+## V2.0.3.1 补丁
+
+- 修复一键配置 FHL Images 后，主界面仍显示“未配置”、需要再次进入配置验证的问题。
+- API Key 输入框现在支持 macOS 原生右键菜单，可直接粘贴已经复制的 Key。
+- 保留 V2.0.3 的 AVIF 图片反推崩溃修复及全部 macOS 功能。
 
 ## 图像反推
 
-V2.0.3 已修复导入 AVIF 预览时的 hardened-runtime 崩溃。最终 App 和 DMG 均会检查签名权限，签名后的 AVIF 回归测试及一次真实 FHL `gpt-5.5` 图片反推已通过。
+V2.0.3.1 包含 V2.0.3 的 AVIF hardened-runtime 崩溃修复。最终 App 和 DMG 均会检查签名权限。
 
 ## Codex Skill
 
@@ -33,4 +39,4 @@ V2.0.3 已修复导入 AVIF 预览时的 hardened-runtime 崩溃。最终 App �
 
 ## 开源
 
-与本 DMG 完全对应的源码位于同一 GitHub Release 的 `FHL-Image-Studio-Desktop-V2.0.3-Source.zip`。
+与本 DMG 完全对应的源码位于同一 GitHub Release 的 `FHL-Image-Studio-Desktop-V2.0.3.1-Source.zip`。

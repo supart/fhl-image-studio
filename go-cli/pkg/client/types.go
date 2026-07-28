@@ -19,7 +19,7 @@ var (
 	RetryBackoffSeconds  = 15
 	StatusIntervalSecond = 10
 	// Version 在构建时通过 ldflags 注入;本地未注入时回退到开发标识。
-	Version = "2.0.3"
+	Version = "2.0.3.1"
 )
 
 // UserAgent 返回所有上游请求统一使用的客户端标识。
