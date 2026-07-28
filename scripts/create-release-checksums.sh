@@ -2,8 +2,8 @@
 set -euo pipefail
 
 OUTPUT_ROOT="${1:-release-assets}"
-DMG="FHL-Image-Studio-Desktop-V2.0.3-macOS-AppleSilicon.dmg"
-SOURCE="FHL-Image-Studio-Desktop-V2.0.3-Source.zip"
+DMG="FHL-Image-Studio-Desktop-V2.0.3.1-macOS-AppleSilicon.dmg"
+SOURCE="FHL-Image-Studio-Desktop-V2.0.3.1-Source.zip"
 
 for artifact in "$DMG" "$SOURCE"; do
   if [[ ! -f "$OUTPUT_ROOT/$artifact" ]]; then

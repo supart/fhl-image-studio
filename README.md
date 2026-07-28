@@ -1,4 +1,4 @@
-# FHL Image Studio 方汤圆修改版 V2.0.3
+# FHL Image Studio 方汤圆修改版 V2.0.3.1
 
 > 开源致谢：Image-Studio 原作者 RoseKhlifa
 >
@@ -6,7 +6,7 @@
 >
 > 方汤圆修改版项目地址：https://github.com/supart/fhl-image-studio
 
-FHL Image Studio 方汤圆修改版是基于 Image-Studio 的独立修改发行版，面向桌面端图片生成、图生图、编辑和提示词工作流。本仓库为桌面版 `V2.0.3` 源码，采用 AGPLv3 发布，不内置任何 API Key、测试图片或个人本机配置。
+FHL Image Studio 方汤圆修改版是基于 Image-Studio 的独立修改发行版，面向桌面端图片生成、图生图、编辑和提示词工作流。本仓库当前对应 macOS `V2.0.3.1` 源码，采用 AGPLv3 发布，不内置任何 API Key、测试图片或个人本机配置。既有 Windows Portable 保持 `V2.0.3`，不作为本次 macOS 补丁附件上传。
 
 本项目与上游原项目无隶属、背书或维护关系。请在二次分发、公开部署或网络服务使用时遵守 AGPLv3 的源码提供义务。
 
@@ -59,8 +59,9 @@ Photoshop UXP 插件作为与桌面版、安卓版并列的独立项目维护，
 - [构建与发布](./docs/build.md)
 - [项目结构](./docs/project-structure.md)
 - [macOS 安装与数据位置](./README_MACOS.md)
+- [V2.0.3.1 发布说明](./RELEASE_NOTES_DESKTOP_V2.0.3.1.md)
+- [V2.0.3.1 验收报告](./V2.0.3.1_ACCEPTANCE_REPORT.md)
 - [V2.0.3 发布说明](./RELEASE_NOTES_DESKTOP_V2.0.3.md)
-- [V2.0.3 验收报告](./V2.0.3_ACCEPTANCE_REPORT.md)
 
 单批实现和排错过程记录在 [`docs/changes/`](./docs/changes/)；`PROJECT_CONTEXT.md` 只用于当前开发断点和接手恢复，不作为长期产品说明。
 
@@ -155,7 +156,7 @@ macOS 使用 `image-cli`，调用 DMG 或 Codex Skill 安装的 arm64 CLI，并�
 .\image-cli.cmd --status --json
 ```
 
-`--status --json` 只读返回当前包版本、活动 API、模型、尺寸与目录状态；API Key 只显示是否已配置，不会打印明文。`fhl-image-studio-v2-0-3` Skill 使用这个状态自动跟随桌面 UI 当前同步的 profile。
+`--status --json` 只读返回当前包版本、活动 API、模型、尺寸与目录状态；API Key 只显示是否已配置，不会打印明文。macOS `fhl-image-studio-v2-0-3-1` Skill 使用这个状态自动跟随桌面 UI 当前同步的 profile。
 
 ### Codex 全局 Skill 使用流程
 
@@ -196,7 +197,7 @@ wails build
 powershell -ExecutionPolicy Bypass -File .\scripts\check-compliance-package.ps1 -Root .
 ```
 
-CI 会在 GitHub Actions 中执行 Go、前端及平台构建和发布安全检查。正式 `v2.0.3` 使用已经人工验收的本地 Mac DMG、完整 Source ZIP 和 SHA256；Release 重建工作流只允许手动触发，避免 tag 创建时覆盖已测试成品。
+CI 会在 GitHub Actions 中执行 Go、前端及平台构建和发布安全检查。正式 `v2.0.3.1` 只发布已经人工验收的 macOS DMG、完整 Source ZIP 和 SHA256；Release 重建工作流只允许手动触发，避免 tag 创建时覆盖已测试成品。既有 `v2.0.3` Release 和附件继续保留。
 
 ## API 配置
 

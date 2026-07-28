@@ -1,9 +1,9 @@
 ---
-name: fhl-image-studio-v2-0-3
-description: Use when Codex should generate or edit images through a local FHL Studio V2.0.3 package on macOS or Windows, inspect the active GUI-synced profile, or run the bundled image CLI across FHL Images API, APIMart, and RunningHub bridge profiles.
+name: fhl-image-studio-v2-0-3-1
+description: Use when Codex should generate or edit images through a local FHL Studio V2.0.3.1 package on macOS, inspect the active GUI-synced profile, or run the bundled image CLI across FHL Images API, APIMart, and RunningHub bridge profiles.
 ---
 
-# FHL Studio V2.0.3 Local CLI
+# FHL Studio V2.0.3.1 Local CLI
 
 Use this package CLI instead of another image generator when the FHL Studio workflow applies.
 

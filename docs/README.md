@@ -1,6 +1,6 @@
 # FHL Image Studio 文档中心
 
-本目录是 FHL Image Studio 方汤圆修改版的统一文档入口。当前索引对应桌面版 `V2.0.3` 源码树；代码、发布产物和本机运行数据之间的边界以本文档及[项目结构](./project-structure.md)为准。
+本目录是 FHL Image Studio 方汤圆修改版的统一文档入口。当前索引对应 macOS `V2.0.3.1` 源码树；代码、发布产物和本机运行数据之间的边界以本文档及[项目结构](./project-structure.md)为准。
 
 ## 快速入口
 
@@ -31,8 +31,9 @@
 | 文档 | 记录内容 |
 | --- | --- |
 | [CHANGELOG](../CHANGELOG.md) | 跨版本、面向发布的功能与修复摘要 |
-| [V2.0.3 发布说明](../RELEASE_NOTES_DESKTOP_V2.0.3.md) | 单一版本的交付内容、产物和已知边界 |
-| [V2.0.3 验收报告](../V2.0.3_ACCEPTANCE_REPORT.md) | 测试矩阵、Portable 产物校验和残余风险 |
+| [V2.0.3.1 发布说明](../RELEASE_NOTES_DESKTOP_V2.0.3.1.md) | 当前 macOS 补丁的交付内容、产物和已知边界 |
+| [V2.0.3.1 验收报告](../V2.0.3.1_ACCEPTANCE_REPORT.md) | 当前 macOS 补丁的测试、安全和产物校验 |
+| [V2.0.3 发布说明](../RELEASE_NOTES_DESKTOP_V2.0.3.md) | 上一版 macOS 的完整功能交付记录 |
 | [详细变更记录](./changes/) | 每个开发批次、事故调查或性能验证的完整过程 |
 | [当前开发交接](../PROJECT_CONTEXT.md) | 当前状态、精确断点、验证结果和恢复方式 |
 

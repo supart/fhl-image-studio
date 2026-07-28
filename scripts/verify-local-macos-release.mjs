@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const appBundle = resolve(process.argv[2] || join(root, "image-studio/build/bin/FHL Studio.app"));
-const dmgPath = resolve(process.argv[3] || join(root, "release-assets/FHL-Image-Studio-Desktop-V2.0.3-macOS-AppleSilicon.dmg"));
+const dmgPath = resolve(process.argv[3] || join(root, "release-assets/FHL-Image-Studio-Desktop-V2.0.3.1-macOS-AppleSilicon.dmg"));
 const plistPath = join(appBundle, "Contents/Info.plist");
 
 function run(command, args, options = {}) {
@@ -50,7 +50,7 @@ const [identifier, version, minimumSystem, category] = await Promise.all([
   plistValue("LSApplicationCategoryType"),
 ]);
 if (identifier !== "top.fangtangyuan.fhlstudio") throw new Error(`unexpected bundle identifier: ${identifier}`);
-if (version !== "2.0.3") throw new Error(`unexpected version: ${version}`);
+if (version !== "2.0.3.1") throw new Error(`unexpected version: ${version}`);
 if (minimumSystem !== "13.0") throw new Error(`unexpected minimum macOS: ${minimumSystem}`);
 if (category !== "public.app-category.graphics-design") throw new Error(`unexpected category: ${category}`);
 
@@ -92,7 +92,7 @@ try {
   ]);
   const lines = status.stdout.trim().split(/\r?\n/).filter(Boolean);
   const parsed = JSON.parse(lines.at(-1));
-  if (!/^v?2\.0\.3$/i.test(String(parsed.packageVersion || ""))) {
+  if (!/^v?2\.0\.3\.1$/i.test(String(parsed.packageVersion || ""))) {
     throw new Error(`CLI version mismatch: ${parsed.packageVersion}`);
   }
   if (parsed.apiKeyConfigured !== false) throw new Error("release CLI unexpectedly contains an API Key");

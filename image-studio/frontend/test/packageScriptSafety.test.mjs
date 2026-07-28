@@ -28,8 +28,8 @@ test("manual release workflow publishes only macOS and source assets", async () 
     "utf8",
   );
 
-  assert.match(workflow, /FHL-Image-Studio-Desktop-V2\.0\.3-macOS-AppleSilicon\.dmg/);
-  assert.match(workflow, /FHL-Image-Studio-Desktop-V2\.0\.3-Source\.zip/);
+  assert.match(workflow, /FHL-Image-Studio-Desktop-V2\.0\.3\.1-macOS-AppleSilicon\.dmg/);
+  assert.match(workflow, /FHL-Image-Studio-Desktop-V2\.0\.3\.1-Source\.zip/);
   assert.match(workflow, /SHA256SUMS\.txt/);
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /tag_name:\s*\$\{\{ inputs\.tag \}\}/);

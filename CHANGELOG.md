@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## Desktop V2.0.3.1 - 2026-07-28
+
+### Fixed
+
+- 修复一键配置并验证 FHL Images API 后，工作区和右侧上游区域仍显示“未配置”的状态同步问题。
+- 当前连接为空时自动选择第一个已配置的 FHL Images 槽，同时保留已有有效的其他上游连接。
+- macOS 生产构建中的 API Key 输入框现在支持原生右键菜单和“粘贴”。
+
+### Release
+
+- macOS 应用、内置 CLI、Skill、DMG 和对应源码统一升级为 `V2.0.3.1`，内部构建号为 `2031`。
+- 本次只新增 macOS Apple Silicon DMG、完整源码 ZIP 和 SHA256，不上传 Windows 成品，不删除或覆盖 `v2.0.3` Release。
+- 发布包恢复默认设置，并继续排除 API Key、本机配置、历史记录、用户图片、日志和构建缓存。
+
 ## Desktop V2.0.3 - 2026-07-26
 
 ### Added
