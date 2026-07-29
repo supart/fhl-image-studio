@@ -38,12 +38,14 @@ export function HistoryApiSourceBadge({
         apiMode: "responses",
         apiProfileId: source.apiProfileId || matchedProfile?.id,
         apiProfileName: source.apiProfileName || matchedProfile?.name,
+        fhlImagesPoolSlot: source.fhlImagesPoolSlot ?? matchedProfile?.fhlImagesPoolSlot,
       }
     : matchedProfile && matchedProfileMatchesMode
       ? {
           apiMode: matchedProfile.apiMode,
           apiProfileId: source.apiProfileId || matchedProfile.id,
           apiProfileName: source.apiProfileName || matchedProfile.name,
+          fhlImagesPoolSlot: source.fhlImagesPoolSlot ?? matchedProfile.fhlImagesPoolSlot,
         }
       : source;
   const label = apiSourceShortLabel(resolvedSource);

@@ -823,7 +823,7 @@ test("runtimeHost ChooseBatchOutputDir uses the local preview directory picker e
     globalThis.fetch = async (url, init) => {
       assert.equal(String(url), "/__image-studio-files/choose-directory");
       requestBody = JSON.parse(String(init?.body || "{}"));
-      return new Response(JSON.stringify({ path: "I:/AI/Image-Studio/output/batch-test" }), {
+      return new Response(JSON.stringify({ path: "D:/FHL-Test/output/batch-test" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -831,7 +831,7 @@ test("runtimeHost ChooseBatchOutputDir uses the local preview directory picker e
   }, async () => {
     const runtimeHost = await loadRuntimeHost();
     const chosen = await runtimeHost.ChooseBatchOutputDir();
-    assert.equal(chosen, "I:/AI/Image-Studio/output/batch-test");
+    assert.equal(chosen, "D:/FHL-Test/output/batch-test");
     assert.deepEqual(requestBody, { title: "选择批处理输出目录" });
   });
 });
@@ -848,7 +848,7 @@ test("runtimeHost ChooseOutputDir uses the local preview directory picker endpoi
     globalThis.fetch = async (url, init) => {
       assert.equal(String(url), "/__image-studio-files/choose-directory");
       requestBody = JSON.parse(String(init?.body || "{}"));
-      return new Response(JSON.stringify({ path: "I:/AI/Image-Studio/output/manual-choice" }), {
+      return new Response(JSON.stringify({ path: "D:/FHL-Test/output/manual-choice" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -856,7 +856,7 @@ test("runtimeHost ChooseOutputDir uses the local preview directory picker endpoi
   }, async () => {
     const runtimeHost = await loadRuntimeHost();
     const chosen = await runtimeHost.ChooseOutputDir();
-    assert.equal(chosen, "I:/AI/Image-Studio/output/manual-choice");
+    assert.equal(chosen, "D:/FHL-Test/output/manual-choice");
     assert.deepEqual(requestBody, { title: "选择输出目录" });
   });
 });

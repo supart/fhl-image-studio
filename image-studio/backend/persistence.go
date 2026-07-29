@@ -65,11 +65,6 @@ func fileExists(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
-func dirExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
-}
-
 func portableOutputDir(root string) string {
 	return filepath.Join(root, "output")
 }

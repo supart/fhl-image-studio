@@ -26,7 +26,7 @@ import (
 var assets embed.FS
 
 const (
-	packageVersion = "2.0.3.1"
+	packageVersion = "2.0.3"
 	defaultE2EPort = 9230
 )
 
@@ -63,7 +63,25 @@ func main() {
 	desktopAPI := backend.NewDesktopAPI(svc)
 	svc.SetAutomationStatus(automationStatus)
 
-	appOptions := newBaseAppOptions(svc, desktopAPI)
+	appOptions := &options.App{
+		Title:     "FHL Studio",
+		Width:     1440,
+		Height:    980,
+		MinWidth:  1100,
+		MinHeight: 780,
+		AssetServer: &assetserver.Options{
+			Assets:     assets,
+			Handler:    svc.MediaHandler(http.NotFoundHandler()),
+			Middleware: svc.MediaHandler,
+		},
+		BackgroundColour:         &options.RGBA{R: 18, G: 20, B: 26, A: 1},
+		EnableDefaultContextMenu: true,
+		OnStartup:                svc.StartupWithPSBridge,
+		OnShutdown:               svc.Shutdown,
+		Bind: []interface{}{
+			desktopAPI,
+		},
+	}
 
 	if runtime.GOOS == "darwin" {
 		appOptions.Mac = &wailsmac.Options{
@@ -114,28 +132,6 @@ func main() {
 
 	if err != nil {
 		println("Error:", err.Error())
-	}
-}
-
-func newBaseAppOptions(svc *backend.Service, desktopAPI *backend.DesktopAPI) *options.App {
-	return &options.App{
-		Title:     "FHL Studio",
-		Width:     1440,
-		Height:    980,
-		MinWidth:  1100,
-		MinHeight: 780,
-		AssetServer: &assetserver.Options{
-			Assets:     assets,
-			Handler:    svc.MediaHandler(http.NotFoundHandler()),
-			Middleware: svc.MediaHandler,
-		},
-		BackgroundColour:         &options.RGBA{R: 18, G: 20, B: 26, A: 1},
-		OnStartup:                svc.StartupWithPSBridge,
-		OnShutdown:               svc.Shutdown,
-		EnableDefaultContextMenu: true,
-		Bind: []interface{}{
-			desktopAPI,
-		},
 	}
 }
 

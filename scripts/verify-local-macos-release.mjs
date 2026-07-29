@@ -1,117 +1,78 @@
 import { spawn } from "node:child_process";
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
-import { constants } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
 
-const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const appBundle = resolve(process.argv[2] || join(root, "image-studio/build/bin/FHL Studio.app"));
-const dmgPath = resolve(process.argv[3] || join(root, "release-assets/FHL-Image-Studio-Desktop-V2.0.3.1-macOS-AppleSilicon.dmg"));
-const plistPath = join(appBundle, "Contents/Info.plist");
+const root = process.cwd();
+const projectRoot = `${root}/image-studio`;
+const appBundle = `${projectRoot}/build/bin/FHL Studio.app`;
+const executable = `${appBundle}/Contents/MacOS/image-studio`;
+const plistPath = `${appBundle}/Contents/Info.plist`;
 
-function run(command, args, options = {}) {
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, {
-      cwd: options.cwd || root,
-      env: { ...process.env, ...(options.env || {}) },
-      stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+function run(cmd, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, {
+      cwd: options.cwd ?? root,
+      env: { ...process.env, ...(options.env ?? {}) },
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: false,
     });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => { stdout += chunk.toString("utf8"); });
     child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
-    if (options.input !== undefined) child.stdin.end(options.input);
     child.on("error", reject);
     child.on("exit", (code) => {
-      if (code === 0) resolvePromise({ stdout, stderr });
-      else reject(new Error(`${command} ${args.join(" ")} exited with ${code}\n${stderr || stdout}`));
+      if (code === 0) resolve({ stdout, stderr });
+      else reject(new Error(`${cmd} ${args.join(" ")} exited with ${code ?? 1}\n${stderr || stdout}`));
     });
   });
 }
 
-async function plistValue(key) {
-  const result = await run("plutil", ["-extract", key, "raw", "-o", "-", plistPath]);
-  return result.stdout.trim();
-}
+const packEnv = {
+  VITE_APP_VERSION: process.env.VITE_APP_VERSION ?? "local-macos-release-check",
+};
 
-await access(appBundle, constants.R_OK);
-await access(dmgPath, constants.R_OK);
-const executableName = await plistValue("CFBundleExecutable");
-const executable = join(appBundle, "Contents/MacOS", executableName);
-const cli = join(appBundle, "Contents/Resources/runtime/cli/gptcodex-image");
-const wrapper = join(appBundle, "Contents/Resources/image-cli");
-for (const path of [executable, cli, wrapper]) await access(path, constants.X_OK);
+await run("bash", ["scripts/package-local-macos-app.sh"], { cwd: root, env: packEnv });
 
-const [identifier, version, minimumSystem, category] = await Promise.all([
-  plistValue("CFBundleIdentifier"),
-  plistValue("CFBundleShortVersionString"),
-  plistValue("LSMinimumSystemVersion"),
-  plistValue("LSApplicationCategoryType"),
-]);
-if (identifier !== "top.fangtangyuan.fhlstudio") throw new Error(`unexpected bundle identifier: ${identifier}`);
-if (version !== "2.0.3.1") throw new Error(`unexpected version: ${version}`);
-if (minimumSystem !== "13.0") throw new Error(`unexpected minimum macOS: ${minimumSystem}`);
-if (category !== "public.app-category.graphics-design") throw new Error(`unexpected category: ${category}`);
+const frontendBuild = await run("npm", ["run", "build:macos"], { cwd: `${projectRoot}/frontend` });
 
-const lipo = await run("lipo", ["-archs", executable]);
-if (lipo.stdout.trim() !== "arm64") throw new Error(`application is not arm64-only: ${lipo.stdout.trim()}`);
-const cliLipo = await run("lipo", ["-archs", cli]);
-if (cliLipo.stdout.trim() !== "arm64") throw new Error(`CLI is not arm64-only: ${cliLipo.stdout.trim()}`);
+const goTest = await run("go", ["test", "./..."], {
+  cwd: projectRoot,
+  env: {
+    GOPATH: `${root}/.gopath`,
+    GOMODCACHE: `${root}/.gomodcache`,
+    GOCACHE: `${root}/.gocache`,
+  },
+});
 
-await run("codesign", ["--verify", "--deep", "--strict", appBundle]);
-const entitlementDump = await run("codesign", ["-d", "--entitlements", ":-", appBundle]);
-const entitlementOutput = `${entitlementDump.stdout}\n${entitlementDump.stderr}`;
-const plistStart = entitlementOutput.indexOf("<?xml");
-const plistEnd = entitlementOutput.indexOf("</plist>");
-if (plistStart < 0 || plistEnd < plistStart) throw new Error("signed application has no readable entitlements");
-const signedEntitlements = entitlementOutput.slice(plistStart, plistEnd + "</plist>".length);
-const normalizedEntitlements = await run(
-  "plutil",
-  ["-convert", "json", "-o", "-", "-"],
-  { input: signedEntitlements },
-);
-const parsedEntitlements = JSON.parse(normalizedEntitlements.stdout);
-if (parsedEntitlements["com.apple.security.cs.allow-unsigned-executable-memory"] !== true) {
-  throw new Error("signed application does not permit the Wazero AVIF executable-memory fallback");
-}
-await run("hdiutil", ["verify", dmgPath]);
+const lipoInfo = await run("lipo", ["-info", executable]);
+const codesignInfo = await run("codesign", ["-dv", "--verbose=2", appBundle]);
+const plistRaw = await readFile(plistPath, "utf8");
 
-const checkRoot = await mkdtemp(join(tmpdir(), "fhl-cli-release-check-"));
-try {
-  const config = join(appBundle, "Contents/Resources/config/cli.env.example");
-  const input = join(checkRoot, "input");
-  const output = join(checkRoot, "output");
-  const logs = join(checkRoot, "logs");
-  const status = await run(cli, [
-    "--status", "--json", "--no-input",
-    "--config", config,
-    "--input-dir", input,
-    "--out-dir", output,
-    "--raw-dir", logs,
-  ]);
-  const lines = status.stdout.trim().split(/\r?\n/).filter(Boolean);
-  const parsed = JSON.parse(lines.at(-1));
-  if (!/^v?2\.0\.3\.1$/i.test(String(parsed.packageVersion || ""))) {
-    throw new Error(`CLI version mismatch: ${parsed.packageVersion}`);
+const requiredPlistSnippets = [
+  "<string>top.fangtangyuan.fhlstudio</string>",
+  "<string>FHL Studio</string>",
+  "<string>image-studio</string>",
+];
+
+for (const snippet of requiredPlistSnippets) {
+  if (!plistRaw.includes(snippet)) {
+    throw new Error(`Info.plist missing expected snippet: ${snippet}`);
   }
-  if (parsed.apiKeyConfigured !== false) throw new Error("release CLI unexpectedly contains an API Key");
-} finally {
-  await rm(checkRoot, { recursive: true, force: true });
 }
 
-const plist = await readFile(plistPath, "utf8");
-if (!plist.includes("NSAllowsLocalNetworking")) throw new Error("Info.plist does not allow the local RunningHub bridge");
+if (!/x86_64 arm64/.test(lipoInfo.stdout)) {
+  throw new Error(`universal binary verification failed: ${lipoInfo.stdout}`);
+}
+
+if (!/Identifier=top\.gptcodex\.imagestudio/.test(codesignInfo.stdout + codesignInfo.stderr)) {
+  throw new Error(`codesign output missing expected bundle identifier:\n${codesignInfo.stdout}\n${codesignInfo.stderr}`);
+}
 
 console.log(JSON.stringify({
-  appBundle,
-  dmgPath,
-  architecture: "arm64",
-  bundleIdentifier: identifier,
-  version,
-  minimumSystem,
-  codesign: "ad-hoc hardened runtime verified",
-  executableMemoryEntitlement: "verified",
-  dmg: "verified",
-  cliStatus: "verified",
+  packageScript: "ok",
+  frontendBuild: /built in/.test(frontendBuild.stdout),
+  goTest: /ok\s+image-studio\/backend/.test(goTest.stdout) || /\[no test files\]/.test(goTest.stdout),
+  universalBinary: lipoInfo.stdout.trim(),
+  codesign: (codesignInfo.stdout + codesignInfo.stderr).trim(),
+  plistVerified: true,
 }, null, 2));

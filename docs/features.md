@@ -25,7 +25,9 @@
 - 每个已启用 Images Key 使用相同的 `1–5/API` 并发设置；10 Key × `4/API` 的总容量为 40。
 - 调度按 API1→API10 轮询，多轮填满每个 Key 的有效容量；单个 API 临时降级不压低其他 API。
 - 一轮最多批量提交 50 个独立任务，每张图保留独立 `clientTaskId`、group、job、取消、来源和历史记录。
-- 单图生成只使用第一个已启用 API；批量图生图根据源图数量创建任务，并由总容量决定运行和排队。
+- 连续模式下每次明确点击“生成”严格只创建 1 个任务；运行中可以继续点击，任务按已启用 API 轮询分配，超过总容量后进入队列并在任一任务结算后自动补位。
+- 关闭连续模式时仍按单次张数创建任务；批量图生图继续根据所选源图数量创建任务，不受“一次一张”的连续模式规则影响。
+- 原生桌面端重启后，旧的排队、提交中和运行中任务保留为“已中断”卡片，不会被下一次生成点击自动唤醒；浏览器后台代理仍按真实后台任务对账。
 - 批量结果、完整历史和输入队列使用虚拟滚动；列表只加载最长边 384px 的 AVIF 缩略图。
 - 成功图片置顶显示 5 秒后恢复任务顺序，不强制改变用户当前滚动位置。
 
@@ -88,7 +90,7 @@
 
 | 平台 | UI | 内核与宿主能力 |
 |---|---|---|
-| macOS | Windows V2.0.3 完整 Fluent 内容区 | Wails + Go 本地内核；WKWebView、Keychain、Mac 快捷键和系统对话框；图像变换优先 Core Image / Metal；arm64 DMG。 |
+| macOS | Apple 风格主题 | Wails + Go 本地内核；图像变换优先 Core Image / Metal；本地自签 universal app。 |
 | Windows | Fluent 风格主题 | Wails + Go 本地内核；WebView2；图像变换走 WebGL/canvas 或本地持久化回退。 |
 | Linux | 通用桌面主题 | Wails + Go 本地内核；依赖 GTK/WebKitGTK；图像变换走 WebGL/canvas 或本地持久化回退。 |
 | Android | Material 3 phone/pad 自适应 | WebView 壳层 + 前端远程内核；壳层提供 native HTTP、图片选择、MediaStore 保存、历史导入导出、震动与全屏。 |

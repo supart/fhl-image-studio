@@ -25,6 +25,11 @@ var retryableMarkers = []string{
 func IsRetryable(raw string) bool {
 	text := strings.TrimSpace(raw)
 	lower := strings.ToLower(text)
+	if upstreamErr, ok := upstreamErrorFromRaw(text); ok &&
+		strings.EqualFold(strings.TrimSpace(upstreamErr.Type), "invalid_request_error") &&
+		strings.Contains(strings.ToLower(upstreamErr.Message), "mask is not supported") {
+		return false
+	}
 	for _, m := range retryableMarkers {
 		if strings.Contains(lower, m) {
 			return true

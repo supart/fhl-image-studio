@@ -12,7 +12,7 @@ import { openExternalURLForPlatform } from "../../platform/android/bridge";
 import { OpenExternalURL } from "../../platform/runtime/host";
 
 const BRAND_TITLE = "FHL Image Studio 方汤圆版";
-const BRAND_VERSION = "V2.0.3.1";
+const BRAND_VERSION = "V2.0.3";
 const HEADER_LOGO_SRC = "favicon.png";
 const FHL_QQ_GROUP = "207550870";
 const FHL_QQ_PROMO = `FHL官方QQ交流群:${FHL_QQ_GROUP} 进群免费获取GPT image2生图福利！`;
@@ -48,7 +48,7 @@ async function copyText(text: string) {
 }
 
 export function AppHeaderBrand() {
-  const { isAndroidPhone, isAndroidPad, usesFluentUI, usesMacDesktopUI, usesWindowsDesktopUI, usesAndroidUI } = usePlatform();
+  const { isAndroidPhone, isAndroidPad, usesFluentUI, isMac, isWindows, usesAndroidUI } = usePlatform();
   const profiles = useStudioStore((state) => state.profiles);
   const apiKey = useStudioStore((state) => state.apiKey);
   const apiMode = useStudioStore((state) => state.apiMode);
@@ -155,7 +155,7 @@ export function AppHeaderBrand() {
     );
   }
 
-  if (usesWindowsDesktopUI) {
+  if (isWindows) {
     return (
       <>
         <div className="flex min-w-0 items-center gap-2.5">
@@ -256,7 +256,7 @@ export function AppHeaderBrand() {
 
   return (
     <div className="flex min-w-0 items-center gap-3.5">
-      <span className={`inline-flex shrink-0 items-center justify-center border border-white/44 bg-white/70 text-[var(--accent)] shadow-[0_12px_32px_rgb(15_23_42_/_0.12)] dark:border-white/10 dark:bg-white/[0.06] ${usesFluentUI ? "h-8 w-8 rounded-[10px]" : usesMacDesktopUI ? "h-10 w-10 rounded-[14px]" : "h-10 w-10 rounded-[13px]"}`}>
+      <span className={`inline-flex shrink-0 items-center justify-center border border-white/44 bg-white/70 text-[var(--accent)] shadow-[0_12px_32px_rgb(15_23_42_/_0.12)] dark:border-white/10 dark:bg-white/[0.06] ${usesFluentUI ? "h-8 w-8 rounded-[10px]" : isMac ? "h-10 w-10 rounded-[14px]" : "h-10 w-10 rounded-[13px]"}`}>
         <img
           className={`object-cover ${usesFluentUI ? "h-7 w-7 rounded-[9px]" : "h-9 w-9 rounded-[12px]"}`}
           src={HEADER_LOGO_SRC}
@@ -270,7 +270,7 @@ export function AppHeaderBrand() {
             className={`android-header-title truncate text-zinc-900 dark:text-zinc-100 ${
               usesFluentUI
                 ? "font-[600] text-[14px] tracking-[0]"
-                : usesMacDesktopUI
+                : isMac
                   ? "text-[16px] font-semibold tracking-[0]"
                   : "text-[16px] font-semibold tracking-[0]"
             }`}
@@ -287,7 +287,7 @@ export function AppHeaderBrand() {
             {BRAND_VERSION}
           </span>
         </div>
-        {usesMacDesktopUI ? (
+        {isMac ? (
           <div className="mt-1 truncate text-[12px] leading-none text-zinc-500 dark:text-zinc-400">
             图像工作区
           </div>

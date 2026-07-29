@@ -37,7 +37,7 @@ export function ResultDetailDrawer() {
   const deleteHistoryItem = useStudioStore((s) => s.deleteHistoryItem);
   const saveHistoryItemAs = useStudioStore((s) => s.saveHistoryItemAs);
   const shareHistoryItem = useStudioStore((s) => s.shareHistoryItem);
-  const { isMacHost, usesFluentUI } = usePlatform();
+  const { isMac, usesFluentUI } = usePlatform();
 
   const detail = item;
   const [failedPreviewKey, setFailedPreviewKey] = useState("");
@@ -115,7 +115,7 @@ export function ResultDetailDrawer() {
       return;
     }
     event.stopPropagation();
-    if (isMacHost && resolvedDetail.savedPath) {
+    if (isMac && resolvedDetail.savedPath) {
       event.preventDefault();
       void BeginNativeFileDrag(resolvedDetail.savedPath).catch((error) => {
         console.error("[drag-export] native-file-drag failed", error);

@@ -279,6 +279,30 @@ func TestPrepareUploadSourcePathsReturnsOpaquePath(t *testing.T) {
 	}
 }
 
+func TestPrepareUploadSourcePathsKeepsPreparedBaseAndCompressesReferences(t *testing.T) {
+	dir := t.TempDir()
+	basePath := filepath.Join(dir, "prepared-base.png")
+	referencePath := filepath.Join(dir, "reference.png")
+	writeTestPNG(t, basePath, 2400, 1200, color.NRGBA{R: 20, G: 80, B: 160, A: 255})
+	writeTestPNG(t, referencePath, 2400, 1200, color.NRGBA{R: 160, G: 80, B: 20, A: 255})
+
+	paths, cleanup, err := prepareUploadSourcePathsWithPreparedBase([]string{basePath, referencePath}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if len(paths) != 2 || paths[0] != basePath {
+		t.Fatalf("prepared base was rewritten: %#v", paths)
+	}
+	if paths[1] == referencePath {
+		t.Fatalf("reference should retain ordinary upload compression: %#v", paths)
+	}
+	width, height := decodeJPEGSize(t, paths[1])
+	if width != 1600 || height != 800 {
+		t.Fatalf("reference size = %dx%d, want 1600x800", width, height)
+	}
+}
+
 func TestPrepareTextModelUploadSingleLargeImageUses1600LongSide(t *testing.T) {
 	dir := t.TempDir()
 	srcPath := filepath.Join(dir, "large.png")

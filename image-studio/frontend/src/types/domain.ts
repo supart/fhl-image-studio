@@ -250,6 +250,7 @@ export interface HistoryItem {
   apiMode?: APIMode;
   apiProfileId?: string;
   apiProfileName?: string;
+  fhlImagesPoolSlot?: number;
   size: SizeValue;
   quality: QualityValue;
   outputFormat?: OutputFormatValue;
@@ -330,6 +331,7 @@ export interface JobGroupSnapshot {
   apiMode: APIMode;
   apiProfileId?: string;
   apiProfileName?: string;
+  fhlImagesPoolSlot?: number;
   prompt: string;
   batchCount: number;
   size: SizeValue;
@@ -360,6 +362,7 @@ export interface BatchTaskRecord {
   apiMode: APIMode;
   apiProfileId?: string;
   apiProfileName?: string;
+  fhlImagesPoolSlot?: number;
   // Captured when a continuous-pool task receives a profile. This is
   // intentionally non-sensitive; credentials remain in the OS keyring.
   apiBaseURL?: string;

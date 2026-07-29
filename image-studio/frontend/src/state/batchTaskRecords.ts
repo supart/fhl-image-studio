@@ -13,8 +13,10 @@ import type {
   SizeValue,
   PanoramaRoundtripRef,
   SourceImage,
+  Workspace,
 } from "../types/domain";
 import { normalizeRuntimeText } from "../lib/runtimeText.ts";
+import { normalizeFHLImagesPoolSlot } from "../lib/profiles.ts";
 import { latestContinuousSlotsByIndex } from "./browserJobs.ts";
 
 export type BatchTaskCreateInput = {
@@ -25,6 +27,7 @@ export type BatchTaskCreateInput = {
   apiMode: APIMode;
   apiProfileId?: string;
   apiProfileName?: string;
+  fhlImagesPoolSlot?: number;
   apiBaseURL?: string;
   continuousPoolTask?: boolean;
   prompt: string;
@@ -74,6 +77,7 @@ export function createBatchTaskRecord(input: BatchTaskCreateInput): BatchTaskRec
     apiMode: input.apiMode,
     apiProfileId: input.apiProfileId,
     apiProfileName: input.apiProfileName,
+    fhlImagesPoolSlot: normalizeFHLImagesPoolSlot(input.fhlImagesPoolSlot),
     apiBaseURL: input.apiBaseURL,
     continuousPoolTask: input.continuousPoolTask === true,
     prompt: input.prompt,
@@ -113,6 +117,24 @@ export function sortedBatchTasksForWorkspace(
     .sort((a, b) => a.slotIndex - b.slotIndex || a.createdAt - b.createdAt);
 }
 
+export function referencedBatchTasksForWorkspaces(
+  workspaces: readonly Pick<Workspace, "id" | "batchTaskIds">[],
+  tasksById: Record<string, BatchTaskRecord>,
+) {
+  const seen = new Set<string>();
+  const tasks: BatchTaskRecord[] = [];
+  for (const workspace of workspaces) {
+    for (const taskId of workspace.batchTaskIds ?? []) {
+      if (seen.has(taskId)) continue;
+      const task = tasksById[taskId];
+      if (!task || task.workspaceId !== workspace.id) continue;
+      seen.add(taskId);
+      tasks.push(task);
+    }
+  }
+  return tasks;
+}
+
 export function historyItemHasRenderableResult(
   item: Pick<HistoryItem, "savedPath" | "imageId" | "imageB64" | "imageBlob" | "previewUrl" | "fullUrl"> | null | undefined,
 ) {
@@ -132,6 +154,7 @@ export function minimalHistoryItemFromBatchTask(task: BatchTaskRecord): HistoryI
     apiMode: task.apiMode,
     apiProfileId: task.apiProfileId,
     apiProfileName: task.apiProfileName,
+    fhlImagesPoolSlot: normalizeFHLImagesPoolSlot(task.fhlImagesPoolSlot),
     size: task.size,
     quality: task.quality,
     outputFormat: task.outputFormat,
@@ -358,6 +381,8 @@ export function updateTasksFromJobGroup(
         : (slot.updatedAt || Date.now()),
       apiProfileId: group.apiProfileId || task.apiProfileId,
       apiProfileName: group.apiProfileName || task.apiProfileName,
+      fhlImagesPoolSlot: normalizeFHLImagesPoolSlot(group.fhlImagesPoolSlot)
+        ?? normalizeFHLImagesPoolSlot(task.fhlImagesPoolSlot),
       runId: group.runId || task.runId,
       launchState: undefined,
       launchStartedAt: undefined,
@@ -410,6 +435,42 @@ export function markMissingJobTasksInterrupted(
       lastLogLine: "本地任务记录已失效",
     };
     changed = true;
+  }
+  return changed ? next : current;
+}
+
+export const RESTORED_DIRECT_TASK_INTERRUPTED_MESSAGE = "桌面端已重启，旧任务不会自动继续，可单独重试。";
+
+export function interruptRestoredDirectTasks(
+  current: Record<string, BatchTaskRecord>,
+  workspaces: readonly Pick<Workspace, "id" | "batchTaskIds">[],
+  now = Date.now(),
+) {
+  let changed = false;
+  const next = { ...current };
+  for (const workspace of workspaces) {
+    for (const taskId of workspace.batchTaskIds ?? []) {
+      const task = next[taskId];
+      if (!task || task.workspaceId !== workspace.id) continue;
+      if (task.status !== "queued" && task.status !== "running") continue;
+      next[task.id] = {
+        ...task,
+        status: "interrupted",
+        updatedAt: now,
+        launchState: undefined,
+        launchAttempt: undefined,
+        launchStartedAt: undefined,
+        jobId: undefined,
+        groupId: undefined,
+        queuedReason: undefined,
+        queuePriority: undefined,
+        autoRetryScheduledAt: undefined,
+        autoRetryReason: undefined,
+        errorMessage: RESTORED_DIRECT_TASK_INTERRUPTED_MESSAGE,
+        lastLogLine: RESTORED_DIRECT_TASK_INTERRUPTED_MESSAGE,
+      };
+      changed = true;
+    }
   }
   return changed ? next : current;
 }
@@ -499,4 +560,46 @@ export function updateTaskForSlot(
       updatedAt: patch.updatedAt ?? Date.now(),
     },
   };
+}
+
+export function updateTaskById(
+  current: Record<string, BatchTaskRecord>,
+  workspaceTaskIds: readonly string[],
+  workspaceId: string,
+  taskId: string,
+  patch: Partial<BatchTaskRecord>,
+) {
+  if (!workspaceTaskIds.includes(taskId)) return current;
+  const task = current[taskId];
+  if (!task || task.workspaceId !== workspaceId) return current;
+  if (task.status === "cancelled" && patch.status !== "cancelled") return current;
+  return {
+    ...current,
+    [task.id]: {
+      ...task,
+      ...patch,
+      updatedAt: patch.updatedAt ?? Date.now(),
+    },
+  };
+}
+
+export function claimBatchTaskForLaunch(
+  current: Record<string, BatchTaskRecord>,
+  workspaceTaskIds: readonly string[],
+  workspaceId: string,
+  taskId: string,
+  patch: Partial<BatchTaskRecord>,
+) {
+  if (!workspaceTaskIds.includes(taskId)) return { batchTasksById: current, claimed: false };
+  const task = current[taskId];
+  if (!task || task.workspaceId !== workspaceId) return { batchTasksById: current, claimed: false };
+  const claimable = task.status === "queued"
+    ? !task.jobId
+    : task.status === "failed" || task.status === "interrupted";
+  if (!claimable) return { batchTasksById: current, claimed: false };
+  const batchTasksById = updateTaskById(current, workspaceTaskIds, workspaceId, taskId, {
+    ...patch,
+    status: "running",
+  });
+  return { batchTasksById, claimed: batchTasksById !== current };
 }

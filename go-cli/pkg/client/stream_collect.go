@@ -155,6 +155,9 @@ func (c *responseCollector) result() (ImageResult, error) {
 	if res, ok := c.extractor.result(); ok {
 		return res, nil
 	}
+	if err := c.extractor.error(); err != nil {
+		return ImageResult{}, err
+	}
 	if c.fallback.Len() > 0 {
 		return ExtractImageResult(c.fallback.String())
 	}
@@ -191,6 +194,7 @@ type streamImageExtractor struct {
 	final         ImageResult
 	hasFinal      bool
 	onPartial     func(PartialImage)
+	upstreamErr   error
 }
 
 func (e *streamImageExtractor) consume(line []byte) bool {
@@ -219,6 +223,10 @@ func (e *streamImageExtractor) consumeJSONPayload(payload []byte) bool {
 	var ev Event
 	if err := decodeEventBytes(payload, &ev); err != nil {
 		return false
+	}
+	if upstreamErr, ok := upstreamErrorFromEvent(ev); ok {
+		e.upstreamErr = upstreamErr
+		return true
 	}
 	evType, _ := ev["type"].(string)
 	switch evType {
@@ -293,6 +301,10 @@ func (e *streamImageExtractor) result() (ImageResult, bool) {
 		}, true
 	}
 	return ImageResult{}, false
+}
+
+func (e *streamImageExtractor) error() error {
+	return e.upstreamErr
 }
 
 func numberFromAny(value any) (int, bool) {

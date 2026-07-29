@@ -28,7 +28,7 @@
 
 当前这份桌面源码树不包含 `android-shell/`。`docs/` 中的 Android 和跨平台文件是历史记录或协作参考，不是本仓库当前可直接执行的 Android 构建入口。
 
-整体工作区另有独立的 `FHL-Image-Studio方汤圆版-PS插件开发/`。它与桌面源码、安卓版并列维护，拥有自己的 manifest、UXP 代码、测试、文档和 CCX，不复制到本桌面源码包或 Portable 中。
+Photoshop 插件是独立销售和维护的项目，只通过本机 Bridge v1 接口使用桌面能力。它不参与桌面编译和打包，也不进入本桌面版 GitHub、源码包或 Portable。桌面源码只保留 `ps_bridge.go` 等接口实现、合同测试和兼容版本说明，不保存插件源码、CCX、安装工具或销售文件。
 
 ## `image-studio/`
 
@@ -120,8 +120,7 @@ go-cli/
 - `check-release-safety.ps1`、`check-compliance-package.ps1`：发布负载与合规扫描。
 - `start-desktop-e2e.cmd`：启动隔离的桌面 E2E 模式。
 - `verify-local-platform-kernel.mjs`、`local-smoke-check.mjs`：跨运行时和本地模拟验证。
-- `package-local-macos-app.sh`、`verify-local-macos-release.mjs`：macOS arm64 App/DMG 构建与验证。
-- `package-release-source.sh`、`check-release-source.mjs`：完整对应源码包与跨平台安全扫描。
+- `package-local-macos-app.sh`、`verify-local-macos-release.mjs`：macOS 本地构建与验证。
 
 ## Workflows
 

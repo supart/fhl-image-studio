@@ -341,7 +341,6 @@ export interface StudioState {
   dismissStarPrompt: () => void;
   resetCurrentWorkspaceDraft: () => void;
   setFHLPoolPerAPIConcurrencyLimit: (limit: number) => Promise<void>;
-  runContinuousPressureTest: (count: number) => Promise<void>;
   newWorkspace: (name?: string) => void;
   switchWorkspace: (id: string) => void;
   closeWorkspace: (id: string) => void;

@@ -10,6 +10,7 @@ import { planBatchGridLayout } from "./batchGridLayout";
 import { Modal } from "../common/Modal";
 import { HistoryApiSourceBadge } from "../history/HistoryApiSourceBadge";
 import type { HistoryApiSource } from "../history/historyApiSource";
+import { apiSourceDetailLabel } from "../history/historyApiSource";
 import { RawResponseModal } from "../history/RawResponseModal";
 import { RECENT_BATCH_SUCCESS_PIN_MS, sortBatchGridSlotsForDisplay } from "./batchGridDisplayOrder";
 import { ReadImageAsBase64, RegisterMediaAsset } from "../../platform/runtime/host";
@@ -105,6 +106,7 @@ function failureLogText(slot: Extract<BatchGridSlot, { type: "failed" }>, index:
     slot.jobId ? `Job ID: ${slot.jobId}` : "",
     slot.groupId ? `任务组: ${slot.groupId}` : "",
     slot.prompt ? `Prompt: ${slot.prompt}` : "",
+    slot.apiSource ? `API: ${apiSourceDetailLabel(slot.apiSource)}` : "",
     compactText(slot.logMessage) ? `日志: ${compactText(slot.logMessage)}` : "",
     slot.rawPath ? `原始响应: ${slot.rawPath}` : "",
   ].filter(Boolean);

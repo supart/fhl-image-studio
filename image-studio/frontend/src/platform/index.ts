@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 export type UIPlatform = "macos" | "windows" | "linux" | "ios" | "android" | "web";
 export type UITargetPlatform = UIPlatform | "android-pad";
 export type UIFamily = "apple" | "fluent" | "android" | "generic";
-export type DesktopUIVariant = "native" | "windows-parity";
 export type AndroidWindowClass = "compact" | "medium" | "expanded";
 
 const ANDROID_MEDIUM_WIDTH_DP = 600;
@@ -47,21 +46,6 @@ function readTargetOverrideFromURL(): UITargetPlatform | null {
   } catch {
     return null;
   }
-}
-
-function readDesktopUIVariant(): DesktopUIVariant {
-  if (typeof window !== "undefined") {
-    try {
-      const params = new URLSearchParams(window.location?.search ?? "");
-      const override = (params.get("desktop-ui") ?? params.get("ui") ?? "").trim().toLowerCase();
-      if (override === "windows-parity") return "windows-parity";
-    } catch {
-      // Build-time configuration remains the fallback.
-    }
-  }
-  const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
-  const raw = env?.VITE_DESKTOP_UI_VARIANT?.trim().toLowerCase();
-  return raw === "windows-parity" ? "windows-parity" : "native";
 }
 
 type AndroidBridgeMetrics = {
@@ -191,13 +175,6 @@ function familyForTarget(value: UITargetPlatform): UIFamily {
   }
 }
 
-function presentationPlatformForTarget(value: UITargetPlatform): UITargetPlatform {
-  if (readDesktopUIVariant() === "windows-parity" && value === "macos") {
-    return "windows";
-  }
-  return value;
-}
-
 const rawTargetPlatform = detectRawTargetPlatform();
 
 export function targetPlatformForViewport(): UITargetPlatform {
@@ -208,16 +185,12 @@ export function targetPlatformForViewport(): UITargetPlatform {
 export function readRuntimePlatformState() {
   const target = targetPlatformForViewport();
   const platform = normalizeRuntimePlatform(target);
-  const presentationPlatform = presentationPlatformForTarget(target);
-  const uiFamily = familyForTarget(presentationPlatform);
+  const uiFamily = familyForTarget(target);
   const androidWidthClass = platform === "android" ? androidWidthClassForViewport() : undefined;
   const androidHeightClass = platform === "android" ? androidHeightClassForViewport() : undefined;
   const androidOrientation = platform === "android" ? androidOrientationForViewport() : undefined;
   return {
     targetPlatform: target,
-    hostPlatform: platform,
-    presentationPlatform,
-    desktopUIVariant: readDesktopUIVariant(),
     platform,
     uiFamily,
     androidWidthClass,
@@ -226,13 +199,8 @@ export function readRuntimePlatformState() {
     isAndroid: platform === "android",
     isAndroidPad: target === "android-pad",
     isAndroidPhone: target === "android",
-    isMacHost: platform === "macos" || platform === "ios",
-    isWindowsHost: platform === "windows",
-    usesMacDesktopUI: presentationPlatform === "macos" || presentationPlatform === "ios",
-    usesWindowsDesktopUI: presentationPlatform === "windows",
-    // Compatibility aliases describe presentation, not host capabilities.
-    isMac: presentationPlatform === "macos" || presentationPlatform === "ios",
-    isWindows: presentationPlatform === "windows",
+    isMac: platform === "macos" || platform === "ios",
+    isWindows: platform === "windows",
     isLinux: platform === "linux",
     usesAppleUI: uiFamily === "apple",
     usesFluentUI: uiFamily === "fluent",
@@ -253,10 +221,6 @@ export const usesFluentUI = initialState.usesFluentUI;
 export const usesAndroidUI = initialState.usesAndroidUI;
 export const isMac = initialState.isMac;
 export const isWindows = initialState.isWindows;
-export const isMacHost = initialState.isMacHost;
-export const isWindowsHost = initialState.isWindowsHost;
-export const usesMacDesktopUI = initialState.usesMacDesktopUI;
-export const usesWindowsDesktopUI = initialState.usesWindowsDesktopUI;
 export const isLinux = initialState.isLinux;
 
 export function applyPlatformAttributes(root: HTMLElement = document.documentElement) {
@@ -264,8 +228,6 @@ export function applyPlatformAttributes(root: HTMLElement = document.documentEle
   const state = readRuntimePlatformState();
   root.dataset.platform = state.platform;
   root.dataset.targetPlatform = state.targetPlatform;
-  root.dataset.presentationPlatform = state.presentationPlatform;
-  root.dataset.desktopUiVariant = state.desktopUIVariant;
   root.dataset.uiFamily = state.uiFamily;
   if (state.androidWidthClass) root.dataset.androidWindowWidth = state.androidWidthClass;
   else delete root.dataset.androidWindowWidth;
@@ -303,22 +265,22 @@ export function useRuntimePlatform() {
   return state;
 }
 
-export const primaryModifierLabel = isMacHost ? "⌘" : "Ctrl";
-export const redoShortcutLabel = isMacHost ? "⇧⌘Z" : "Ctrl+Shift+Z";
-export const newTabShortcutLabel = isMacHost ? "⌘N" : "Ctrl+N";
-export const closeTabShortcutLabel = isMacHost ? "⌘W" : "Ctrl+W";
-export const submitShortcutLabel = isMacHost ? "⌘Enter" : "Ctrl+Enter";
-export const copyShortcutLabel = isMacHost ? "⌘C" : "Ctrl+C";
-export const pasteShortcutLabel = isMacHost ? "⌘V" : "Ctrl+V";
-export const undoShortcutLabel = isMacHost ? "⌘Z" : "Ctrl+Z";
-export const fullscreenShortcutLabel = isMacHost ? "⌃⌘F" : "F11";
+export const primaryModifierLabel = isMac ? "⌘" : "Ctrl";
+export const redoShortcutLabel = isMac ? "⇧⌘Z" : "Ctrl+Shift+Z";
+export const newTabShortcutLabel = isMac ? "⌘N" : "Ctrl+N";
+export const closeTabShortcutLabel = isMac ? "⌘W" : "Ctrl+W";
+export const submitShortcutLabel = isMac ? "⌘Enter" : "Ctrl+Enter";
+export const copyShortcutLabel = isMac ? "⌘C" : "Ctrl+C";
+export const pasteShortcutLabel = isMac ? "⌘V" : "Ctrl+V";
+export const undoShortcutLabel = isMac ? "⌘Z" : "Ctrl+Z";
+export const fullscreenShortcutLabel = isMac ? "⌃⌘F" : "F11";
 
 export function platformOutputRootLabel() {
   const state = readRuntimePlatformState();
   if (state.isAndroidPad) return "应用图片目录 / MediaStore Pictures";
   if (state.isAndroidPhone) return "系统下载 / 分享面板";
-  if (state.isMacHost) return "~/Pictures/FHL Studio";
-  if (state.isWindowsHost) return "%USERPROFILE%\\Documents\\FHL Studio";
+  if (state.isMac) return "~/Pictures/FHL Studio";
+  if (state.isWindows) return "%USERPROFILE%\\Documents\\FHL Studio";
   return "~/Pictures/FHL Studio";
 }
 
@@ -326,7 +288,7 @@ export function platformRuntimeLabel() {
   const state = readRuntimePlatformState();
   if (state.isAndroidPad) return "Android Pad WebView / Material 3 adaptive frontend";
   if (state.isAndroidPhone) return "Android WebView / Material 3 phone frontend";
-  if (state.isMacHost) return "Wails v2 / WKWebView";
-  if (state.isWindowsHost) return "Wails v2 / WebView2";
+  if (state.isMac) return "Wails v2 / WKWebView";
+  if (state.isWindows) return "Wails v2 / WebView2";
   return "Wails v2 / WebKitGTK";
 }

@@ -76,23 +76,18 @@ foreach ($file in @(
   "COMPLIANCE.md",
   "go.work",
   "go.work.sum",
-  "image-cli",
   "image-cli.cmd",
   "LICENSE",
   "NOTICE.md",
   "README.md",
-  "README_MACOS.md",
   "RELEASE_NOTES_DESKTOP_V2.0.1.md",
   "RELEASE_NOTES_DESKTOP_V2.0.2.md",
   "RELEASE_NOTES_DESKTOP_V2.0.2.1.md",
   "RELEASE_NOTES_DESKTOP_V2.0.3.md",
   "V2.0.3_ACCEPTANCE_REPORT.md",
-  "SKILL.md",
   "start-ui.cmd",
   "一键启动FHL Studio V2.0.3.cmd",
-  "一键启动FHL Studio V2.0.3-兼容入口.cmd",
-  "安装CodexSkill.cmd",
-  "安装CodexSkill.command"
+  "一键启动FHL Studio V2.0.3-兼容入口.cmd"
 )) {
   Copy-IfExists (Join-Path $Root $file) (Join-Path $StageRoot $file)
 }
@@ -107,12 +102,6 @@ foreach ($pattern in @(
     ForEach-Object {
       Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $StageRoot $_.Name) -Force
     }
-}
-
-$skillInstaller = Get-ChildItem -LiteralPath $Root -Filter "*CodexSkill.cmd" -File -ErrorAction SilentlyContinue |
-  Select-Object -First 1
-if ($skillInstaller) {
-  Copy-Item -LiteralPath $skillInstaller.FullName -Destination (Join-Path $StageRoot $skillInstaller.Name) -Force
 }
 
 foreach ($dir in @(".github", "cloudflare-worker", "docs", "go-cli", "image-studio", "LICENSES", "scripts", "shared")) {

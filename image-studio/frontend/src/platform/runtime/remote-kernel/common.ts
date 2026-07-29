@@ -75,13 +75,17 @@ export async function resolveSourceDataURLs(
   sourceImages: KernelImageSource[] | undefined,
   payload: RemoteGeneratePayload,
 ): Promise<string[]> {
-  const ordered = sourceImages?.length
+  const ordered: KernelImageSource[] = sourceImages?.length
     ? sourceImages
     : payload.imagePaths.map((path) => ({ path, name: fileNameFromPath(path) }));
   const out: string[] = [];
-  for (const source of ordered) {
+  for (let index = 0; index < ordered.length; index += 1) {
+    const source = ordered[index];
     const dataURL = await sourceToDataURL(source);
-    if (dataURL) out.push(await compressSourceDataURLForUpload(dataURL, ordered.length));
+    if (!dataURL) continue;
+    out.push(index === 0 && source.preparedBase === true
+      ? dataURL
+      : await compressSourceDataURLForUpload(dataURL, ordered.length));
   }
   return out;
 }

@@ -1,6 +1,6 @@
 # 构建与发布
 
-本文档以当前桌面版 `V2.0.3` 源码树为准。正式交付目标包括 Windows 10/11 x64 Portable 与 macOS 13+ Apple Silicon DMG；本源码树不包含 `android-shell/`，不能直接构建 APK。
+本文档以当前桌面版 `V2.0.3` 源码树为准。当前正式交付目标是 Windows 10/11 x64；仓库仍保留 macOS、Linux 和 Android 前端目标，但本源码树不包含 `android-shell/`，不能直接构建 APK。
 
 ## V2.0.3 交付形态
 
@@ -8,17 +8,16 @@
 | --- | --- | --- |
 | GitHub 仓库与源码归档 | 主体 | AGPLv3 开源源码，是项目的主要交付和协作入口。 |
 | `FHL-Image-Studio-Desktop-V2.0.3-Windows-Portable.zip` | Windows 便利包 | 唯一预编译 Windows 包，解压后由包内启动脚本运行，数据默认保存在包内。 |
-| `FHL-Image-Studio-Desktop-V2.0.3-macOS-AppleSilicon.dmg` | Mac 成品包 | arm64 Wails App、CLI、Codex Skill 安装器与安装说明。 |
-| `FHL-Image-Studio-Desktop-V2.0.3-Source.zip` | 完整对应源码 | 排除 API、用户数据、日志、缓存和二进制的可重建源码。 |
+| `FHL-Image-Studio-Desktop-V2.0.3-Source` | 本地验收暂存 | 排除 API、用户图片、日志、本机配置、WebView 数据和二进制的干净源码。 |
 
 已发布版本从 [GitHub Releases](https://github.com/supart/fhl-image-studio/releases) 下载。项目不提供 Setup、MSI 或 MSIX；Windows 用户直接解压 Portable ZIP。
 
 ## 环境要求
 
-- Windows 10/11 x64 或 macOS 13+ Apple Silicon。
-- Node.js 24.13.1。
-- Go 1.26.3。
-- Wails CLI v2.12.0。
+- Windows 10/11 x64。
+- Node.js 20 或更新版本。
+- Go 1.25.5；`image-studio/go.mod` 当前声明 `toolchain go1.26.3`。
+- Wails CLI v2.12+。
 
 ## 克隆与启动源码
 
@@ -116,16 +115,13 @@ node .\scripts\local-smoke-check.mjs
 
 ## macOS 与 Linux
 
-构建、临时签名并验证 Apple Silicon DMG：
+仓库保留 Wails 源码构建能力：
 
 ```bash
 bash scripts/package-local-macos-app.sh
-node scripts/verify-local-macos-release.mjs
-bash scripts/package-release-source.sh
-bash scripts/create-release-checksums.sh
 ```
 
-Mac 构建固定使用 `VITE_TARGET_PLATFORM=macos` 和 `VITE_DESKTOP_UI_VARIANT=windows-parity`，数据位置遵循 macOS 标准目录。Linux 仍需要目标系统的 GTK/WebKitGTK 开发依赖。
+Linux 需要目标系统的 GTK/WebKitGTK 开发依赖，再在 `image-studio/` 中执行对应 `wails build`。这些平台当前不在 V2.0.3 Windows 正式交付验收范围内，发布前需要各自在目标系统重新验证。
 
 ## Android 说明
 
@@ -135,5 +131,5 @@ Mac 构建固定使用 `VITE_TARGET_PLATFORM=macos` 和 `VITE_DESKTOP_UI_VARIANT
 
 - `scripts/sync-version-metadata.mjs` 用于同步 Wails 和前端版本元数据。
 - `.github/workflows/ci.yml` 运行前端、Worker、Go、Windows Wails 构建和发布安全检查。
-- `.github/workflows/release.yml` 响应 `v2.0.3` 标签，构建 Windows Portable、Mac DMG、完整 Source ZIP 和 SHA256 校验文件。
+- `.github/workflows/release.yml` 仅响应 `v2.0.3` 标签，构建 Portable ZIP 并附加到 GitHub Release；源码由 GitHub 自动归档。
 - 本地 V2.0.3 验收结果记录在 [V2.0.3_ACCEPTANCE_REPORT.md](../V2.0.3_ACCEPTANCE_REPORT.md)。

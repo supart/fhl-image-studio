@@ -1,4 +1,5 @@
 import type { APIMode, HistoryItem, JobGroupSnapshot } from "../../types/domain";
+import { normalizeFHLImagesPoolSlot } from "../../lib/profiles.ts";
 
 const FHL_PROFILE_ID = "fhl-responses-default";
 
@@ -10,7 +11,12 @@ function apiModeName(mode: APIMode | string | undefined): string {
   return "";
 }
 
-export type HistoryApiSource = Pick<HistoryItem, "apiMode" | "apiProfileName" | "apiProfileId">;
+export type HistoryApiSource = Pick<HistoryItem, "apiMode" | "apiProfileName" | "apiProfileId" | "fhlImagesPoolSlot">;
+
+function poolSlotLabel(source: Pick<HistoryApiSource, "fhlImagesPoolSlot">): string {
+  const slot = normalizeFHLImagesPoolSlot(source.fhlImagesPoolSlot);
+  return slot === undefined ? "" : `FHL${slot}`;
+}
 
 function sourceLooksLikeFHL(source: HistoryApiSource): boolean {
   if (source.apiMode === "apimart" || source.apiMode === "runninghub") return false;
@@ -37,13 +43,18 @@ function shortenConfiguredName(name: string): string {
 }
 
 export function apiSourceDisplayName(source: HistoryApiSource): string {
+  const slotLabel = poolSlotLabel(source);
+  const configuredName = configuredSourceName(source);
+  if (slotLabel) return configuredName ? `${slotLabel} · ${configuredName}` : slotLabel;
   if (sourceLooksLikeFHL(source)) return "FHL";
-  const name = configuredSourceName(source);
+  const name = configuredName;
   if (name) return name;
   return apiModeName(source.apiMode);
 }
 
 export function apiSourceShortLabel(source: HistoryApiSource): string {
+  const slotLabel = poolSlotLabel(source);
+  if (slotLabel) return slotLabel;
   if (sourceLooksLikeFHL(source)) return "FHL";
   const modeName = apiModeName(source.apiMode).replace(" API", "");
   if (modeName) return modeName;
@@ -55,12 +66,14 @@ export function apiSourceShortLabel(source: HistoryApiSource): string {
 export function apiSourceDetailLabel(source: HistoryApiSource): string {
   const configuredName = configuredSourceName(source);
   const modeName = sourceLooksLikeFHL(source) ? "FHL" : apiModeName(source.apiMode);
-  if (configuredName && modeName) return `${configuredName} | ${modeName}`;
-  return configuredName || modeName;
+  const detail = configuredName && modeName ? `${configuredName} | ${modeName}` : configuredName || modeName;
+  const slotLabel = poolSlotLabel(source);
+  return slotLabel ? `${slotLabel}${detail ? ` · ${detail}` : ""}` : detail;
 }
 
-export function jobGroupApiSourceDisplayName(source: Pick<JobGroupSnapshot, "apiMode" | "apiProfileName" | "apiProfileId">): string {
+export function jobGroupApiSourceDisplayName(source: Pick<JobGroupSnapshot, "apiMode" | "apiProfileName" | "apiProfileId" | "fhlImagesPoolSlot">): string {
+  const slotLabel = poolSlotLabel(source);
   const configuredName = String(source.apiProfileName || source.apiProfileId || "").trim();
-  if (configuredName) return configuredName;
-  return apiModeName(source.apiMode);
+  const sourceName = configuredName || apiModeName(source.apiMode);
+  return slotLabel ? `${slotLabel}${sourceName ? ` · ${sourceName}` : ""}` : sourceName;
 }

@@ -69,6 +69,10 @@ func textModelUploadMaxLongSide(sourceCount int) int {
 // It returns the possibly rewritten paths plus a cleanup function for any temp
 // files that were created.
 func prepareUploadSourcePaths(paths []string) ([]string, func(), error) {
+	return prepareUploadSourcePathsWithPreparedBase(paths, false)
+}
+
+func prepareUploadSourcePathsWithPreparedBase(paths []string, preparedBase bool) ([]string, func(), error) {
 	out := make([]string, 0, len(paths))
 	tmpFiles := make([]string, 0, len(paths))
 	cleanup := func() {
@@ -77,9 +81,13 @@ func prepareUploadSourcePaths(paths []string) ([]string, func(), error) {
 		}
 	}
 
-	for _, rawPath := range paths {
+	for index, rawPath := range paths {
 		path := strings.TrimSpace(rawPath)
 		if path == "" {
+			continue
+		}
+		if preparedBase && index == 0 {
+			out = append(out, path)
 			continue
 		}
 		rewrite, tmp, err := makeImageEditUploadCopy(path)

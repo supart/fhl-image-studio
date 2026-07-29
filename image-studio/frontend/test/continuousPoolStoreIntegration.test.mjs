@@ -6,23 +6,23 @@ const storeSource = await readFile(new URL("../src/state/studioStore.ts", import
 const recordsSource = await readFile(new URL("../src/state/batchTaskRecords.ts", import.meta.url), "utf8");
 const domainSource = await readFile(new URL("../src/types/domain.ts", import.meta.url), "utf8");
 
-test("continuous single-image submission creates one task pinned to the first enabled FHL API", () => {
+test("continuous submission creates one unassigned task per click for round-robin pool assignment", () => {
   assert.match(storeSource, /const enabledFHLPool = enabledFHLPoolProfiles\(s\)/);
-  assert.match(storeSource, /const firstContinuousFHLPoolProfile = continuousGenerateTest \? enabledFHLPool\[0\] : undefined/);
   assert.match(storeSource, /const fhlPoolSubmit = continuousGenerateTest \|\| batchUsesFHLPool/);
   assert.match(storeSource, /const batchCount = batchProcessMode[\s\S]+: \(continuousGenerateTest \? 1 : normalizeBatchCount\(s\.batchCount\)\)/);
   assert.match(storeSource, /const effectiveAPIMode = fhlPoolSubmit[\s\S]+\? fhlTransportModeForState\(s\)/);
-  assert.match(storeSource, /const apiProfileSnapshot: \{ apiProfileId\?: string; apiProfileName\?: string \} = continuousGenerateTest[\s\S]+apiProfileSnapshotForSubmit\(firstContinuousFHLPoolProfile/);
+  assert.match(storeSource, /const apiProfileSnapshot: \{[\s\S]+apiProfileId\?: string;[\s\S]+apiProfileName\?: string;[\s\S]+fhlImagesPoolSlot\?: number;[\s\S]+\} = fhlPoolSubmit[\s\S]+\? \{\}/);
   assert.match(storeSource, /continuousPoolTask: fhlPoolSubmit/);
   assert.match(storeSource, /queuedReason: fhlPoolSubmit \? "continuous_pool" : undefined/);
+  assert.match(storeSource, /const shouldOpenBatchView = batchProcessMode[\s\S]+\|\| continuousGenerateTest[\s\S]+\|\| preserveCurrentBatchSession/);
   assert.match(storeSource, /if \(continuousGenerateTest\) \{[\s\S]+void requestContinuousPoolPump\(\);[\s\S]+return;/);
+  assert.doesNotMatch(storeSource, /firstContinuousFHLPoolProfile/);
   assert.doesNotMatch(storeSource, /continuousGenerateTest \? fhlPoolTaskCount/);
-  assert.doesNotMatch(storeSource, /if \(continuousGenerateTest && concurrencyLimit > 0\)/);
 });
 
 test("batch image-to-image can route through the same FHL pool assignment path", () => {
   assert.match(storeSource, /const batchUsesFHLPool = batchProcessMode && activeProfileUsesFHLTransport && hasEnabledFHLPool/);
-  assert.match(storeSource, /: batchUsesFHLPool[\s\S]+\? \{\}[\s\S]+: apiProfileSnapshotForSubmit\(activeProfile/);
+  assert.match(storeSource, /const apiProfileSnapshot: \{[\s\S]+apiProfileId\?: string;[\s\S]+apiProfileName\?: string;[\s\S]+fhlImagesPoolSlot\?: number;[\s\S]+\} = fhlPoolSubmit[\s\S]+\? \{\}/);
   assert.match(storeSource, /continuousPoolTask: batchUsesFHLPool/);
   assert.match(storeSource, /queuedReason: batchUsesFHLPool \? "continuous_pool" : "batch_shared_concurrency"/);
   assert.match(storeSource, /if \(batchUsesFHLPool\) \{[\s\S]+void requestContinuousPoolPump\(\);[\s\S]+return;/);
@@ -31,7 +31,7 @@ test("batch image-to-image can route through the same FHL pool assignment path",
 test("global pool pump round-robins enabled FHL slots and sums per-API capacity across workspaces", () => {
   assert.match(storeSource, /planContinuousPoolWave,[\s\S]+selectNextContinuousPoolProfile,[\s\S]+selectNextFailoverPoolProfile/);
   assert.match(storeSource, /function continuousPoolInFlightByProfile/);
-  assert.match(storeSource, /for \(const task of Object\.values\(state\.batchTasksById\)\)/);
+  assert.match(storeSource, /referencedBatchTasksForWorkspaces\(state\.workspaces, state\.batchTasksById\)/);
   assert.match(storeSource, /for \(const \[jobId, meta\] of Object\.entries\(state\.runningJobMeta\)\)/);
   assert.match(storeSource, /async function pumpContinuousPoolQueuePass\(\)/);
   assert.match(storeSource, /function reserveContinuousPoolWave\(\)/);
@@ -49,6 +49,31 @@ test("global pool pump round-robins enabled FHL slots and sums per-API capacity 
   assert.match(storeSource, /apiProfileName: profile\.name/);
   assert.match(storeSource, /continuousPoolEnabled === true/);
   assert.doesNotMatch(storeSource, /if \(task\.apiMode !== "images" \|\| !profileId\) continue;/);
+});
+
+test("continuous pool excludes orphan records and native transport claims an exact task before submit", () => {
+  const queueStart = storeSource.indexOf("function continuousPoolQueuedTasks");
+  const queueEnd = storeSource.indexOf("function continuousPoolInFlightByProfile", queueStart);
+  const inFlightEnd = storeSource.indexOf("function fhlPoolInFlightTotal", queueEnd);
+  const launchStart = storeSource.indexOf("async function launchOneJob");
+  const launchEnd = storeSource.indexOf("export { tempDataURLFromB64", launchStart);
+  const queueBlock = storeSource.slice(queueStart, queueEnd);
+  const inFlightBlock = storeSource.slice(queueEnd, inFlightEnd);
+  const launchBlock = storeSource.slice(launchStart, launchEnd);
+
+  assert.match(queueBlock, /referencedBatchTasksForWorkspaces\(state\.workspaces, state\.batchTasksById\)/);
+  assert.doesNotMatch(queueBlock, /Object\.values\(state\.batchTasksById\)/);
+  assert.match(inFlightBlock, /referencedBatchTasksForWorkspaces\(state\.workspaces, state\.batchTasksById\)/);
+  assert.doesNotMatch(inFlightBlock, /Object\.values\(state\.batchTasksById\)/);
+  assert.match(storeSource, /if \(!initialWorkspace\?\.batchTaskIds\.includes\(task\.id\)\) return false/);
+  assert.match(storeSource, /if \(!workspace\?\.batchTaskIds\.includes\(task\.id\)\) return false/);
+  assert.match(storeSource, /latestReferencedTaskIds\.has\(task\.id\)/);
+  assert.match(storeSource, /readyReferencedTaskIds\.has\(task\.id\)/);
+  assert.match(launchBlock, /taskId: string/);
+  assert.match(launchBlock, /claimBatchTaskForLaunch\(/);
+  assert.match(launchBlock, /if \(!launchClaimed\) return false/);
+  assert.ok(launchBlock.indexOf("if (!launchClaimed) return false") < launchBlock.indexOf("await wailsGenerate"));
+  assert.match(launchBlock, /updateTaskById\([\s\S]+snapshot\.taskId/);
 });
 
 test("assigned pool tasks use non-sensitive snapshots and multi-reference transient retries fail over once", () => {
@@ -80,7 +105,7 @@ test("cancelled task events cannot restore task state and FHL slot capacity is f
 
 test("per-API setting pumps new capacity without cancelling active tasks", () => {
   const start = storeSource.indexOf("setFHLPoolPerAPIConcurrencyLimit: async");
-  const end = storeSource.indexOf("runContinuousPressureTest: async", start);
+  const end = storeSource.indexOf("  workspaces: [],", start);
   const action = storeSource.slice(start, end);
 
   assert.ok(start >= 0 && end > start);
@@ -88,6 +113,58 @@ test("per-API setting pumps new capacity without cancelling active tasks", () =>
   assert.match(action, /persistFHLPoolPerAPIConcurrencyLimit\(normalized\)/);
   assert.match(action, /requestContinuousPoolPump\(\)/);
   assert.doesNotMatch(action, /cancel|Cancel/);
+});
+
+test("native restore interrupts stale direct tasks while browser proxy reconciliation remains separate", () => {
+  assert.match(storeSource, /if \(!isBackgroundTaskProxyMode\(\)\) \{[\s\S]+interruptRestoredDirectTasks\(/);
+  assert.match(storeSource, /staleDirectTaskIds[\s\S]+status === "queued" \|\| task\.status === "running"/);
+  assert.match(storeSource, /runningJobs: \[\],[\s\S]+progress: null,[\s\S]+streamPreviews: \{\}/);
+  assert.match(storeSource, /RESTORED_DIRECT_TASK_INTERRUPTED_MESSAGE[\s\S]+"warn"/);
+  assert.match(storeSource, /if \(isBackgroundTaskProxyMode\(\)\) \{[\s\S]+listJobGroups/);
+});
+
+test("workspace submit is single-flight and continuous submission asserts exactly one task", () => {
+  assert.match(storeSource, /const submitSingleFlight = createKeyedSingleFlight<void>\(\)/);
+  assert.match(storeSource, /submit: \(\) => \{[\s\S]+return submitSingleFlight\(workspaceId, \(\) => submitCurrentRequest\(get, set\)\)/);
+  assert.match(storeSource, /continuousGenerateTest && submittedTasks\.length !== 1/);
+  assert.ok(
+    storeSource.indexOf("continuousGenerateTest && submittedTasks.length !== 1")
+      < storeSource.indexOf("const submittedTaskIds = submittedTasks.map"),
+  );
+  const taskIdsIndex = storeSource.indexOf("const submittedTaskIds = submittedTasks.map");
+  const atomicCommitIndex = storeSource.indexOf("set((state) => ({", taskIdsIndex);
+  const pumpIndex = storeSource.indexOf("if (batchProcessMode)", atomicCommitIndex);
+  const atomicCommit = storeSource.slice(atomicCommitIndex, pumpIndex);
+  assert.ok(taskIdsIndex >= 0 && atomicCommitIndex > taskIdsIndex && pumpIndex > atomicCommitIndex);
+  assert.match(atomicCommit, /batchTasksById: upsertBatchTasks\(state\.batchTasksById, submittedTasks\)/);
+  assert.match(atomicCommit, /batchTaskIds: nextBatchTaskIds/);
+  assert.match(atomicCommit, /resultGridOpen: shouldOpenBatchView/);
+  assert.equal((storeSource.slice(taskIdsIndex, pumpIndex).match(/set\(\(state\) => \(\{/g) ?? []).length, 1);
+});
+
+test("native pool launch failures leave a visible failed task instead of a zero-count spinner", () => {
+  const pumpStart = storeSource.indexOf("async function pumpContinuousPoolQueuePass");
+  const pumpEnd = storeSource.indexOf("function requestContinuousPoolPump", pumpStart);
+  const pumpBlock = storeSource.slice(pumpStart, pumpEnd);
+
+  assert.match(pumpBlock, /const started = await startContinuousQueuedTask\(taskToStart\.id\)/);
+  assert.match(pumpBlock, /if \(!started\) \{[\s\S]+failUnstartedContinuousPoolTask/);
+  assert.match(pumpBlock, /catch \(error: any\) \{[\s\S]+failUnstartedContinuousPoolTask/);
+  assert.match(pumpBlock, /startingContinuousTaskIds\.delete\(taskId\)/);
+  assert.match(pumpBlock, /status: "failed"/);
+  assert.match(pumpBlock, /resultGridOpen: true/);
+});
+
+test("production store has no multi-task pressure injection action", () => {
+  assert.doesNotMatch(storeSource, /runContinuousPressureTest/);
+  assert.doesNotMatch(storeSource, /PRESSURE_PROMPT_|function pressurePrompt/);
+});
+
+test("desktop task terminal commits and backend settled both wake the pool", () => {
+  assert.match(storeSource, /if \(completedTask\?\.continuousPoolTask\) void requestContinuousPoolPump\(\)/);
+  assert.ok((storeSource.match(/if \(failedTask\?\.continuousPoolTask\) void requestContinuousPoolPump\(\)/g) ?? []).length >= 3);
+  assert.match(storeSource, /const notifySettled = [\s\S]+requestContinuousPoolPump\(\)/);
+  assert.match(storeSource, /保存生成结果失败[\s\S]+status: "failed"/);
 });
 
 test("temporary FHL slot downgrade starts from the selected per-API limit", () => {

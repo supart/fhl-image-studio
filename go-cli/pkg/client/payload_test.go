@@ -62,6 +62,22 @@ func TestBuildPayloadUsesSizeAndQuality(t *testing.T) {
 	}
 }
 
+func TestBuildPayloadPreservesAllQualityLevels(t *testing.T) {
+	for _, quality := range []string{"auto", "low", "medium", "high"} {
+		t.Run(quality, func(t *testing.T) {
+			raw, err := BuildPayload(Options{Prompt: "quality contract", Quality: quality})
+			if err != nil {
+				t.Fatal(err)
+			}
+			payload := mustDecodePayload(t, raw)
+			tool := payload["tools"].([]any)[0].(map[string]any)
+			if tool["quality"] != quality {
+				t.Fatalf("quality = %v, want %s", tool["quality"], quality)
+			}
+		})
+	}
+}
+
 func TestBuildPayloadPreservesAutoSize(t *testing.T) {
 	raw, err := BuildPayload(Options{Prompt: "cat", Size: "auto", Quality: "auto"})
 	if err != nil {

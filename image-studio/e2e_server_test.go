@@ -297,10 +297,6 @@ func TestE2ERuntimeUsesUniqueSystemTempSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tempRoot, err = filepath.EvalSymlinks(tempRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if rel, err := filepath.Rel(tempRoot, first.root); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		t.Fatalf("E2E root %q is not under system temp %q", first.root, tempRoot)
 	}

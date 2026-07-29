@@ -1109,6 +1109,7 @@ export function PanoramaViewerModal() {
       apiMode: item!.apiMode,
       apiProfileId: item!.apiProfileId,
       apiProfileName: item!.apiProfileName,
+      fhlImagesPoolSlot: item!.fhlImagesPoolSlot,
       size: sizeValueFromDimensions(exported.width, exported.height),
       quality: item!.quality,
       outputFormat: "png",

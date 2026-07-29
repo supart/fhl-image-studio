@@ -40,7 +40,7 @@ export function SubmitBar({
   onCancelQueuedBatchTasks: () => void | Promise<void>;
   onClearFailedBatchTasks: () => void | Promise<void>;
 }) {
-  const { usesMacDesktopUI, usesFluentUI } = usePlatform();
+  const { isMac, usesFluentUI } = usePlatform();
   const [retryingFailed, setRetryingFailed] = useState(false);
   const [cancellingQueued, setCancellingQueued] = useState(false);
   const [clearingFailed, setClearingFailed] = useState(false);
@@ -127,7 +127,7 @@ export function SubmitBar({
     </div>
   ) : null;
   return (
-    <div className={`sticky bottom-0 mt-auto bg-gradient-to-t from-[var(--sidebar)] via-[color:var(--sidebar)]/96 to-transparent ${usesMacDesktopUI ? "-mx-6 px-6 pb-5 pt-3" : "-mx-4 px-4 pb-1 pt-2"}`}>
+    <div className={`sticky bottom-0 mt-auto bg-gradient-to-t from-[var(--sidebar)] via-[color:var(--sidebar)]/96 to-transparent ${isMac ? "-mx-6 px-6 pb-5 pt-3" : "-mx-4 px-4 pb-1 pt-2"}`}>
       <div className={batchMaintenanceSlotClass}>{showRetryFailedButton ? batchMaintenanceRow : null}</div>
       {!upstreamReady && (
         <div className={`mb-2 border border-[color:var(--accent)]/18 bg-[var(--accent-soft)] px-3 py-2.5 text-center text-[11px] leading-relaxed text-[var(--accent)] ${usesFluentUI ? "rounded-[10px]" : "rounded-[16px]"}`}>

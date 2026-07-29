@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -131,6 +132,80 @@ func TestRequestImagesAPINewAPICompatOmitsStreamingFields(t *testing.T) {
 	}
 	if res.ImageB64 != finalB64 || res.SourceEvent != "images_api" {
 		t.Fatalf("unexpected result: %+v", res)
+	}
+}
+
+func TestImagesAPIWithRetriesDoesNotRetryUnsupportedMask(t *testing.T) {
+	original := RetryBackoffSeconds
+	RetryBackoffSeconds = 0
+	t.Cleanup(func() { RetryBackoffSeconds = original })
+
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintln(w, "event: upstream_error")
+		fmt.Fprintln(w, `data: {"error":{"type":"invalid_request_error","message":"mask is not supported by free gpt-image edits","code":"ERR-TEST"}}`)
+	}))
+	defer srv.Close()
+
+	_, _, err := RequestAndExtractWithRetries(
+		context.Background(),
+		&NativeTransport{},
+		Options{
+			APIKey:             "sk-test",
+			Prompt:             "capability error",
+			BaseURL:            srv.URL,
+			APIMode:            APIModeImages,
+			ImageModelID:       "gpt-image-2",
+			ImagesNewAPICompat: true,
+		},
+		t.TempDir(),
+		"20260728-ps-mask",
+		nil,
+		nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "mask is not supported") {
+		t.Fatalf("err = %v, want the upstream mask capability error", err)
+	}
+	if errors.Is(err, ErrNoImageInResponse) {
+		t.Fatalf("err = %v, should not collapse to ErrNoImageInResponse", err)
+	}
+	if hits != 1 {
+		t.Fatalf("hits = %d, want one non-retried request", hits)
+	}
+}
+
+func TestRequestImagesAPIPreservesAllQualityLevels(t *testing.T) {
+	for _, quality := range []string{"auto", "low", "medium", "high"} {
+		t.Run(quality, func(t *testing.T) {
+			finalB64 := base64.StdEncoding.EncodeToString([]byte("final"))
+			var requestBody map[string]any
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+					t.Errorf("decode request: %v", err)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprintf(w, `{"data":[{"b64_json":"%s"}]}`, finalB64)
+			}))
+			defer srv.Close()
+
+			_, err := RequestImagesAPIWithPartial(context.Background(), Options{
+				APIKey:             "sk-test",
+				Prompt:             "quality contract",
+				BaseURL:            srv.URL,
+				APIMode:            APIModeImages,
+				ImageModelID:       "gpt-image-2",
+				Quality:            quality,
+				ImagesNewAPICompat: true,
+			}, &bytes.Buffer{}, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if requestBody["quality"] != quality {
+				t.Fatalf("quality = %v, want %s", requestBody["quality"], quality)
+			}
+		})
 	}
 }
 

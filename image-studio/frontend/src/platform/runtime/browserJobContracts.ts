@@ -39,6 +39,7 @@ export interface BrowserJobSubmitPayload {
   apiMode: "responses" | "images" | "apimart" | "runninghub";
   apiProfileId?: string;
   apiProfileName?: string;
+  fhlImagesPoolSlot?: number;
   requestPolicy: RequestPolicy;
   imagesNewAPICompat?: boolean;
   textModelID: string;
@@ -56,6 +57,7 @@ export interface BrowserJobSubmitResponse {
 export interface BrowserJobSubmitManyCredential {
   apiProfileId: string;
   apiProfileName?: string;
+  fhlImagesPoolSlot?: number;
   apiKey: string;
   baseURL: string;
   apiMode: "responses" | "images" | "apimart" | "runninghub";

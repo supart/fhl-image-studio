@@ -652,7 +652,7 @@ func (s *Service) executeJob(ctx context.Context, jobID string, opts GenerateOpt
 		var cleanup func()
 		prepErr := s.withMediaSlot(ctx, func() error {
 			var err error
-			paths, cleanup, err = prepareUploadSourcePaths(opts.collectPaths())
+			paths, cleanup, err = prepareUploadSourcePathsWithPreparedBase(opts.collectPaths(), opts.preparedBase)
 			return err
 		})
 		if prepErr != nil {

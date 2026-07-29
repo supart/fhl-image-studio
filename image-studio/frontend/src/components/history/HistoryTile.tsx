@@ -41,7 +41,7 @@ export function HistoryTile({
   onOpenMenu: (x: number, y: number) => void;
   variant?: "default" | "phone" | "phoneFeature" | "windowsFeature" | "windowsList";
 }) {
-  const { isMacHost, usesMacDesktopUI, usesFluentUI } = usePlatform();
+  const { isMac, usesFluentUI } = usePlatform();
   const previewURL = useBlobURL(item.previewBlob ?? item.imageBlob ?? null, item.imageB64 ?? null);
   const imageSrc = historyPreviewSrc(item, previewURL);
   const fullImageSrc = historyFullSrc(item, previewURL);
@@ -98,7 +98,7 @@ export function HistoryTile({
       return;
     }
     e.stopPropagation();
-    if (isMacHost && item.savedPath) {
+    if (isMac && item.savedPath) {
       e.preventDefault();
       void BeginNativeFileDrag(item.savedPath).catch((error) => {
         console.error("[drag-export] native-file-drag failed", error);
@@ -290,7 +290,7 @@ export function HistoryTile({
     );
   }
 
-  if (usesMacDesktopUI) {
+  if (isMac) {
     return (
       <div
         data-audit-id="history-item"

@@ -1,20 +1,12 @@
 # CHANGELOG
 
-## Desktop V2.0.3.1 - 2026-07-28
+## Desktop V2.0.3 - 2026-07-24
 
-### Fixed
+### 正式发布整理 - 2026-07-29
 
-- 修复一键配置并验证 FHL Images API 后，工作区和右侧上游区域仍显示“未配置”的状态同步问题。
-- 当前连接为空时自动选择第一个已配置的 FHL Images 槽，同时保留已有有效的其他上游连接。
-- macOS 生产构建中的 API Key 输入框现在支持原生右键菜单和“粘贴”。
-
-### Release
-
-- macOS 应用、内置 CLI、Skill、DMG 和对应源码统一升级为 `V2.0.3.1`，内部构建号为 `2031`。
-- 本次只新增 macOS Apple Silicon DMG、完整源码 ZIP 和 SHA256，不上传 Windows 成品，不删除或覆盖 `v2.0.3` Release。
-- 发布包恢复默认设置，并继续排除 API Key、本机配置、历史记录、用户图片、日志和构建缓存。
-
-## Desktop V2.0.3 - 2026-07-26
+- 将已完成跨电脑验收的 V2.0.3 包整理为正式 Windows 发布内容，不重新构建或替换已验证的 Portable 可执行文件。
+- GitHub CI 与 Windows 发布构建统一使用 Node.js 24.13.1、Go 1.26.3、Wails v2.12.0 和产品版本 2.0.3。
+- 独立销售和交付的 Photoshop 插件不进入桌面源码归档或 GitHub Release 资产；桌面仓库仅保留 Bridge 兼容支持与文档。
 
 ### Added
 
@@ -25,9 +17,7 @@
 - 新增本地开发媒体注册接口，使用 `sharp` 按需生成 384px、质量 46 的 AVIF 缩略图。
 - 360 编辑结果大图预览新增“自动贴回”快捷按钮，使用默认对齐与羽化参数直接生成并打开新的全景结果，同时保留手动贴回和导入贴回。
 - 新增 Photoshop 2023+ 本地 Bridge：桌面端在 `127.0.0.1:47631-47640` 自动选择空闲端口，为独立 UXP 插件提供单任务生成、状态、结果与取消接口。
-- 新增独立 Photoshop UXP 插件开发预览，支持文生图、图生图、选区修改、按图层多参考、透明边缘裁切、结果回写和最近 50 条元数据记录；插件不保存 API 凭据。
-- 首次提供 macOS 13+ Apple Silicon 完整应用，沿用 Windows V2.0.3 的 Fluent 内容界面，并接入 macOS Keychain、WKWebView、原生文件对话框、Finder 操作和 Core Image / Metal 图像链路。
-- 新增 macOS Apple Silicon DMG、完整 Source ZIP 和统一 SHA256 清单的 Release 交付结构；macOS DMG 同时包含 arm64 CLI 与 Codex Skill 安装器。本次 GitHub Release 不上传 Windows 成品。
+- 新增对独立销售 Photoshop UXP 插件 V0.1.0 的桌面 Bridge 支持，覆盖文生图、图生图、选区修改、按图层多参考、透明边缘裁切、结果回写和最近 50 条元数据记录；插件不保存 API 凭据，也不随桌面 GitHub、源码包或 Portable 分发。
 
 ### Changed
 
@@ -41,6 +31,15 @@
 
 ### Fixed
 
+- 修复连续模式首次点击后只显示“正在生成”、任务网格不出现且状态栏任务数为 0 的问题；任务记录、工作区任务 ID、运行计数和网格状态现在一次性提交，首次任务也会立即显示。
+- 修复原生连续任务未能认领或启动时可能无限停留在“正在请求”的问题；对应任务现在进入可见失败状态并保留重试入口，不再留下无任务的运行态。
+- 修复连续模式单击“生成”可能按总池容量一次创建 20/40 个任务的问题；现在普通连续生成严格一点击一任务，批量图生图仍按源图数量工作。
+- 修复原生桌面端重启后恢复旧 `queued/running/submitting` 任务并在新一次生成时重新唤醒的问题；旧任务现在保留为可重试的“已中断”。
+- 修复任务终态与后端 `settled` 事件到达顺序不同导致连续队列停止补位的问题；成功、失败和结算路径都会重新请求调度，取消任务在真正结算前仍占用容量。
+- 增加按工作区的 `submit()` single-flight 和连续任务数量断言，阻止重复点击事件或未来回归再次写入多任务。
+- 修复正式桌面版 API Key 输入框右键没有“粘贴”的问题；启用 Wails/WebView2 对可编辑输入框的系统右键菜单，同时保留画布和历史区域已有的应用菜单。
+- 修复 FHL Images 槽显示连接成功、主界面和 Photoshop Bridge 却仍显示未配置的问题；首次成功槽位会在没有可用当前 Profile 时自动激活，已有可用当前 API 保持不变。
+- 修复 Profile 列表非空但没有真实当前项时，下拉框视觉上伪装成已选中第一条配置的问题。
 - 修复批量提交泵逐任务串行等待导致 40 并发无法及时填满的问题，任务终态后会立即重新规划空位。
 - 修复删除最后一张参考图或添加单张参考图时意外退出图生图/关闭批处理模式的问题。
 - 修复从 360 全景生成切回图生图时，自动适配覆盖手动 `2:1` 比例的问题。
@@ -53,7 +52,6 @@
 - 恢复手动贴回“对齐”页的边缘羽化控制；普通贴回显示百分比羽化，精细蒙版在“蒙版”页显示像素羽化，“色彩”页不再重复混放羽化参数。
 - 修复 Photoshop 插件比例/分辨率使用紧凑字符串导致 FHL 回退默认尺寸的问题；现统一发送桌面版同规格精确像素。
 - 修复 Photoshop 选区蒙版 Alpha 全不透明、提交前未固化及文生图模式仍可能携带蒙版的问题，并补齐 GrayscaleAlpha 转换。
-- 修复 macOS 反推提示词导入 AVIF 预览时被 hardened runtime 终止的问题；最终签名只增加 Wazero AVIF 回退所需的 `com.apple.security.cs.allow-unsigned-executable-memory` 权限，并在发布验证脚本中强制校验。
 
 ### Performance
 
@@ -70,16 +68,19 @@
 
 ### Verified
 
+- 连续任务可见性回归通过：frontend Node `577/577`、UI `23/23`、聚焦任务/队列 `61/61`、TypeScript、Windows 构建、desktop/CLI Go test+vet、Worker `5/5`；新增真实 Store 原生提交测试使用离线 Wails Mock，证明一次提交只创建并显示一个任务且只调用一次本地生成入口。
+- 连续队列最终回归通过：frontend Node `571/571`、UI `22/22`、聚焦队列/恢复/single-flight `49/49`、TypeScript、Windows 构建、desktop/CLI Go test+vet、Worker `5/5`；Lint 为 `0` 错误和既有 `63` 条警告。
+- 最终 V2.0.3 Portable 的本地延迟 Mock 只收到 `1` 个请求且峰值并发为 `1`；原生窗口可见，Bridge `health/session/profile` API v1 握手通过，发布安全与合规扫描均为 `0` 问题。本轮未调用真实或付费生成接口。
 - 已通过虚拟列表、独立批量提交、恢复规则、namespace 与凭据清理的聚焦类型检查和单元测试。
 - 完整前端/Go 检查、Windows 构建、便携包安全扫描和 9230 E2E 结果记录在 `V2.0.3_ACCEPTANCE_REPORT.md`。
 
 - Final release verification passed: frontend Node 552/552, UI 12/12,
   typecheck, lint, Windows build, desktop/CLI Go test+vet, and Worker 5/5.
 - Photoshop Bridge 收尾验证通过：frontend Node 556/556、UI 12/12、
-  plugin 16/16、Bridge runtime 4/4、desktop/CLI Go test+vet、Worker 5/5、
-  Windows Wails 构建、Portable/源码/CCX 安全扫描和 `git diff --check`。
-- Photoshop UXP 开发 CCX 已生成并通过内容审计；真实 Photoshop 2023
-  Imaging、选区监听和回写矩阵仍是独立的人工验收门槛，不写作已验证。
+  独立插件合同 16/16、Bridge runtime 4/4、desktop/CLI Go test+vet、Worker
+  5/5、Windows Wails 构建、Portable/源码安全扫描和 `git diff --check`。
+- 独立插件项目的 UXP 包曾完成内容审计与 Photoshop 实机验收；该插件包只作为
+  桌面兼容证据记录，不属于桌面 GitHub 或 Portable 发布产物。
 - Codex 浏览器确认已贴回的 3840x1920 全景不再显示任何贴回入口，真正的镜头图和编辑镜头图仍保留完整贴回能力。
 - Codex 浏览器确认手动贴回“对齐”页显示默认 `边缘羽化 10%`，且“蒙版羽化”只在蒙版页出现。
 - Packaged 397-item E2E mounted 36 result cards and 8 input rows, requested no
@@ -87,8 +88,6 @@
   no browser warnings/errors.
 - Portable, ZIP, and source safety scans reported 0 issues. A disposable cold
   start imported no V2.0.2.1 namespace data and created no user image files.
-- macOS arm64 App 与 DMG 已通过架构、最低系统版本、Bundle ID、深度签名、权限和 `hdiutil verify` 检查；签名后的 AVIF 回归测试与真实 FHL `gpt-5.5` 图片反推均完成，应用未再崩溃。
-- 最终前端 Node 测试为 561/561；完整 Source ZIP 可在不含本机工具链、`node_modules`、API Key、用户图片或日志的临时目录中重建并通过 macOS 发布验证。
 
 ## Desktop V2.0.2.1 - 2026-06-29
 

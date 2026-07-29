@@ -27,7 +27,7 @@ export function WorkspaceTabItem({
   onStartRename: () => void;
   onStopEditing: () => void;
 }) {
-  const { usesMacDesktopUI, usesWindowsDesktopUI, usesFluentUI } = usePlatform();
+  const { isMac, isWindows, usesFluentUI } = usePlatform();
 
   return (
     <div
@@ -35,7 +35,7 @@ export function WorkspaceTabItem({
       onDoubleClick={onStartRename}
       title="双击重命名"
       className={
-        `${usesWindowsDesktopUI ? "workspace-tab" : ""} platform-tab no-drag group flex shrink-0 items-center gap-2 text-[12px] transition-all cursor-pointer ${usesFluentUI ? "h-8 rounded-[10px] px-3" : usesMacDesktopUI ? "min-h-[32px] rounded-full px-3.5" : "h-7.5 rounded-full px-3"} ` +
+        `${isWindows ? "workspace-tab" : ""} platform-tab no-drag group flex shrink-0 items-center gap-2 text-[12px] transition-all cursor-pointer ${usesFluentUI ? "h-8 rounded-[10px] px-3" : isMac ? "min-h-[32px] rounded-full px-3.5" : "h-7.5 rounded-full px-3"} ` +
         (active
           ? "active bg-white/90 text-zinc-900 shadow-sm ring-1 ring-black/[0.05] dark:bg-zinc-900/90 dark:text-zinc-100 dark:ring-white/[0.08]"
           : "text-zinc-500 hover:bg-white/55 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/[0.05] dark:hover:text-zinc-200")

@@ -3,8 +3,8 @@
 package backend
 
 /*
-#cgo CFLAGS: -x objective-c -fobjc-arc -mmacosx-version-min=13.0
-#cgo LDFLAGS: -framework Cocoa -framework Foundation -mmacosx-version-min=13.0
+#cgo CFLAGS: -x objective-c -fobjc-arc -mmacosx-version-min=10.13
+#cgo LDFLAGS: -framework Cocoa -framework Foundation -mmacosx-version-min=10.13
 
 #import <Cocoa/Cocoa.h>
 #import <Foundation/Foundation.h>
@@ -79,7 +79,7 @@ static int image_studio_begin_file_drag(const char *path, char **errOut) {
 
 		__block BOOL ok = NO;
 		__block char *blockErr = NULL;
-		void (^beginDrag)(void) = ^{
+		dispatch_sync(dispatch_get_main_queue(), ^{
 			NSDraggingItem *dragItem = [[NSDraggingItem alloc] initWithPasteboardWriter:[NSURL fileURLWithPath:filePath]];
 			NSPoint mouse = [contentView convertPoint:[window mouseLocationOutsideOfEventStream] fromView:nil];
 			NSRect rect = NSMakeRect(mouse.x - 48, mouse.y - 48, 96, 96);
@@ -103,12 +103,7 @@ static int image_studio_begin_file_drag(const char *path, char **errOut) {
 			ImageStudioDraggingSource *source = [ImageStudioDraggingSource new];
 			[contentView beginDraggingSessionWithItems:@[dragItem] event:event source:source];
 			ok = YES;
-		};
-		if ([NSThread isMainThread]) {
-			beginDrag();
-		} else {
-			dispatch_sync(dispatch_get_main_queue(), beginDrag);
-		}
+		});
 		if (!ok) {
 			*errOut = blockErr != NULL ? blockErr : image_studio_make_drag_error("failed to start drag session");
 			return 1;

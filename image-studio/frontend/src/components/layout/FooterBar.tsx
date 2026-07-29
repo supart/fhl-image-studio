@@ -10,10 +10,10 @@ const ISSUES_URL = "https://github.com/supart/fhl-image-studio/issues";
 
 export function FooterBar() {
   const { fullscreen, history, runningJobs, isRunning, workspaces, pushToast } = useStudioStore();
-  const { isAndroid, usesMacDesktopUI, usesWindowsDesktopUI, usesFluentUI, usesAppleUI } = usePlatform();
+  const { isAndroid, isMac, isWindows, usesFluentUI, usesAppleUI } = usePlatform();
   if (fullscreen) return null;
   if (isAndroid) return null;
-  if (usesMacDesktopUI) return null;
+  if (isMac) return null;
   const totalRunning = workspaces.reduce((sum, w) => sum + (w.runningJobIds?.length ?? 0), 0);
   const activeRunning = isRunning;
   const anyRunning = activeRunning || totalRunning > 0;
@@ -32,12 +32,12 @@ export function FooterBar() {
   }
 
   return (
-    <footer data-audit-area="footer" className={`${usesWindowsDesktopUI ? "footer-bar" : ""} flex items-center justify-between border-t border-[var(--border)] bg-[var(--toolbar)] px-4 text-[11px] text-zinc-500 backdrop-blur-2xl dark:text-zinc-400 ${usesAppleUI ? "liquid-glass-bar" : ""} ${usesFluentUI ? "min-h-[36px]" : "min-h-10"}`}>
+    <footer data-audit-area="footer" className={`${isWindows ? "footer-bar" : ""} flex items-center justify-between border-t border-[var(--border)] bg-[var(--toolbar)] px-4 text-[11px] text-zinc-500 backdrop-blur-2xl dark:text-zinc-400 ${usesAppleUI ? "liquid-glass-bar" : ""} ${usesFluentUI ? "min-h-[36px]" : "min-h-10"}`}>
       <div className="flex items-center gap-1">
         <FooterBtn onClick={openOutputLocation} auditId="open-output-dir">
           <Folder className="h-3 w-3" /> {androidTarget.isAndroid ? "保存位置" : "输出目录"}
         </FooterBtn>
-        {!usesMacDesktopUI && (
+        {!isMac && (
           <>
             <FooterBtn onClick={() => open(REPO_URL)}>
               <Github className="h-3 w-3" /> GitHub

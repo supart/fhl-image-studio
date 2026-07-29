@@ -14,6 +14,57 @@ import (
 // Event is one decoded SSE JSON object (the part after `data: `).
 type Event map[string]any
 
+type upstreamResponseError struct {
+	Message string
+	Type    string
+	Code    string
+}
+
+func (e upstreamResponseError) Error() string {
+	message := strings.TrimSpace(e.Message)
+	if message == "" {
+		message = "unknown upstream error"
+	}
+	var details []string
+	if strings.TrimSpace(e.Code) != "" {
+		details = append(details, "code: "+strings.TrimSpace(e.Code))
+	}
+	if strings.TrimSpace(e.Type) != "" {
+		details = append(details, "type: "+strings.TrimSpace(e.Type))
+	}
+	if len(details) == 0 {
+		return fmt.Sprintf("\u4e0a\u6e38\u8fd4\u56de\u9519\u8bef: %s", message)
+	}
+	return fmt.Sprintf("\u4e0a\u6e38\u8fd4\u56de\u9519\u8bef: %s (%s)", message, strings.Join(details, ", "))
+}
+
+func upstreamErrorFromEvent(ev Event) (upstreamResponseError, bool) {
+	errorValue, ok := ev["error"].(map[string]any)
+	if !ok {
+		return upstreamResponseError{}, false
+	}
+	message, _ := errorValue["message"].(string)
+	errorType, _ := errorValue["type"].(string)
+	code, _ := errorValue["code"].(string)
+	if strings.TrimSpace(message) == "" && strings.TrimSpace(errorType) == "" && strings.TrimSpace(code) == "" {
+		return upstreamResponseError{}, false
+	}
+	return upstreamResponseError{Message: message, Type: errorType, Code: code}, true
+}
+
+func upstreamErrorFromRaw(raw string) (upstreamResponseError, bool) {
+	for ev := range IterEvents(raw) {
+		if upstreamErr, ok := upstreamErrorFromEvent(ev); ok {
+			return upstreamErr, true
+		}
+	}
+	var ev Event
+	if err := json.Unmarshal([]byte(raw), &ev); err != nil {
+		return upstreamResponseError{}, false
+	}
+	return upstreamErrorFromEvent(ev)
+}
+
 func decodeEvent(payload string, ev *Event) error {
 	return decodeEventBytes([]byte(payload), ev)
 }
@@ -56,8 +107,13 @@ func IterEvents(raw string) iter.Seq[Event] {
 // Returns ErrNoImageInResponse if nothing matches.
 func ExtractImageResult(raw string) (ImageResult, error) {
 	var partialB64, partialPrompt string
+	var upstreamErr error
 
 	for ev := range IterEvents(raw) {
+		if parsedErr, ok := upstreamErrorFromEvent(ev); ok {
+			upstreamErr = parsedErr
+			continue
+		}
 		evType, _ := ev["type"].(string)
 
 		if evType == "response.image_generation_call.partial_image" {
@@ -91,6 +147,9 @@ func ExtractImageResult(raw string) (ImageResult, error) {
 			RevisedPrompt: partialPrompt,
 			SourceEvent:   "partial",
 		}, nil
+	}
+	if upstreamErr != nil {
+		return ImageResult{}, upstreamErr
 	}
 
 	return ImageResult{}, ErrNoImageInResponse

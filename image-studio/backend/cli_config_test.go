@@ -43,9 +43,6 @@ func TestSyncCLIConfigPortablePreservesExistingKey(t *testing.T) {
 		"IMAGE_STUDIO_IMAGES_NEWAPI_COMPAT=1",
 		"IMAGE_STUDIO_SIZE=9:16@2k",
 		"IMAGE_STUDIO_PARTIAL_IMAGES=3",
-		"IMAGE_STUDIO_INPUT_DIR=" + filepath.Join(root, "input"),
-		"IMAGE_STUDIO_OUTPUT_DIR=" + filepath.Join(root, "output"),
-		"IMAGE_STUDIO_RAW_DIR=" + filepath.Join(root, "output", "log"),
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("CLI config missing %q:\n%s", want, text)
@@ -85,24 +82,6 @@ func TestSyncCLIConfigSourceBuildFallbackUsesUserConfigDir(t *testing.T) {
 	}
 	if _, err := os.Stat(want); err != nil {
 		t.Fatal(err)
-	}
-	raw, err := os.ReadFile(want)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(raw)
-	outputRoot, err := defaultOutputDir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, expected := range []string{
-		"IMAGE_STUDIO_INPUT_DIR=" + filepath.Join(outputRoot, "input"),
-		"IMAGE_STUDIO_OUTPUT_DIR=" + filepath.Join(outputRoot, "cli"),
-		"IMAGE_STUDIO_RAW_DIR=" + filepath.Join(logSubdir(outputRoot), "cli"),
-	} {
-		if !strings.Contains(text, expected) {
-			t.Fatalf("CLI config missing %q:\n%s", expected, text)
-		}
 	}
 }
 

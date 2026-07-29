@@ -64,10 +64,11 @@ type imagesAPIResponse struct {
 }
 
 type imageStreamExtractor struct {
-	partialB64 string
-	final      ImageResult
-	hasFinal   bool
-	onPartial  func(PartialImage)
+	partialB64  string
+	final       ImageResult
+	hasFinal    bool
+	onPartial   func(PartialImage)
+	upstreamErr error
 }
 
 func (e *imageStreamExtractor) consume(line string) bool {
@@ -85,6 +86,10 @@ func (e *imageStreamExtractor) consume(line string) bool {
 	var ev Event
 	if err := decodeEvent(payload, &ev); err != nil {
 		return false
+	}
+	if upstreamErr, ok := upstreamErrorFromEvent(ev); ok {
+		e.upstreamErr = upstreamErr
+		return true
 	}
 	evType, _ := ev["type"].(string)
 	switch evType {
@@ -130,6 +135,10 @@ func (e *imageStreamExtractor) result() (ImageResult, bool) {
 		return ImageResult{ImageB64: e.partialB64, SourceEvent: "images_api_partial"}, true
 	}
 	return ImageResult{}, false
+}
+
+func (e *imageStreamExtractor) error() error {
+	return e.upstreamErr
 }
 
 // RequestImagesAPI executes a single (no-retry) request against the standard
@@ -320,6 +329,9 @@ func RequestImagesAPIWithPartial(
 		}
 		if result, ok := extractor.result(); ok {
 			return result, nil
+		}
+		if err := extractor.error(); err != nil {
+			return ImageResult{}, err
 		}
 		return ImageResult{}, ErrNoImageInResponse
 	}

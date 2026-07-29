@@ -21,7 +21,7 @@ export function colorDotRadius(usesFluentUI: boolean): string {
 }
 
 export function ToolBtn({ active, className, dataAuditId, disabled, labelClassName, onClick, title, label, children }: ToolBtnProps) {
-  const { usesMacDesktopUI, usesFluentUI, usesAndroidUI } = usePlatform();
+  const { isMac, usesFluentUI, usesAndroidUI } = usePlatform();
   const macWidthClass = !label
     ? "min-w-[74px]"
     : label.length >= 4
@@ -43,11 +43,11 @@ export function ToolBtn({ active, className, dataAuditId, disabled, labelClassNa
         active
           ? "border border-[color:var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)] shadow-sm"
           : "border border-black/[0.14] bg-[var(--surface)] text-zinc-600 shadow-sm hover:border-[color:var(--accent)]/45 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)] dark:border-white/[0.14] dark:bg-white/[0.04] dark:text-zinc-400 dark:hover:border-white/[0.22] dark:hover:bg-white/[0.07] dark:hover:text-zinc-100"
-      } ${usesAndroidUI ? "h-12 w-12 rounded-[16px]" : usesMacDesktopUI ? `${macWidthClass} min-h-[36px] rounded-[14px] px-3.5 py-1.5 text-[11px]` : usesFluentUI ? "h-8 w-8 rounded-[8px]" : "h-8 w-8 rounded-full"} ${className ?? ""}`.trim()}
+      } ${usesAndroidUI ? "h-12 w-12 rounded-[16px]" : isMac ? `${macWidthClass} min-h-[36px] rounded-[14px] px-3.5 py-1.5 text-[11px]` : usesFluentUI ? "h-8 w-8 rounded-[8px]" : "h-8 w-8 rounded-full"} ${className ?? ""}`.trim()}
     >
-      <span className={`inline-flex items-center ${usesMacDesktopUI && label ? "gap-1.5 whitespace-nowrap" : ""}`}>
+      <span className={`inline-flex items-center ${isMac && label ? "gap-1.5 whitespace-nowrap" : ""}`}>
         {children}
-        {usesMacDesktopUI && label ? <span className={`leading-none tracking-[0.01em] ${labelClassName ?? ""}`.trim()}>{label}</span> : null}
+        {isMac && label ? <span className={`leading-none tracking-[0.01em] ${labelClassName ?? ""}`.trim()}>{label}</span> : null}
       </span>
     </button>
   );
@@ -74,7 +74,7 @@ export function ToolbarTextButton({
   title,
   tone = "neutral",
 }: ToolbarTextButtonProps) {
-  const { usesMacDesktopUI, usesFluentUI } = usePlatform();
+  const { isMac, usesFluentUI } = usePlatform();
   const toneClass = selected
     ? "border border-[color:var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)] shadow-sm"
     : tone === "danger"
@@ -91,7 +91,7 @@ export function ToolbarTextButton({
       disabled={disabled}
       title={title}
       className={`platform-pill inline-flex shrink-0 items-center justify-center gap-1 rounded-[14px] px-3 py-1.5 text-[11px] font-medium whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${toneClass} ${
-        usesMacDesktopUI ? "min-h-[34px]" : usesFluentUI ? "min-h-[30px] rounded-[8px]" : "min-h-[30px] rounded-full"
+        isMac ? "min-h-[34px]" : usesFluentUI ? "min-h-[30px] rounded-[8px]" : "min-h-[30px] rounded-full"
       } ${className ?? ""}`.trim()}
     >
       {children}
@@ -106,14 +106,14 @@ type ToolbarPrimaryButtonProps = {
 };
 
 export function ToolbarPrimaryButton({ children, onClick, title }: ToolbarPrimaryButtonProps) {
-  const { usesMacDesktopUI, usesFluentUI } = usePlatform();
+  const { isMac, usesFluentUI } = usePlatform();
   return (
     <button
       type="button"
       onClick={onClick}
       title={title}
       className={`liquid-primary-button inline-flex shrink-0 items-center justify-center gap-1.5 border border-[color:var(--accent)] bg-[var(--accent)] font-medium text-white whitespace-nowrap shadow-sm transition-colors hover:bg-[var(--accent-2)] ${
-        usesMacDesktopUI ? "min-h-[34px] min-w-[110px] rounded-[14px] px-4 py-2 text-[11px]" : usesFluentUI ? "rounded-[8px] px-3 py-1.5 text-[11px]" : "rounded-full px-3 py-1.5 text-[11px]"
+        isMac ? "min-h-[34px] min-w-[110px] rounded-[14px] px-4 py-2 text-[11px]" : usesFluentUI ? "rounded-[8px] px-3 py-1.5 text-[11px]" : "rounded-full px-3 py-1.5 text-[11px]"
       }`}
     >
       {children}
@@ -134,8 +134,8 @@ export function ToolbarGroup({
   caption?: string;
   children: React.ReactNode;
 }) {
-  const { usesMacDesktopUI } = usePlatform();
-  const withCaption = usesMacDesktopUI && !!caption;
+  const { isMac } = usePlatform();
+  const withCaption = isMac && !!caption;
   return (
     <div className={`toolbar-group ${withCaption ? "toolbar-group-with-caption" : ""} ${className ?? ""}`.trim()}>
       {withCaption ? <div className="toolbar-group-caption">{caption}</div> : null}

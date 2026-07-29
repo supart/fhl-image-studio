@@ -1,4 +1,9 @@
 import { keyringUserFor } from "../../lib/profiles.ts";
+import { resolvePromptTextCapability, resolvePromptTextSelection } from "../../lib/promptTextProfiles.ts";
+import {
+  aspectPresetsForAPIMode,
+  availableResolutionPresets,
+} from "../../components/panel/sizeCapabilities.ts";
 import type {
   APIMode,
   HistoryItem,
@@ -10,6 +15,12 @@ import type {
   SizeValue,
   UpstreamProfile,
 } from "../../types/domain.ts";
+
+const PS_BRIDGE_RETRY_HOSTS = new Set(["wails.localhost", "localhost", "127.0.0.1", "::1"]);
+
+export function isPSBridgeRetryHost(hostname: string): boolean {
+  return PS_BRIDGE_RETRY_HOSTS.has(String(hostname || "").trim().toLowerCase());
+}
 
 export type PSBridgeProfileInput = {
   profileId: string;
@@ -24,6 +35,19 @@ export type PSBridgeProfileInput = {
   proxyMode: ProxyMode;
   proxyURL: string;
   concurrencyLimit: number;
+  imageCapabilities: {
+    aspectPresets: string[];
+    resolutionPresets: string[];
+    qualityControl: boolean;
+    sizeEncoding: "pixels" | "ratio-resolution";
+  };
+  promptProfile?: {
+    provider: string;
+    label: string;
+    baseURL: string;
+    credentialUser: string;
+    textModelID: string;
+  };
 };
 
 export type PSBridgeProfilePublic = {
@@ -35,6 +59,14 @@ export type PSBridgeProfilePublic = {
   supportsMask: boolean;
   maxImages: number;
   ready: boolean;
+  promptOptimizationReady: boolean;
+  promptProviderLabel?: string;
+  imageCapabilities: {
+    aspectPresets: string[];
+    resolutionPresets: string[];
+    qualityControl: boolean;
+    sizeEncoding: "pixels" | "ratio-resolution";
+  };
 };
 
 export type PSBridgeStatus = {
@@ -66,6 +98,7 @@ export type PSBridgeRemoteDispatch = {
   seed: number;
   negativePrompt: string;
   imagePaths: string[];
+  preparedBase: boolean;
   maskB64?: string;
 };
 
@@ -138,6 +171,7 @@ export type PSBridgeProfileState = {
   proxyMode: ProxyMode;
   proxyURL: string;
   apiKey: string;
+  fhlTextAPIConfigured: boolean;
 };
 
 function cleanMode(value: string): APIMode {
@@ -155,6 +189,28 @@ function cleanOutputFormat(value: string): OutputFormatValue {
   return "png";
 }
 
+function imageCapabilitiesForProfile(input: {
+  apiMode: APIMode;
+  requestPolicy: RequestPolicy;
+  imageModelID: string;
+}): PSBridgeProfileInput["imageCapabilities"] {
+  let aspects = aspectPresetsForAPIMode(input.apiMode, "generate");
+  if (input.apiMode === "runninghub") {
+    const editAspects = new Set(
+      aspectPresetsForAPIMode(input.apiMode, "edit").map((option) => option.value),
+    );
+    aspects = aspects.filter((option) => editAspects.has(option.value));
+  }
+  return {
+    aspectPresets: aspects.map((option) => option.value).filter((value) => value !== "auto"),
+    resolutionPresets: availableResolutionPresets(input).filter((value) => value !== "auto"),
+    qualityControl: input.apiMode === "responses" || input.apiMode === "images",
+    sizeEncoding: input.apiMode === "apimart" || input.apiMode === "runninghub"
+      ? "ratio-resolution"
+      : "pixels",
+  };
+}
+
 export function buildPSBridgeProfileInput(state: PSBridgeProfileState): PSBridgeProfileInput | null {
   const profile = state.profiles.find((candidate) => candidate.id === state.activeProfileId);
   if (!profile) return null;
@@ -163,6 +219,15 @@ export function buildPSBridgeProfileInput(state: PSBridgeProfileState): PSBridge
   const apiMode = cleanMode(state.apiMode || profile.apiMode);
   const baseURL = String(state.baseURL || profile.baseURL || "").trim();
   if (!profileId || !name || !baseURL) return null;
+  const promptSelection = resolvePromptTextSelection(state);
+  const promptCapability = resolvePromptTextCapability(state);
+  const promptCredentialUser = promptSelection?.source === "fhl-text"
+    ? keyringUserFor("fhl-text-assistant")
+    : promptSelection?.source === "profile" && promptSelection.profile
+      ? keyringUserFor(promptSelection.profile.id)
+      : keyringUserFor(profileId);
+  const requestPolicy = state.requestPolicy === "compat" ? "compat" : "openai";
+  const imageModelID = String(state.imageModelID || profile.imageModelID || "").trim();
   return {
     profileId,
     name,
@@ -170,12 +235,20 @@ export function buildPSBridgeProfileInput(state: PSBridgeProfileState): PSBridge
     baseURL,
     credentialUser: apiMode === "runninghub" ? "" : keyringUserFor(profileId),
     textModelID: String(state.textModelID || profile.textModelID || "").trim(),
-    imageModelID: String(state.imageModelID || profile.imageModelID || "").trim(),
-    requestPolicy: state.requestPolicy === "compat" ? "compat" : "openai",
+    imageModelID,
+    requestPolicy,
     imagesNewAPICompat: apiMode === "images" && state.imagesNewAPICompat === true,
     proxyMode: state.proxyMode === "none" || state.proxyMode === "custom" ? state.proxyMode : "system",
     proxyURL: state.proxyMode === "custom" ? String(state.proxyURL || "").trim() : "",
     concurrencyLimit: 1,
+    imageCapabilities: imageCapabilitiesForProfile({ apiMode, requestPolicy, imageModelID }),
+    promptProfile: promptSelection && promptCapability.available ? {
+      provider: promptSelection.provider,
+      label: promptCapability.label,
+      baseURL: promptSelection.baseURL,
+      credentialUser: promptCredentialUser,
+      textModelID: promptSelection.textModelID,
+    } : undefined,
   };
 }
 

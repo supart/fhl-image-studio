@@ -45,7 +45,7 @@ export function SourceStrip() {
   const selectBatchInputFiles = useStudioStore((s) => s.selectBatchInputFiles);
   const importSourceImageFile = useStudioStore((s) => s.importSourceImageFile);
   const pushToast = useStudioStore((s) => s.pushToast);
-  const { usesMacDesktopUI, usesFluentUI, usesAppleUI } = usePlatform();
+  const { isMac, usesFluentUI, usesAppleUI } = usePlatform();
 
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
@@ -155,14 +155,14 @@ export function SourceStrip() {
       title={stripTitle}
       className={`source-strip relative border-b border-[var(--border)] bg-[var(--toolbar)] backdrop-blur-2xl transition-colors ${
         fileDragActive ? "bg-[var(--accent-soft)] shadow-[inset_0_0_0_2px_var(--accent)]" : ""
-      } ${usesAppleUI ? "liquid-glass-bar" : ""} ${usesMacDesktopUI ? "px-3 py-2.5" : "px-3 py-2"}`}
+      } ${usesAppleUI ? "liquid-glass-bar" : ""} ${isMac ? "px-3 py-2.5" : "px-3 py-2"}`}
     >
-      <div className={`flex ${usesMacDesktopUI ? "items-start justify-between gap-3" : "items-center gap-2"} overflow-x-auto`}>
+      <div className={`flex ${isMac ? "items-start justify-between gap-3" : "items-center gap-2"} overflow-x-auto`}>
         <div className="min-w-0 shrink-0">
           <div className={`source-strip-label shrink-0 text-[11px] ${fileDragActive ? "font-medium text-[var(--accent)]" : "text-zinc-500"}`}>
             {stripLabel}
           </div>
-          {usesMacDesktopUI && (
+          {isMac && (
             <div className="mt-0.5 text-[11px] leading-5 text-zinc-500 dark:text-zinc-400">
               {stripHint}
             </div>

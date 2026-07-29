@@ -5,10 +5,10 @@ import { useStudioStore } from "../../state/studioStore";
 const StarPromptModal = lazy(() => import("../../components/common/StarPromptModal").then((module) => ({ default: module.StarPromptModal })));
 
 export function StarPromptGate() {
-  const { usesWindowsDesktopUI } = usePlatform();
+  const { isMac } = usePlatform();
   const open = useStudioStore((state) => state.starPromptOpen);
 
-  if (!usesWindowsDesktopUI || !open) return null;
+  if (isMac || !open) return null;
 
   return (
     <Suspense fallback={null}>

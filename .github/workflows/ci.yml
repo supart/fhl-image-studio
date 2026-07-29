@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, master, "codex/**"]
+    branches: [main, master, "codex/**", "release/**"]
   pull_request:
     branches: [main, master]
 
@@ -53,7 +53,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: |
-            go.work.sum
+            go-cli/go.sum
             image-studio/go.sum
       - name: Check gofmt
         shell: pwsh
@@ -97,7 +97,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: |
-            go.work.sum
+            go-cli/go.sum
             image-studio/go.sum
       - name: Race test CLI
         working-directory: go-cli
@@ -136,7 +136,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: |
-            go.work.sum
+            go-cli/go.sum
             image-studio/go.sum
       - uses: actions/setup-node@v4
         with:
@@ -150,36 +150,11 @@ jobs:
         working-directory: image-studio
         shell: pwsh
         env:
-          IMAGE_STUDIO_PRODUCT_VERSION: "2.0.3.1"
-          IMAGE_STUDIO_FRONTEND_VERSION: "2.0.3.1"
-          VITE_APP_VERSION: "2.0.3.1"
+          IMAGE_STUDIO_PRODUCT_VERSION: "2.0.3"
+          IMAGE_STUDIO_FRONTEND_VERSION: "2.0.3"
+          VITE_APP_VERSION: "2.0.3"
           IMAGE_STUDIO_STORAGE_NAMESPACE: fhl-image-studio-desktop
-        run: wails build -platform windows/amd64 -clean -ldflags "-X github.com/yuanhua/image-gptcodex/pkg/client.Version=2.0.3.1"
-
-  macos-arm64:
-    name: macOS Apple Silicon package
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: |
-            go.work.sum
-            image-studio/go.sum
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: image-studio/frontend/package-lock.json
-      - name: Build and verify macOS arm64 release
-        env:
-          FHL_REQUIRE_EXACT_TOOLCHAIN: "1"
-        run: |
-          bash scripts/package-local-macos-app.sh "$RUNNER_TEMP/release-assets"
-          node scripts/verify-local-macos-release.mjs \
-            "image-studio/build/bin/FHL Studio.app" \
-            "$RUNNER_TEMP/release-assets/FHL-Image-Studio-Desktop-V2.0.3.1-macOS-AppleSilicon.dmg"
+        run: wails build -platform windows/amd64 -clean -ldflags "-X github.com/yuanhua/image-gptcodex/pkg/client.Version=2.0.3"
 
   release-hygiene:
     name: Release hygiene

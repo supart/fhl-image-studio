@@ -5,11 +5,10 @@ const realWindow = globalThis.window;
 const realDocument = globalThis.document;
 const realNavigator = globalThis.navigator;
 
-function installPlatformEnv({ width, height, userAgent, platform = "Linux armv8l", uaDataPlatform = "Android", search = "" }) {
+function installPlatformEnv({ width, height, userAgent, platform = "Linux armv8l", uaDataPlatform = "Android" }) {
   globalThis.window = {
     innerWidth: width,
     innerHeight: height,
-    location: { search },
     addEventListener() {},
     removeEventListener() {},
     visualViewport: {
@@ -134,30 +133,6 @@ test("macOS keeps the Apple UI family", async () => {
     assert.equal(state.uiFamily, "apple");
     assert.equal(state.usesFluentUI, false);
     assert.equal(state.usesAppleUI, true);
-  });
-});
-
-test("macOS Windows parity keeps Mac host capabilities with Fluent presentation", async () => {
-  await withPlatformEnv({
-    width: 1440,
-    height: 900,
-    platform: "MacIntel",
-    uaDataPlatform: "macOS",
-    userAgent: "Mozilla/5.0 (Macintosh; Apple Silicon Mac OS X 13_0) AppleWebKit/605.1.15",
-    search: "?ui=windows-parity",
-  }, async () => {
-    const platform = await loadPlatformModule();
-    platform.applyPlatformAttributes(globalThis.document.documentElement);
-    const state = platform.readRuntimePlatformState();
-    assert.equal(state.hostPlatform, "macos");
-    assert.equal(state.presentationPlatform, "windows");
-    assert.equal(state.isMacHost, true);
-    assert.equal(state.isWindowsHost, false);
-    assert.equal(state.usesWindowsDesktopUI, true);
-    assert.equal(state.usesFluentUI, true);
-    assert.equal(platform.submitShortcutLabel, "⌘Enter");
-    assert.equal(globalThis.document.documentElement.dataset.platform, "macos");
-    assert.equal(globalThis.document.documentElement.dataset.presentationPlatform, "windows");
   });
 });
 test("platform-vite enables Node env proxy for local preview upstream proxies", async () => {

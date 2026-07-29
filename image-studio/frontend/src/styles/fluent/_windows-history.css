@@ -1,27 +1,27 @@
 /* Windows history rail: compact list-first Fluent layout. */
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-rail {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-rail {
   width: var(--fluent-pane-right);
   padding: 12px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-stack {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-stack {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 10px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-upstream,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-summary,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-feature,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-results {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-upstream,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-summary,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-feature,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-results {
   min-width: 0;
   padding: 12px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-card-head,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-section-head {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-card-head,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-section-head {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -29,26 +29,26 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   gap: 10px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-section-head {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-section-head {
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 600;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-section-head > span,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-title-row {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-section-head > span,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-title-row {
   display: inline-flex;
   min-width: 0;
   align-items: center;
   gap: 6px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-section-head button {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-section-head button {
   color: var(--accent);
   font-size: 11px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-title {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-title {
   color: var(--text);
   font-size: 11px;
   font-weight: 700;
@@ -56,16 +56,16 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   text-transform: uppercase;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-count,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-muted,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-api-mode,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-description {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-count,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-muted,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-api-mode,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-description {
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.5;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-status-dot {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-status-dot {
   width: 7px;
   height: 7px;
   flex: 0 0 auto;
@@ -73,19 +73,19 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-sta
   background: #d13438;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-status-dot.ready {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-status-dot.ready {
   background: var(--accent);
   box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-select,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-search {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-select,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-search {
   width: 100%;
   min-width: 0;
   margin-top: 10px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-search {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-search {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -97,7 +97,7 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   color: var(--text-muted);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-search input {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-search input {
   min-width: 0;
   flex: 1;
   border: 0;
@@ -108,30 +108,30 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   outline: none;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-actions,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-filter-row,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-stats {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-actions,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-filter-row,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-stats {
   display: grid;
   gap: 6px;
   margin-top: 10px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-actions {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-actions {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-filter-row {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-filter-row {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-stats {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-stats {
   grid-template-columns: 1fr;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-stats button,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-filter-row button,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-collapse,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-compare-exit {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-stats button,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-filter-row button,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-collapse,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-compare-exit {
   display: inline-flex;
   min-width: 0;
   min-height: 30px;
@@ -147,27 +147,27 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-com
   white-space: nowrap;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-stats button {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-stats button {
   justify-content: space-between;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-stats button.active,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-filter-row button.active {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-stats button.active,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-filter-row button.active {
   border-color: color-mix(in srgb, var(--accent) 30%, transparent);
   background: color-mix(in srgb, var(--accent) 12%, var(--surface));
   color: var(--accent);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-compare-exit {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-compare-exit {
   width: 100%;
   border-color: color-mix(in srgb, var(--accent) 28%, transparent);
   background: var(--accent-soft);
   color: var(--accent);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-feature-tile,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-row,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-prompt-group {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-feature-tile,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-row,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-prompt-group {
   display: grid;
   min-width: 0;
   cursor: pointer;
@@ -177,24 +177,24 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   transition: border-color 120ms ease, background-color 120ms ease;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-feature-tile:hover,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-row:hover,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-prompt-group:hover {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-feature-tile:hover,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-row:hover,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-prompt-group:hover {
   border-color: color-mix(in srgb, var(--accent) 34%, transparent);
   background: color-mix(in srgb, var(--surface-2) 88%, var(--surface));
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-feature-tile.active,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-row.active,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-prompt-group.active,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-feature-tile.compare,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-row.compare,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-prompt-group.compare {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-feature-tile.active,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-row.active,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-prompt-group.active,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-feature-tile.compare,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-row.compare,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-prompt-group.compare {
   border-color: color-mix(in srgb, var(--accent) 52%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-results-actions {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-results-actions {
   display: inline-flex;
   min-width: 0;
   align-items: center;
@@ -202,7 +202,7 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   gap: 6px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-gallery-button {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-gallery-button {
   display: inline-flex;
   height: 24px;
   max-width: 96px;
@@ -219,12 +219,12 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   transition: background-color 120ms ease, border-color 120ms ease;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-gallery-button:hover:not(:disabled) {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-gallery-button:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
   background: color-mix(in srgb, var(--accent) 14%, var(--surface));
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-gallery-button:disabled {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-gallery-button:disabled {
   cursor: not-allowed;
   border-color: var(--border);
   background: var(--surface);
@@ -232,40 +232,40 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   opacity: 0.55;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-feature-tile {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-feature-tile {
   grid-template-columns: 88px minmax(0, 1fr);
   gap: 10px;
   margin-top: 10px;
   padding: 8px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-feature-image,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-row-thumb {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-feature-image,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-row-thumb {
   position: relative;
   overflow: hidden;
   border-radius: 4px;
   background: var(--panel-2);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-feature-image {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-feature-image {
   aspect-ratio: 1;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-feature-image img,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-row-thumb img {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-feature-image img,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-row-thumb img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-mode {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-mode {
   position: absolute;
   left: 6px;
   top: 6px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-compare-badge,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-compare-inline {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-compare-badge,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-compare-inline {
   border-radius: 4px;
   background: #2563eb;
   color: white;
@@ -273,24 +273,24 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   font-weight: 700;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-compare-badge {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-compare-badge {
   position: absolute;
   right: 6px;
   top: 6px;
   padding: 2px 5px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-compare-inline {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-compare-inline {
   padding: 1px 5px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-feature-body,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-row-main {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-feature-body,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-row-main {
   min-width: 0;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-feature-body p,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-row-main p {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-feature-body p,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-row-main p {
   display: -webkit-box;
   overflow: hidden;
   min-width: 0;
@@ -302,13 +302,13 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   -webkit-line-clamp: 2;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-tile-actions {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-tile-actions {
   margin-top: 8px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-tile-actions button,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-row-actions button,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-more {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-tile-actions button,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-row-actions button,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-more {
   display: inline-flex;
   min-height: 28px;
   align-items: center;
@@ -322,14 +322,14 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   font-size: 11px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-list {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
   margin-top: 10px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-queue {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-queue {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -341,7 +341,7 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   padding: 8px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-head {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-head {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -352,20 +352,20 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   font-weight: 600;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-head strong {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-head strong {
   color: var(--text);
   font-size: 11px;
   font-weight: 700;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-list {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-list {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 5px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-slot {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-slot {
   display: grid;
   width: 100%;
   min-width: 0;
@@ -381,27 +381,27 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   text-align: left;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] button.windows-history-batch-slot.success {
+html[data-platform="windows"][data-ui-family="fluent"] button.windows-history-batch-slot.success {
   cursor: pointer;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] button.windows-history-batch-slot.success:hover {
+html[data-platform="windows"][data-ui-family="fluent"] button.windows-history-batch-slot.success:hover {
   border-color: color-mix(in srgb, var(--accent) 42%, transparent);
   background: color-mix(in srgb, var(--accent) 8%, var(--surface));
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-slot.preview,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-slot.pending {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-slot.preview,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-slot.pending {
   border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
   background: color-mix(in srgb, var(--accent) 5%, var(--surface));
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-slot.failed {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-slot.failed {
   border-color: color-mix(in srgb, #d13438 44%, var(--border));
   background: color-mix(in srgb, #d13438 8%, var(--surface));
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-index {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-index {
   display: inline-flex;
   width: 18px;
   height: 18px;
@@ -414,8 +414,8 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   font-weight: 700;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-thumb,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-placeholder {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-thumb,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-placeholder {
   width: 42px;
   height: 42px;
   overflow: hidden;
@@ -423,13 +423,13 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   background: var(--panel-2);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-thumb img {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-thumb img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-placeholder {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-placeholder {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -438,19 +438,19 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   font-weight: 800;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-slot.failed .windows-history-batch-placeholder {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-slot.failed .windows-history-batch-placeholder {
   background: color-mix(in srgb, #d13438 16%, var(--surface));
   color: #d13438;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-main {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-main {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 5px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-prompt {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-prompt {
   overflow: hidden;
   min-width: 0;
   color: var(--text);
@@ -460,7 +460,7 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   white-space: nowrap;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-error {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-error {
   overflow: hidden;
   min-width: 0;
   color: #d13438;
@@ -471,7 +471,7 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   white-space: nowrap;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-meta {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-meta {
   display: flex;
   min-width: 0;
   flex-wrap: wrap;
@@ -479,7 +479,7 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   gap: 4px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-state {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-state {
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--surface-2);
@@ -489,35 +489,35 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   font-weight: 600;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-slot.success .windows-history-batch-state {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-slot.success .windows-history-batch-state {
   border-color: color-mix(in srgb, var(--accent) 26%, transparent);
   color: var(--accent);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-slot.failed .windows-history-batch-state {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-slot.failed .windows-history-batch-state {
   border-color: color-mix(in srgb, #d13438 36%, transparent);
   color: #d13438;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-batch-note {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-batch-note {
   color: var(--text-muted);
   font-size: 10px;
   line-height: 1.4;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-row {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-row {
   grid-template-columns: 48px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   padding: 7px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-row-thumb {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-row-thumb {
   width: 48px;
   height: 48px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-row-meta {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-row-meta {
   display: flex;
   min-width: 0;
   flex-wrap: wrap;
@@ -526,29 +526,29 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   margin-top: 5px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-row-actions {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-row-actions {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-row-actions button {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-row-actions button {
   width: 28px;
   padding: 0;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-prompt-group {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-prompt-group {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 7px;
   padding: 7px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-prompt-group.expanded {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-prompt-group.expanded {
   cursor: default;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-group-summary,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-group-expand {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-group-summary,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-group-expand {
   display: inline-flex;
   min-width: 0;
   align-items: center;
@@ -556,43 +556,43 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   color: var(--text-muted);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-group-summary {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-group-summary {
   gap: 8px;
   text-align: left;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-group-pile-button {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-group-pile-button {
   display: block;
   min-width: 0;
   cursor: zoom-in;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .timeline-prompt-card-pile.windows-history-group-pile {
+html[data-platform="windows"][data-ui-family="fluent"] .timeline-prompt-card-pile.windows-history-group-pile {
   width: 58px;
   height: 44px;
   flex: 0 0 58px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-group-pile .timeline-prompt-card-layer {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-group-pile .timeline-prompt-card-layer {
   inset: 4px 9px 4px 4px;
   border-radius: 5px;
   box-shadow: 0 8px 16px rgb(15 23 42 / 0.14);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-group-pile .timeline-prompt-card-layer.layer-1 {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-group-pile .timeline-prompt-card-layer.layer-1 {
   transform: translate(5px, 0) rotate(3deg) scale(0.96);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-group-pile .timeline-prompt-card-layer.layer-2 {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-group-pile .timeline-prompt-card-layer.layer-2 {
   transform: translate(9px, 1px) rotate(6deg) scale(0.92);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-group-pile .timeline-prompt-card-mode {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-group-pile .timeline-prompt-card-mode {
   left: 4px;
   top: 4px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-group-pile .timeline-prompt-card-count {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-group-pile .timeline-prompt-card-count {
   right: 0;
   bottom: 0;
   min-width: 22px;
@@ -601,14 +601,14 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   font-size: 10px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-group-copy {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-group-copy {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 3px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-group-copy strong {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-group-copy strong {
   overflow: hidden;
   color: var(--text);
   font-size: 12px;
@@ -617,7 +617,7 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   white-space: nowrap;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-group-copy small {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-group-copy small {
   overflow: hidden;
   color: var(--text-muted);
   font-size: 11px;
@@ -625,7 +625,7 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   white-space: nowrap;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-group-expand {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-group-expand {
   width: 30px;
   height: 30px;
   justify-content: center;
@@ -634,18 +634,18 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   background: var(--surface);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-group-expand:hover {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-group-expand:hover {
   color: var(--accent);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-group-list {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-group-list {
   grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
   gap: 5px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-empty {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-empty {
   margin-top: 10px;
   border: 1px dashed var(--border);
   border-radius: 6px;
@@ -655,7 +655,7 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-his
   font-size: 12px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-history-more {
+html[data-platform="windows"][data-ui-family="fluent"] .windows-history-more {
   width: 100%;
   margin-top: 10px;
 }

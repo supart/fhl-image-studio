@@ -20,7 +20,7 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
     fullscreen, theme, setTheme, pushToast, workspaces, newWorkspace, openStarPrompt,
     apiKey, apiMode, baseURL, imageModelID,
   } = useStudioStore();
-  const { isAndroid, usesMacDesktopUI, usesFluentUI, usesAndroidUI, usesAppleUI } = usePlatform();
+  const { isAndroid, isMac, usesFluentUI, usesAndroidUI, usesAppleUI } = usePlatform();
   const [fhlChoiceOpen, setFHLChoiceOpen] = useState(false);
   const [fhlQuickConfigOpen, setFHLQuickConfigOpen] = useState(false);
   const [androidConfigRowOpen, setAndroidConfigRowOpen] = useState(false);
@@ -209,17 +209,17 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
           usesAppleUI ? "liquid-glass-bar" : ""
         } ${
           usesAppleUI
-            ? `${usesMacDesktopUI ? "mac-app-header" : ""} min-h-[64px] px-5 pb-2 pt-3`
+            ? `${isMac ? "mac-app-header" : ""} min-h-[64px] px-5 pb-2 pt-3`
             : usesFluentUI
               ? "min-h-[48px] px-3"
               : "min-h-12 px-4"
         }`}
       >
-        <div className={`min-w-0 flex-1 ${usesMacDesktopUI ? "mac-header-copy" : ""}`}>
+        <div className={`min-w-0 flex-1 ${isMac ? "mac-header-copy" : ""}`}>
           <AppHeaderBrand />
         </div>
 
-        <div className={`no-drag ml-auto flex shrink-0 items-center ${usesMacDesktopUI ? "mac-header-actions" : ""} ${usesFluentUI ? "gap-1" : usesMacDesktopUI ? "gap-2" : "gap-1.5"}`}>
+        <div className={`no-drag ml-auto flex shrink-0 items-center ${isMac ? "mac-header-actions" : ""} ${usesFluentUI ? "gap-1" : isMac ? "gap-2" : "gap-1.5"}`}>
           <HeaderIconBtn
             onClick={() => newWorkspace()}
             title={workspaces.length > 1 ? `${workspaces.length} 个标签 · 新建` : "新建标签"}
@@ -259,13 +259,13 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
               <Moon className="h-3.5 w-3.5" />
             </HeaderToggleBtn>
           </div>
-          {!usesMacDesktopUI && <HeaderIconBtn
+          {!isMac && <HeaderIconBtn
             onClick={() => openExternalURLForPlatform(REPO_URL, OpenExternalURL).catch(() => pushToast("无法打开浏览器", "error"))}
             title="GitHub"
           >
             <Github className="h-4 w-4" />
           </HeaderIconBtn>}
-          {!usesMacDesktopUI && <HeaderIconBtn
+          {!isMac && <HeaderIconBtn
             onClick={openStarPrompt}
             title="给项目点个 Star"
           >

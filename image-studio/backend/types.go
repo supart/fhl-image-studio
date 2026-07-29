@@ -23,6 +23,9 @@ type GenerateOptions struct {
 	// path on disk (frontend writes imports / generated PNGs to disk so we
 	// can avoid pushing large base64 across the JSON bridge).
 	ImagePaths []string `json:"imagePaths"`
+	// preparedBase is internal to the Photoshop Bridge. Keeping it private
+	// avoids changing the desktop frontend's ordinary GenerateOptions contract.
+	preparedBase bool
 
 	// Deprecated single-image path, kept for backward compat with older
 	// frontend builds. Folded into ImagePaths when present.

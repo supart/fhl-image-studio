@@ -1,6 +1,6 @@
 /* Windows flyouts and overflow guards. */
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .context-menu {
+html[data-platform="windows"][data-ui-family="fluent"] .context-menu {
   border-color: var(--border);
   border-radius: 8px;
   background: color-mix(in srgb, var(--surface) 98%, transparent);
@@ -9,24 +9,24 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .context-men
   backdrop-filter: none;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .context-menu-item {
+html[data-platform="windows"][data-ui-family="fluent"] .context-menu-item {
   min-height: 32px;
   border-radius: 4px;
   padding: 0 10px;
   font-size: 12px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .context-menu-item:hover {
+html[data-platform="windows"][data-ui-family="fluent"] .context-menu-item:hover {
   background: var(--tool-hover-bg);
   color: var(--text);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .context-menu-item.danger:hover {
+html[data-platform="windows"][data-ui-family="fluent"] .context-menu-item.danger:hover {
   background: var(--danger-soft);
   color: var(--danger);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .context-menu-icon {
+html[data-platform="windows"][data-ui-family="fluent"] .context-menu-icon {
   display: inline-flex;
   width: 18px;
   flex: 0 0 18px;
@@ -35,31 +35,31 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .context-men
   color: var(--text-dim);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .context-menu-label {
+html[data-platform="windows"][data-ui-family="fluent"] .context-menu-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .context-menu-separator {
+html[data-platform="windows"][data-ui-family="fluent"] .context-menu-separator {
   height: 1px;
   margin: 4px 8px;
   background: var(--border);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .upstream-config-modal,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .upstream-config-modal * {
+html[data-platform="windows"][data-ui-family="fluent"] .upstream-config-modal,
+html[data-platform="windows"][data-ui-family="fluent"] .upstream-config-modal * {
   min-width: 0;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .upstream-config-modal {
+html[data-platform="windows"][data-ui-family="fluent"] .upstream-config-modal {
   overflow-wrap: anywhere;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .upstream-config-modal input,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .upstream-config-modal textarea,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .upstream-config-modal code,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .upstream-config-modal p,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .upstream-config-modal span {
+html[data-platform="windows"][data-ui-family="fluent"] .upstream-config-modal input,
+html[data-platform="windows"][data-ui-family="fluent"] .upstream-config-modal textarea,
+html[data-platform="windows"][data-ui-family="fluent"] .upstream-config-modal code,
+html[data-platform="windows"][data-ui-family="fluent"] .upstream-config-modal p,
+html[data-platform="windows"][data-ui-family="fluent"] .upstream-config-modal span {
   overflow-wrap: anywhere;
 }

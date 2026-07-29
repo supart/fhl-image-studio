@@ -26,7 +26,7 @@ export function PromptPopover({
 }) {
   const history = useStudioStore((s) => s.promptHistory);
   const [tab, setTab] = useState<"templates" | "history">("templates");
-  const { usesMacDesktopUI, usesFluentUI, usesAppleUI } = usePlatform();
+  const { isMac, usesFluentUI, usesAppleUI } = usePlatform();
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
@@ -36,7 +36,7 @@ export function PromptPopover({
       if (!anchor) return;
       const rect = anchor.getBoundingClientRect();
       const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
-      const width = Math.min(usesMacDesktopUI ? 400 : 360, Math.max(280, viewportWidth - 24));
+      const width = Math.min(isMac ? 400 : 360, Math.max(280, viewportWidth - 24));
       const left = Math.min(Math.max(12, rect.left), Math.max(12, viewportWidth - width - 12));
       setPos({ top: rect.bottom + 12, left, width });
     };
@@ -47,7 +47,7 @@ export function PromptPopover({
       window.removeEventListener("resize", compute);
       window.removeEventListener("scroll", compute, true);
     };
-  }, [anchorRef, usesMacDesktopUI]);
+  }, [anchorRef, isMac]);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -78,7 +78,7 @@ export function PromptPopover({
       <div className="flex items-center border-b border-black/[0.06] px-2 py-1.5 dark:border-white/[0.05]">
         <button
           onClick={() => setTab("templates")}
-          className={`flex-1 rounded-full ${usesMacDesktopUI ? "px-3.5 py-2.5 text-[12px]" : "px-3 py-2 text-[11px]"} font-semibold transition-colors ${
+          className={`flex-1 rounded-full ${isMac ? "px-3.5 py-2.5 text-[12px]" : "px-3 py-2 text-[11px]"} font-semibold transition-colors ${
             tab === "templates"
               ? "bg-[var(--accent-soft)] text-[var(--accent)]"
               : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
@@ -88,7 +88,7 @@ export function PromptPopover({
         </button>
         <button
           onClick={() => setTab("history")}
-          className={`flex-1 rounded-full ${usesMacDesktopUI ? "px-3.5 py-2.5 text-[12px]" : "px-3 py-2 text-[11px]"} font-semibold transition-colors ${
+          className={`flex-1 rounded-full ${isMac ? "px-3.5 py-2.5 text-[12px]" : "px-3 py-2 text-[11px]"} font-semibold transition-colors ${
             tab === "history"
               ? "bg-[var(--accent-soft)] text-[var(--accent)]"
               : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
@@ -104,15 +104,15 @@ export function PromptPopover({
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
-      <div className={`flex-1 overflow-y-auto ${usesMacDesktopUI ? "p-3" : "p-2.5"}`}>
+      <div className={`flex-1 overflow-y-auto ${isMac ? "p-3" : "p-2.5"}`}>
         {tab === "templates" && PROMPT_TEMPLATES.map((t) => (
           <button
             key={t.label}
             onClick={() => { onPick(t.text); onClose(); }}
-            className={`w-full text-left transition-colors hover:bg-[var(--accent-soft)] ${usesMacDesktopUI ? "px-3.5 py-3.5" : "px-3 py-3"} ${usesFluentUI ? "rounded-[10px]" : "rounded-[16px]"}`}
+            className={`w-full text-left transition-colors hover:bg-[var(--accent-soft)] ${isMac ? "px-3.5 py-3.5" : "px-3 py-3"} ${usesFluentUI ? "rounded-[10px]" : "rounded-[16px]"}`}
           >
-            <div className={`${usesMacDesktopUI ? "mb-1.5 text-[13px]" : "mb-1 text-[12px]"} font-semibold text-zinc-900 dark:text-zinc-100`}>{t.label}</div>
-            <div className={`${usesMacDesktopUI ? "text-[12px] leading-6" : "text-[11px] leading-relaxed"} text-zinc-500 dark:text-zinc-300`}>{t.text}</div>
+            <div className={`${isMac ? "mb-1.5 text-[13px]" : "mb-1 text-[12px]"} font-semibold text-zinc-900 dark:text-zinc-100`}>{t.label}</div>
+            <div className={`${isMac ? "text-[12px] leading-6" : "text-[11px] leading-relaxed"} text-zinc-500 dark:text-zinc-300`}>{t.text}</div>
           </button>
         ))}
         {tab === "history" && (
@@ -127,9 +127,9 @@ export function PromptPopover({
                   key={i}
                   onClick={() => { onPick(p); onClose(); }}
                   title="点击使用"
-                  className={`w-full border border-black/[0.09] bg-white/82 text-left shadow-[0_1px_2px_rgb(15_23_42_/_0.06)] transition-colors hover:border-[color:var(--accent)]/45 hover:bg-[var(--accent-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent)]/35 dark:border-white/[0.1] dark:bg-white/[0.04] ${usesMacDesktopUI ? "px-3.5 py-3" : "px-3 py-2.5"} ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}
+                  className={`w-full border border-black/[0.09] bg-white/82 text-left shadow-[0_1px_2px_rgb(15_23_42_/_0.06)] transition-colors hover:border-[color:var(--accent)]/45 hover:bg-[var(--accent-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent)]/35 dark:border-white/[0.1] dark:bg-white/[0.04] ${isMac ? "px-3.5 py-3" : "px-3 py-2.5"} ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}
                 >
-                  <div className={`${usesMacDesktopUI ? "text-[13px] leading-6" : "text-[12px] leading-5"} max-h-24 overflow-y-auto whitespace-pre-wrap break-words text-zinc-800 dark:text-zinc-100`}>
+                  <div className={`${isMac ? "text-[13px] leading-6" : "text-[12px] leading-5"} max-h-24 overflow-y-auto whitespace-pre-wrap break-words text-zinc-800 dark:text-zinc-100`}>
                     {p}
                   </div>
                 </button>

@@ -10,15 +10,17 @@ test("control panel hides per-API concurrency when continuous generation is off"
   assert.doesNotMatch(source, /continuousGenerateTest \|\| batchImageToImageMode/);
 });
 
-test("control panel presents API 1 single-image capacity and calculated batch capacity", () => {
+test("control panel presents one task per click and total pool capacity", () => {
   assert.match(source, /每 API 并发/);
   assert.match(source, /\[2, 4, 5\]/);
   assert.match(source, /5\/API 满载/);
-  assert.match(source, /单图固定首个启用 API/);
-  assert.match(source, /批量总上限 \{fhlPoolTotalConcurrencyLimit\}/);
-  assert.match(source, /连续单图每次只向首个启用 API 新增 1 张/);
+  assert.match(source, /\{enabledFHLPoolAPICount\} 个 API × \{perAPIConcurrencyLimit\} 并发 = 总上限 \{fhlPoolTotalConcurrencyLimit\} 张/);
+  assert.match(source, /每次点击只新增 1 个任务/);
   assert.match(source, /\{enabledFHLPoolAPICount\} 个已启用 API 轮询/);
   assert.match(source, /max=\{5\}/);
+  assert.match(source, /每次点击固定生成 1 张/);
+  assert.doesNotMatch(source, /每次点击生成会提交一整轮任务/);
+  assert.doesNotMatch(source, /首个启用 API/);
   assert.doesNotMatch(source, /共享并发设置/);
 });
 

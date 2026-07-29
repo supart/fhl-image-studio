@@ -125,4 +125,44 @@ describe("BatchResultGrid recent success pin", () => {
     expect(mountedTiles).toBeLessThanOrEqual(80);
     expect(mountedImages).toBeLessThanOrEqual(80);
   });
+
+  it("shows the assigned FHL slot on successful and failed image tiles", () => {
+    const completed = {
+      ...result("slot-3-result", "slot 3 result", 9_000),
+      apiMode: "images" as const,
+      apiProfileId: "fhl-slot-3",
+      apiProfileName: "FHL-3 Images",
+      fhlImagesPoolSlot: 3,
+    };
+    const slots: BatchGridSlot[] = [
+      { type: "result", item: completed, slotIndex: 0, updatedAt: 9_000 },
+      {
+        type: "failed",
+        id: "slot-7-failure",
+        slotIndex: 1,
+        label: "生成失败",
+        apiSource: {
+          apiMode: "images",
+          apiProfileId: "fhl-slot-7",
+          apiProfileName: "FHL-7 Images",
+          fhlImagesPoolSlot: 7,
+        },
+      },
+    ];
+    const view = render(
+      <BatchResultGrid
+        items={[completed]}
+        slots={slots}
+        currentId={null}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        showClose={false}
+        preserveSlotOrder
+      />,
+    );
+
+    const labels = Array.from(view.container.querySelectorAll<HTMLElement>(".batch-grid-api-source"));
+    expect(labels.map((label) => label.textContent)).toEqual(["FHL3", "FHL7"]);
+    expect(labels[1].title).toBe("FHL7 · FHL-7 Images | FHL");
+  });
 });

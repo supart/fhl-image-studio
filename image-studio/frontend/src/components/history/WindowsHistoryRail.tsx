@@ -66,7 +66,7 @@ function queueSlotQuality(slot: WindowsHistoryBatchQueueSlot, fallback: QualityV
   return slot.task?.quality ?? fallback;
 }
 
-function apiSourceMetaLabel(source?: Pick<HistoryItem, "apiMode" | "apiProfileId" | "apiProfileName"> | Pick<BatchTaskRecord, "apiMode" | "apiProfileId" | "apiProfileName"> | Pick<JobGroupSnapshot, "apiMode" | "apiProfileId" | "apiProfileName"> | null): string {
+function apiSourceMetaLabel(source?: Pick<HistoryItem, "apiMode" | "apiProfileId" | "apiProfileName" | "fhlImagesPoolSlot"> | Pick<BatchTaskRecord, "apiMode" | "apiProfileId" | "apiProfileName" | "fhlImagesPoolSlot"> | Pick<JobGroupSnapshot, "apiMode" | "apiProfileId" | "apiProfileName" | "fhlImagesPoolSlot"> | null): string {
   return source ? apiSourceShortLabel(source) : "";
 }
 
@@ -176,6 +176,7 @@ export function WindowsHistoryRail({
   onOpenPromptGroup: (group: HistoryPromptGroup) => void;
 }) {
   const upstreamReady = !!baseURL.trim() && (!apiModeRequiresDirectAPIKey(apiMode) || !!apiKey.trim());
+  const hasActiveProfile = profiles.some((profile) => profile.id === activeProfileId);
   const activeFHLModeLabel = isOfficialFHLProfile({ apiMode, baseURL })
     ? `${fhlTransportLabel(fhlTransportMode)} API`
     : apiModeLabel(apiMode);
@@ -205,7 +206,7 @@ export function WindowsHistoryRail({
 
           {profiles.length > 0 ? (
             <select
-              value={activeProfileId}
+              value={hasActiveProfile ? activeProfileId : ""}
               onChange={(event) => {
                 const id = event.target.value;
                 if (id === "__manage__") {
@@ -217,6 +218,7 @@ export function WindowsHistoryRail({
               className="focus-ring windows-history-select"
               title="切换上游配置 / 管理"
             >
+              {!hasActiveProfile ? <option value="" disabled>请选择当前 API</option> : null}
               {profiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
                   {profile.name} · {isOfficialFHLProfile(profile)
@@ -693,6 +695,7 @@ function WindowsBatchQueueImageSlot({
     apiMode: slot.task?.apiMode ?? item.apiMode,
     apiProfileId: slot.task?.apiProfileId ?? item.apiProfileId,
     apiProfileName: slot.task?.apiProfileName ?? item.apiProfileName,
+    fhlImagesPoolSlot: slot.task?.fhlImagesPoolSlot ?? item.fhlImagesPoolSlot,
   });
   return (
     <button

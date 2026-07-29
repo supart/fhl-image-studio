@@ -15,6 +15,8 @@ test("desktop FHL setup uses ten independent Images slots while Android retains 
   const textAPI = source("../src/lib/fhlTextAPI.ts");
   const textConfig = source("../src/components/panel/FHLTextAPIConfig.tsx");
   const desktopConfig = source("../src/components/panel/FHLDesktopAPIConfig.tsx");
+  const historyRail = source("../src/components/history/HistoryRail.tsx");
+  const windowsHistoryRail = source("../src/components/history/WindowsHistoryRail.tsx");
   const upstreamConfig = source("../src/components/panel/UpstreamConfigModal.tsx");
   const desktopHeader = source("../src/components/layout/AppHeaderBrand.tsx");
   const androidHeader = source("../src/components/layout/AppHeader.tsx");
@@ -84,6 +86,11 @@ test("desktop FHL setup uses ten independent Images slots while Android retains 
   assert.match(poolConfig, /testProfileConnection/);
   assert.match(poolConfig, /slotConnectionResults/);
   assert.match(poolConfig, /autoTestSavedPoolSlots/);
+  assert.match(poolConfig, /successfulProfileIds/);
+  assert.match(poolConfig, /activateSuccessfulProfileIfNeeded/);
+  assert.match(poolConfig, /await setActiveProfile\(target\.id\)/);
+  assert.match(poolConfig, /hasReadyActiveProfile/);
+  assert.match(poolConfig, /连接测试成功，但设为当前 API 失败/);
   assert.match(poolConfig, /handleSave\(\{ autoTest = true \}/);
   assert.match(poolConfig, /handleSave\(\{ autoTest: false \}\)/);
   assert.match(poolConfig, /配置成功/);
@@ -95,6 +102,12 @@ test("desktop FHL setup uses ten independent Images slots while Android retains 
   assert.match(poolConfig, /当前普通生成 API/);
   assert.match(poolConfig, /!profile && !slot\.apiKey\.trim\(\)/);
   assert.match(poolConfig, /保存并测试 API/);
+
+  for (const rail of [historyRail, windowsHistoryRail]) {
+    assert.match(rail, /const hasActiveProfile = profiles\.some/);
+    assert.match(rail, /value=\{hasActiveProfile \? activeProfileId : ""\}/);
+    assert.match(rail, /请选择当前 API/);
+  }
 
   const targetedTest = store.match(/testProfileConnection: async \(profileId\) => \{[\s\S]+?\n  \},\n\n  testAPIKey:/)?.[0] ?? "";
   assert.match(targetedTest, /apiKeyForProfileOrState\(s, profile\.id\)/);

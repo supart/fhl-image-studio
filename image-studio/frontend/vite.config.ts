@@ -9,6 +9,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import pkg from "./package.json";
 import { createBrowserJobProxyPlugin } from "./dev/browserJobProxy";
+import { localFHLConfigFromCLIEnv } from "./dev/localFHLConfigFallback";
 import { createUIAuditProxyPlugin } from "./dev/uiAuditProxy";
 
 const targetPlatform = (process.env.VITE_TARGET_PLATFORM ?? "").trim().toLowerCase();
@@ -730,7 +731,13 @@ function localConfigPlugin(): Plugin {
           }
           const raw = await fs.readFile(localFHLAPIConfigPath, "utf8").catch(() => "");
           if (!raw.trim()) {
-            sendJSON(res, 404, { error: "local config not found" });
+            const fallback = localFHLConfigFromCLIEnv(await readEnvFile(cliEnvLocalPath));
+            if (!fallback) {
+              sendJSON(res, 404, { error: "local config not found" });
+              return;
+            }
+            res.setHeader("Cache-Control", "no-store");
+            sendJSON(res, 200, fallback);
             return;
           }
           res.statusCode = 200;

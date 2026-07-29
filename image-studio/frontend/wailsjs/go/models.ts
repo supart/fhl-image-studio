@@ -364,6 +364,44 @@ export namespace backend {
 	        this.previewHeight = source["previewHeight"];
 	    }
 	}
+	export class PSBridgeImageCapabilities {
+	    aspectPresets: string[];
+	    resolutionPresets: string[];
+	    qualityControl: boolean;
+	    sizeEncoding: string;
+
+	    static createFrom(source: any = {}) {
+	        return new PSBridgeImageCapabilities(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.aspectPresets = source["aspectPresets"];
+	        this.resolutionPresets = source["resolutionPresets"];
+	        this.qualityControl = source["qualityControl"];
+	        this.sizeEncoding = source["sizeEncoding"];
+	    }
+	}
+	export class PSBridgePromptProfileInput {
+	    provider: string;
+	    label: string;
+	    baseURL: string;
+	    credentialUser: string;
+	    textModelID: string;
+
+	    static createFrom(source: any = {}) {
+	        return new PSBridgePromptProfileInput(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.provider = source["provider"];
+	        this.label = source["label"];
+	        this.baseURL = source["baseURL"];
+	        this.credentialUser = source["credentialUser"];
+	        this.textModelID = source["textModelID"];
+	    }
+	}
 	export class PSBridgeProfileInput {
 	    profileId: string;
 	    name: string;
@@ -377,6 +415,8 @@ export namespace backend {
 	    proxyMode: string;
 	    proxyURL: string;
 	    concurrencyLimit: number;
+	    imageCapabilities: PSBridgeImageCapabilities;
+	    promptProfile?: PSBridgePromptProfileInput;
 
 	    static createFrom(source: any = {}) {
 	        return new PSBridgeProfileInput(source);
@@ -396,7 +436,27 @@ export namespace backend {
 	        this.proxyMode = source["proxyMode"];
 	        this.proxyURL = source["proxyURL"];
 	        this.concurrencyLimit = source["concurrencyLimit"];
+	        this.imageCapabilities = this.convertValues(source["imageCapabilities"], PSBridgeImageCapabilities);
+	        this.promptProfile = this.convertValues(source["promptProfile"], PSBridgePromptProfileInput);
 	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class PSBridgeProfilePublic {
 	    profileId: string;
@@ -407,6 +467,9 @@ export namespace backend {
 	    supportsMask: boolean;
 	    maxImages: number;
 	    ready: boolean;
+	    promptOptimizationReady: boolean;
+	    promptProviderLabel?: string;
+	    imageCapabilities: PSBridgeImageCapabilities;
 
 	    static createFrom(source: any = {}) {
 	        return new PSBridgeProfilePublic(source);
@@ -422,8 +485,30 @@ export namespace backend {
 	        this.supportsMask = source["supportsMask"];
 	        this.maxImages = source["maxImages"];
 	        this.ready = source["ready"];
+	        this.promptOptimizationReady = source["promptOptimizationReady"];
+	        this.promptProviderLabel = source["promptProviderLabel"];
+	        this.imageCapabilities = this.convertValues(source["imageCapabilities"], PSBridgeImageCapabilities);
 	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
+
 	export class PSBridgeRemoteCompletion {
 	    jobId: string;
 	    imageB64: string;

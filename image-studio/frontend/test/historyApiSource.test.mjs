@@ -23,24 +23,32 @@ test("generated history items carry non-secret API source metadata", () => {
   assert.match(domainSource, /export interface HistoryItem[\s\S]*?apiMode\?: APIMode;/);
   assert.match(domainSource, /export interface HistoryItem[\s\S]*?apiProfileId\?: string;/);
   assert.match(domainSource, /export interface HistoryItem[\s\S]*?apiProfileName\?: string;/);
+  assert.match(domainSource, /export interface HistoryItem[\s\S]*?fhlImagesPoolSlot\?: number;/);
   assert.match(storeSource, /function apiProfileSnapshotForSubmit/);
   assert.match(storeSource, /apiMode: snapshot\.apiMode/);
   assert.match(storeSource, /apiProfileId: snapshot\.apiProfileId/);
   assert.match(storeSource, /apiProfileName: snapshot\.apiProfileName/);
+  assert.match(storeSource, /fhlImagesPoolSlot: normalizeFHLImagesPoolSlot\(snapshot\.fhlImagesPoolSlot\)/);
   assert.match(storeSource, /apiMode: group\.apiMode/);
   assert.match(storeSource, /apiProfileId: group\.apiProfileId \|\| existing\?\.apiProfileId/);
   assert.match(storeSource, /apiProfileName: group\.apiProfileName \|\| existing\?\.apiProfileName/);
+  assert.match(storeSource, /fhlImagesPoolSlot: normalizeFHLImagesPoolSlot\(group\.fhlImagesPoolSlot\)/);
   assert.match(storeSource, /size: sourceIdentity\?\.size \?\? group\.size/);
 });
 
 test("batch and background jobs preserve API source metadata until history sync", () => {
   assert.match(domainSource, /export interface BatchTaskRecord[\s\S]*?apiProfileId\?: string;/);
+  assert.match(domainSource, /export interface BatchTaskRecord[\s\S]*?fhlImagesPoolSlot\?: number;/);
   assert.match(domainSource, /export interface JobGroupSnapshot[\s\S]*?apiProfileName\?: string;/);
   assert.match(taskSource, /apiProfileId: input\.apiProfileId/);
   assert.match(taskSource, /apiProfileName: group\.apiProfileName \|\| task\.apiProfileName/);
+  assert.match(taskSource, /fhlImagesPoolSlot: normalizeFHLImagesPoolSlot\(group\.fhlImagesPoolSlot\)/);
   assert.match(sharedSource, /apiProfileId: typeof raw\.apiProfileId === "string"/);
+  assert.match(sharedSource, /fhlImagesPoolSlot: normalizeFHLImagesPoolSlot\(raw\.fhlImagesPoolSlot\)/);
   assert.match(contractsSource, /export interface BrowserJobSubmitPayload[\s\S]*?apiProfileName\?: string;/);
+  assert.match(contractsSource, /export interface BrowserJobSubmitPayload[\s\S]*?fhlImagesPoolSlot\?: number;/);
   assert.match(proxySource, /apiProfileId: typeof effectivePayload\.apiProfileId === "string"/);
+  assert.match(proxySource, /fhlImagesPoolSlot: normalizeFHLImagesPoolSlot\(effectivePayload\.fhlImagesPoolSlot\)/);
   assert.match(storeSource, /apiProfileId: task\.apiProfileId/);
   assert.match(storeSource, /\.\.\.apiProfileSnapshot/);
 });
@@ -94,6 +102,7 @@ test("generated image surfaces show a short API source badge directly on the ima
   assert.match(apiSourceBadgeSource, /sourceLooksLikeFHL/);
   assert.match(apiSourceBadgeSource, /apiMode: "responses"/);
   assert.match(apiSourceBadgeSource, /apiSourceShortLabel\(resolvedSource\)/);
+  assert.match(apiSourceBadgeSource, /matchedProfile\?\.fhlImagesPoolSlot/);
   assert.match(apiSourceBadgeSource, /pointer-events-none/);
   assert.match(tileSource, /<HistoryApiSourceBadge source=\{item\}/);
   assert.match(batchGridSource, /<HistoryApiSourceBadge source=\{item\} className="batch-grid-api-source/);
@@ -106,6 +115,7 @@ test("generated image surfaces show a short API source badge directly on the ima
 test("batch result previews recover API source from their task records", () => {
   assert.match(canvasStageSource, /function itemWithTaskApiSource/);
   assert.match(canvasStageSource, /apiMode = task\.apiMode \|\| item\.apiMode/);
+  assert.match(canvasStageSource, /normalizeFHLImagesPoolSlot\(task\.fhlImagesPoolSlot\)/);
   assert.match(canvasStageSource, /const size = task\.size \|\| item\.size/);
   assert.match(canvasStageSource, /const sourcedItem = item \? itemWithTaskApiSource\(item, task\) : null;/);
   assert.match(canvasStageSource, /itemWithTaskApiSource\(preview, task\)/);
@@ -160,4 +170,7 @@ test("API source badges use configured names as short labels", () => {
   assert.equal(apiSourceShortLabel({ apiMode: "apimart", apiProfileName: "custom-production-profile" }), "APIMart");
   assert.equal(apiSourceShortLabel({ apiProfileName: "custom-production-profile" }), "custom");
   assert.equal(apiSourceDetailLabel({ apiMode: "apimart", apiProfileName: "APIMart main" }), "APIMart main | APIMart");
+  assert.equal(apiSourceShortLabel({ apiMode: "images", apiProfileName: "FHL-4 Images", fhlImagesPoolSlot: 4 }), "FHL4");
+  assert.equal(apiSourceDetailLabel({ apiMode: "images", apiProfileName: "FHL-4 Images", fhlImagesPoolSlot: 4 }), "FHL4 · FHL-4 Images | FHL");
+  assert.equal(apiSourceShortLabel({ apiMode: "images", apiProfileName: "FHL-4 Images", fhlImagesPoolSlot: 11 }), "FHL");
 });

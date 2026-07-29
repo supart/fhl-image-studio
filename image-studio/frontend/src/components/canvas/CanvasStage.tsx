@@ -39,6 +39,7 @@ import { PanoramaPastebackAlignModal } from "../panorama/PanoramaPastebackAlignM
 import { hasPanoramaRoundtripRef } from "../../panorama/core";
 import { recoverPanoramaItemMetadataFromTask } from "../../state/panoramaRoundtripRecovery";
 import { ImportImagePath, ReadImageAsBase64 } from "../../platform/runtime/host";
+import { normalizeFHLImagesPoolSlot } from "../../lib/profiles";
 
 function sourceFileName(filePath: string) {
   return filePath.split(/[\\/]/).pop() || "source.png";
@@ -66,11 +67,13 @@ function apiSourceFromRecord(source: HistoryApiSource | null | undefined): Histo
   const apiMode = source?.apiMode;
   const apiProfileId = String(source?.apiProfileId || "").trim();
   const apiProfileName = String(source?.apiProfileName || "").trim();
-  if (!apiMode && !apiProfileId && !apiProfileName) return null;
+  const fhlImagesPoolSlot = normalizeFHLImagesPoolSlot(source?.fhlImagesPoolSlot);
+  if (!apiMode && !apiProfileId && !apiProfileName && fhlImagesPoolSlot === undefined) return null;
   return {
     apiMode,
     apiProfileId: apiProfileId || undefined,
     apiProfileName: apiProfileName || undefined,
+    fhlImagesPoolSlot,
   };
 }
 
@@ -79,6 +82,8 @@ function itemWithTaskApiSource(item: HistoryItem, task: BatchTaskRecord | null |
   const apiMode = task.apiMode || item.apiMode;
   const apiProfileId = task.apiProfileId || item.apiProfileId;
   const apiProfileName = task.apiProfileName || item.apiProfileName;
+  const fhlImagesPoolSlot = normalizeFHLImagesPoolSlot(task.fhlImagesPoolSlot)
+    ?? normalizeFHLImagesPoolSlot(item.fhlImagesPoolSlot);
   const size = task.size || item.size;
   const quality = task.quality || item.quality;
   const outputFormat = task.outputFormat || item.outputFormat;
@@ -86,6 +91,7 @@ function itemWithTaskApiSource(item: HistoryItem, task: BatchTaskRecord | null |
     apiMode === item.apiMode
     && apiProfileId === item.apiProfileId
     && apiProfileName === item.apiProfileName
+    && fhlImagesPoolSlot === item.fhlImagesPoolSlot
     && size === item.size
     && quality === item.quality
     && outputFormat === item.outputFormat
@@ -97,6 +103,7 @@ function itemWithTaskApiSource(item: HistoryItem, task: BatchTaskRecord | null |
     apiMode,
     apiProfileId,
     apiProfileName,
+    fhlImagesPoolSlot,
     size,
     quality,
     outputFormat,
@@ -283,7 +290,7 @@ export function CanvasStage() {
     apiMode: state.apiMode,
     activeProfileId: state.activeProfileId,
   })));
-  const { isMacHost } = usePlatform();
+  const { isMac } = usePlatform();
   const panoramaPastebackImportInputRef = useRef<HTMLInputElement>(null);
   const [panoramaPastebackImportAnchor, setPanoramaPastebackImportAnchor] = useState<HistoryItem | null>(null);
   const [panoramaQuickPastebackBusy, setPanoramaQuickPastebackBusy] = useState(false);
@@ -326,6 +333,8 @@ export function CanvasStage() {
         apiMode: currentImage.apiMode || currentHistoryImage?.apiMode,
         apiProfileId: currentImage.apiProfileId || currentHistoryImage?.apiProfileId,
         apiProfileName: currentImage.apiProfileName || currentHistoryImage?.apiProfileName,
+        fhlImagesPoolSlot: normalizeFHLImagesPoolSlot(currentImage.fhlImagesPoolSlot)
+          ?? normalizeFHLImagesPoolSlot(currentHistoryImage?.fhlImagesPoolSlot),
       }, currentImageTask)
     : null;
   const sourcePreviewHintsByPath = useMemo(() => {
@@ -1209,7 +1218,7 @@ export function CanvasStage() {
     },
     currentImage,
     errorMessage,
-    isMac: isMacHost,
+    isMac,
     isRunning,
     redo,
     removeAnnotation,

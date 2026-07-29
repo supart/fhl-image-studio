@@ -8,8 +8,6 @@
 /image-studio/frontend/test-results/
 /image-studio/frontend/playwright-report/
 /image-studio/frontend/coverage/
-/release-assets/
-/.build-tools/
 /cloudflare-worker/node_modules/
 /cloudflare-worker/coverage/
 /android-shell/.gradle/

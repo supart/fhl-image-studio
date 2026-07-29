@@ -63,4 +63,4 @@ window.__imageStudioE2E.runImagesPoolSlotSimulation()
 
 参考图、批量导入、悬浮参考图、结果大图和失效媒体回退仍需在重新打包后的 EXE 中验证，但测试素材必须先进入本进程临时沙箱。页面内对 `/__image-studio-files/*` 的写入由启动脚本自动附加会话令牌；外部路径不会被导入或读取。
 
-测试结束后只停止本次 V2.0.3 开发应用。不要清理旧版本目录、用户 `input/output/intermediate`、WebView 数据或原始测试文件。
+测试结束后只停止本次 V2.0.2.2 开发 EXE。不要清理旧版本目录、用户 `input/output/intermediate`、WebView 数据或原始测试文件。

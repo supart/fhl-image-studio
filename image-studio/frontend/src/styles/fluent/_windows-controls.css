@@ -1,31 +1,31 @@
 /* Windows control, canvas, modal, and history refinements. */
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-chip,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pill,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-action-btn,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-icon-btn,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-tab,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .liquid-primary-button,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .btn {
+html[data-platform="windows"][data-ui-family="fluent"] .platform-chip,
+html[data-platform="windows"][data-ui-family="fluent"] .platform-pill,
+html[data-platform="windows"][data-ui-family="fluent"] .platform-action-btn,
+html[data-platform="windows"][data-ui-family="fluent"] .platform-icon-btn,
+html[data-platform="windows"][data-ui-family="fluent"] .platform-tab,
+html[data-platform="windows"][data-ui-family="fluent"] .liquid-primary-button,
+html[data-platform="windows"][data-ui-family="fluent"] .btn {
   border-radius: var(--control-radius);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .app-header .platform-seg,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .api-mode-switch,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-seg {
+html[data-platform="windows"][data-ui-family="fluent"] .app-header .platform-seg,
+html[data-platform="windows"][data-ui-family="fluent"] .api-mode-switch,
+html[data-platform="windows"][data-ui-family="fluent"] .platform-seg {
   border-radius: 6px;
   background: color-mix(in srgb, var(--surface-2) 92%, transparent);
   box-shadow: none;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-chip,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-action-btn,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pill {
+html[data-platform="windows"][data-ui-family="fluent"] .platform-chip,
+html[data-platform="windows"][data-ui-family="fluent"] .platform-action-btn,
+html[data-platform="windows"][data-ui-family="fluent"] .platform-pill {
   min-height: 32px;
   border-color: var(--border);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-icon-btn {
+html[data-platform="windows"][data-ui-family="fluent"] .platform-icon-btn {
   width: 32px;
   height: 32px;
   min-height: 32px;
@@ -34,8 +34,8 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-ic
   box-shadow: none;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .canvas-toolbar .platform-icon-btn,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .canvas-toolbar .platform-pill {
+html[data-platform="windows"][data-ui-family="fluent"] .canvas-toolbar .platform-icon-btn,
+html[data-platform="windows"][data-ui-family="fluent"] .canvas-toolbar .platform-pill {
   border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
   background: color-mix(in srgb, var(--surface) 98%, white 2%);
   box-shadow:
@@ -43,13 +43,13 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .canvas-tool
     0 1px 2px rgb(15 23 42 / 0.06);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .canvas-toolbar .platform-icon-btn:hover,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .canvas-toolbar .platform-pill:hover {
+html[data-platform="windows"][data-ui-family="fluent"] .canvas-toolbar .platform-icon-btn:hover,
+html[data-platform="windows"][data-ui-family="fluent"] .canvas-toolbar .platform-pill:hover {
   border-color: color-mix(in srgb, var(--accent) 36%, transparent);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .canvas-toolbar .platform-icon-btn[aria-pressed="true"],
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .canvas-toolbar .platform-pill[aria-pressed="true"] {
+html[data-platform="windows"][data-ui-family="fluent"] .canvas-toolbar .platform-icon-btn[aria-pressed="true"],
+html[data-platform="windows"][data-ui-family="fluent"] .canvas-toolbar .platform-pill[aria-pressed="true"] {
   border-color: color-mix(in srgb, var(--accent) 82%, white 18%);
   background: color-mix(in srgb, var(--accent) 14%, var(--surface));
   color: var(--accent);
@@ -59,8 +59,8 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .canvas-tool
     0 1px 2px rgb(15 23 42 / 0.08);
 }
 
-html.dark[data-presentation-platform="windows"][data-ui-family="fluent"] .canvas-toolbar .platform-icon-btn[aria-pressed="true"],
-html.dark[data-presentation-platform="windows"][data-ui-family="fluent"] .canvas-toolbar .platform-pill[aria-pressed="true"] {
+html.dark[data-platform="windows"][data-ui-family="fluent"] .canvas-toolbar .platform-icon-btn[aria-pressed="true"],
+html.dark[data-platform="windows"][data-ui-family="fluent"] .canvas-toolbar .platform-pill[aria-pressed="true"] {
   border-color: color-mix(in srgb, var(--accent) 84%, white 16%);
   background: color-mix(in srgb, var(--accent) 18%, rgb(17 24 39));
   color: #fff;
@@ -70,15 +70,15 @@ html.dark[data-presentation-platform="windows"][data-ui-family="fluent"] .canvas
     0 1px 2px rgb(0 0 0 / 0.18);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-icon-btn:hover,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pill:hover,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-action-btn:hover,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-chip:hover {
+html[data-platform="windows"][data-ui-family="fluent"] .platform-icon-btn:hover,
+html[data-platform="windows"][data-ui-family="fluent"] .platform-pill:hover,
+html[data-platform="windows"][data-ui-family="fluent"] .platform-action-btn:hover,
+html[data-platform="windows"][data-ui-family="fluent"] .platform-chip:hover {
   background: var(--tool-hover-bg);
   color: var(--tool-hover-text);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pill.prompt-reference-optimize-button {
+html[data-platform="windows"][data-ui-family="fluent"] .platform-pill.prompt-reference-optimize-button {
   min-height: 38px;
   border-color: rgb(245 158 11 / 0.9);
   background: linear-gradient(180deg, rgb(255 251 235) 0%, rgb(254 243 199) 100%);
@@ -89,11 +89,11 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pi
   font-weight: 700;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pill.prompt-reference-optimize-button:disabled {
+html[data-platform="windows"][data-ui-family="fluent"] .platform-pill.prompt-reference-optimize-button:disabled {
   opacity: 0.72;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pill.prompt-reference-optimize-button:hover:not(:disabled) {
+html[data-platform="windows"][data-ui-family="fluent"] .platform-pill.prompt-reference-optimize-button:hover:not(:disabled) {
   border-color: rgb(217 119 6);
   background: linear-gradient(180deg, rgb(254 243 199) 0%, rgb(253 230 138) 100%);
   color: #78350f;
@@ -102,7 +102,7 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pi
     0 2px 5px rgb(120 53 15 / 0.16);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pill.prompt-ai-optimize-button {
+html[data-platform="windows"][data-ui-family="fluent"] .platform-pill.prompt-ai-optimize-button {
   min-height: 38px;
   border-color: #eab308;
   background: #facc15;
@@ -113,7 +113,7 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pi
   font-weight: 700;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pill.prompt-ai-optimize-button:hover:not(:disabled) {
+html[data-platform="windows"][data-ui-family="fluent"] .platform-pill.prompt-ai-optimize-button:hover:not(:disabled) {
   border-color: #ca8a04;
   background: #fde047;
   color: #422006;
@@ -122,14 +122,14 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pi
     0 3px 7px rgb(133 77 14 / 0.3);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pill.prompt-ai-optimize-button:disabled {
+html[data-platform="windows"][data-ui-family="fluent"] .platform-pill.prompt-ai-optimize-button:disabled {
   border-color: rgb(234 179 8 / 0.58);
   background: #fef08a;
   color: #854d0e;
   opacity: 0.64;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pill.workspace-init-button {
+html[data-platform="windows"][data-ui-family="fluent"] .platform-pill.workspace-init-button {
   border-color: color-mix(in srgb, var(--accent) 82%, black 18%);
   background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 92%, white 8%) 0%, var(--accent) 100%);
   color: #fff;
@@ -138,7 +138,7 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pi
     0 1px 2px rgb(0 122 255 / 0.24);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pill.workspace-init-button:hover:not(:disabled) {
+html[data-platform="windows"][data-ui-family="fluent"] .platform-pill.workspace-init-button:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--accent) 78%, black 22%);
   background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 88%, white 12%) 0%, color-mix(in srgb, var(--accent) 90%, black 10%) 100%);
   color: #fff;
@@ -147,7 +147,7 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pi
     0 2px 6px rgb(0 122 255 / 0.26);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pill.workspace-init-button:disabled {
+html[data-platform="windows"][data-ui-family="fluent"] .platform-pill.workspace-init-button:disabled {
   border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
   background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 46%, white 54%) 0%, color-mix(in srgb, var(--accent) 52%, white 48%) 100%);
   color: rgb(255 255 255 / 0.92);
@@ -156,7 +156,7 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pi
     0 1px 2px rgb(0 122 255 / 0.14);
 }
 
-html.dark[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pill.workspace-init-button {
+html.dark[data-platform="windows"][data-ui-family="fluent"] .platform-pill.workspace-init-button {
   border-color: color-mix(in srgb, var(--accent) 76%, white 24%);
   background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 80%, white 8%) 0%, color-mix(in srgb, var(--accent) 88%, black 12%) 100%);
   color: #fff;
@@ -165,13 +165,13 @@ html.dark[data-presentation-platform="windows"][data-ui-family="fluent"] .platfo
     0 1px 2px rgb(0 0 0 / 0.22);
 }
 
-html.dark[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pill.workspace-init-button:hover:not(:disabled) {
+html.dark[data-platform="windows"][data-ui-family="fluent"] .platform-pill.workspace-init-button:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--accent) 84%, white 16%);
   background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 84%, white 10%) 0%, color-mix(in srgb, var(--accent) 90%, black 10%) 100%);
   color: #fff;
 }
 
-html.dark[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pill.prompt-reference-optimize-button {
+html.dark[data-platform="windows"][data-ui-family="fluent"] .platform-pill.prompt-reference-optimize-button {
   border-color: rgb(251 191 36 / 0.72);
   background: linear-gradient(180deg, rgb(120 53 15 / 0.36) 0%, rgb(92 47 11 / 0.4) 100%);
   color: #fde68a;
@@ -180,13 +180,13 @@ html.dark[data-presentation-platform="windows"][data-ui-family="fluent"] .platfo
     0 1px 2px rgb(0 0 0 / 0.18);
 }
 
-html.dark[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pill.prompt-reference-optimize-button:hover:not(:disabled) {
+html.dark[data-platform="windows"][data-ui-family="fluent"] .platform-pill.prompt-reference-optimize-button:hover:not(:disabled) {
   border-color: rgb(251 191 36 / 0.9);
   background: linear-gradient(180deg, rgb(146 64 14 / 0.44) 0%, rgb(120 53 15 / 0.44) 100%);
   color: #fef3c7;
 }
 
-html.dark[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pill.prompt-ai-optimize-button {
+html.dark[data-platform="windows"][data-ui-family="fluent"] .platform-pill.prompt-ai-optimize-button {
   border-color: #facc15;
   background: #facc15;
   color: #422006;
@@ -195,36 +195,36 @@ html.dark[data-presentation-platform="windows"][data-ui-family="fluent"] .platfo
     0 2px 6px rgb(0 0 0 / 0.3);
 }
 
-html.dark[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pill.prompt-ai-optimize-button:hover:not(:disabled) {
+html.dark[data-platform="windows"][data-ui-family="fluent"] .platform-pill.prompt-ai-optimize-button:hover:not(:disabled) {
   border-color: #fde047;
   background: #fde047;
   color: #422006;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-icon-btn:focus-visible,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-pill:focus-visible,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-action-btn:focus-visible,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-chip:focus-visible,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-tab:focus-visible,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .liquid-primary-button:focus-visible,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .btn:focus-visible {
+html[data-platform="windows"][data-ui-family="fluent"] .platform-icon-btn:focus-visible,
+html[data-platform="windows"][data-ui-family="fluent"] .platform-pill:focus-visible,
+html[data-platform="windows"][data-ui-family="fluent"] .platform-action-btn:focus-visible,
+html[data-platform="windows"][data-ui-family="fluent"] .platform-chip:focus-visible,
+html[data-platform="windows"][data-ui-family="fluent"] .platform-tab:focus-visible,
+html[data-platform="windows"][data-ui-family="fluent"] .liquid-primary-button:focus-visible,
+html[data-platform="windows"][data-ui-family="fluent"] .btn:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 76%, white 24%);
   outline-offset: 2px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-chip.active,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-chip[aria-pressed="true"],
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-tab.active,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-tab[aria-pressed="true"],
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .platform-chip:has(input:checked),
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .api-mode-chip.active {
+html[data-platform="windows"][data-ui-family="fluent"] .platform-chip.active,
+html[data-platform="windows"][data-ui-family="fluent"] .platform-chip[aria-pressed="true"],
+html[data-platform="windows"][data-ui-family="fluent"] .platform-tab.active,
+html[data-platform="windows"][data-ui-family="fluent"] .platform-tab[aria-pressed="true"],
+html[data-platform="windows"][data-ui-family="fluent"] .platform-chip:has(input:checked),
+html[data-platform="windows"][data-ui-family="fluent"] .api-mode-chip.active {
   background: color-mix(in srgb, var(--accent) 12%, var(--surface));
   color: var(--accent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .liquid-primary-button,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .btn {
+html[data-platform="windows"][data-ui-family="fluent"] .liquid-primary-button,
+html[data-platform="windows"][data-ui-family="fluent"] .btn {
   min-height: 32px;
   border: 1px solid color-mix(in srgb, var(--accent) 78%, black 22%);
   background: var(--accent);
@@ -232,29 +232,29 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .btn {
   font-weight: 600;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .liquid-primary-button:hover,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .btn:hover {
+html[data-platform="windows"][data-ui-family="fluent"] .liquid-primary-button:hover,
+html[data-platform="windows"][data-ui-family="fluent"] .btn:hover {
   background: var(--accent-2);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .btn.secondary {
+html[data-platform="windows"][data-ui-family="fluent"] .btn.secondary {
   border-color: var(--border);
   background: var(--surface);
   color: var(--text);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .btn.secondary:hover {
+html[data-platform="windows"][data-ui-family="fluent"] .btn.secondary:hover {
   background: var(--surface-2);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] textarea,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] select,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] input[type="text"],
-html[data-presentation-platform="windows"][data-ui-family="fluent"] input[type="number"],
-html[data-presentation-platform="windows"][data-ui-family="fluent"] input[type="password"],
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .input,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .textarea,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .select {
+html[data-platform="windows"][data-ui-family="fluent"] textarea,
+html[data-platform="windows"][data-ui-family="fluent"] select,
+html[data-platform="windows"][data-ui-family="fluent"] input[type="text"],
+html[data-platform="windows"][data-ui-family="fluent"] input[type="number"],
+html[data-platform="windows"][data-ui-family="fluent"] input[type="password"],
+html[data-platform="windows"][data-ui-family="fluent"] .input,
+html[data-platform="windows"][data-ui-family="fluent"] .textarea,
+html[data-platform="windows"][data-ui-family="fluent"] .select {
   min-height: 32px;
   border-radius: var(--control-radius);
   background: var(--surface);
@@ -262,27 +262,27 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .select {
   box-shadow: inset 0 -1px 0 rgb(0 0 0 / 0.05);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] textarea,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .textarea {
+html[data-platform="windows"][data-ui-family="fluent"] textarea,
+html[data-platform="windows"][data-ui-family="fluent"] .textarea {
   min-height: 112px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .focus-ring:focus-visible,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .input:focus,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .textarea:focus,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .select:focus,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] textarea:focus,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] select:focus,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] input[type="text"]:focus,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] input[type="number"]:focus,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] input[type="password"]:focus {
+html[data-platform="windows"][data-ui-family="fluent"] .focus-ring:focus-visible,
+html[data-platform="windows"][data-ui-family="fluent"] .input:focus,
+html[data-platform="windows"][data-ui-family="fluent"] .textarea:focus,
+html[data-platform="windows"][data-ui-family="fluent"] .select:focus,
+html[data-platform="windows"][data-ui-family="fluent"] textarea:focus,
+html[data-platform="windows"][data-ui-family="fluent"] select:focus,
+html[data-platform="windows"][data-ui-family="fluent"] input[type="text"]:focus,
+html[data-platform="windows"][data-ui-family="fluent"] input[type="number"]:focus,
+html[data-platform="windows"][data-ui-family="fluent"] input[type="password"]:focus {
   border-color: color-mix(in srgb, var(--accent) 74%, white 26%);
   box-shadow:
     inset 0 -2px 0 var(--accent),
     0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .workspace-tab {
+html[data-platform="windows"][data-ui-family="fluent"] .workspace-tab {
   height: auto;
   min-width: 92px;
   max-width: 190px;
@@ -296,12 +296,12 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .workspace-t
   box-shadow: none;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .workspace-tab:hover {
+html[data-platform="windows"][data-ui-family="fluent"] .workspace-tab:hover {
   background: color-mix(in srgb, var(--surface) 82%, transparent);
   color: var(--text);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .workspace-tab.active {
+html[data-platform="windows"][data-ui-family="fluent"] .workspace-tab.active {
   margin-bottom: -1px;
   border-color: var(--border);
   border-bottom: 1px solid var(--surface);
@@ -310,8 +310,8 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .workspace-t
   font-weight: 600;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .workspace-tab-add,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .workspace-bar .platform-icon-btn {
+html[data-platform="windows"][data-ui-family="fluent"] .workspace-tab-add,
+html[data-platform="windows"][data-ui-family="fluent"] .workspace-bar .platform-icon-btn {
   width: 32px;
   height: 30px;
   border: 0;
@@ -320,7 +320,7 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .workspace-b
   box-shadow: none;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .canvas-toolbar {
+html[data-platform="windows"][data-ui-family="fluent"] .canvas-toolbar {
   min-height: 48px;
   display: flex;
   align-items: center;
@@ -333,67 +333,67 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .canvas-tool
   -webkit-backdrop-filter: none;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .canvas-toolbar > .flex {
+html[data-platform="windows"][data-ui-family="fluent"] .canvas-toolbar > .flex {
   width: 100%;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .toolbar-group,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .toolbar-group-body {
+html[data-platform="windows"][data-ui-family="fluent"] .toolbar-group,
+html[data-platform="windows"][data-ui-family="fluent"] .toolbar-group-body {
   display: contents;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .toolbar-note {
+html[data-platform="windows"][data-ui-family="fluent"] .toolbar-note {
   min-height: 30px;
   padding: 0 8px;
   border-radius: 4px;
   background: color-mix(in srgb, var(--surface-2) 90%, transparent);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .source-strip {
+html[data-platform="windows"][data-ui-family="fluent"] .source-strip {
   min-height: 56px;
   padding: 8px 12px;
   background: var(--panel-2);
   border-bottom: 1px solid var(--border);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .source-thumb {
+html[data-platform="windows"][data-ui-family="fluent"] .source-thumb {
   width: 56px;
   height: 56px;
   border-radius: 4px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .stage-host {
+html[data-platform="windows"][data-ui-family="fluent"] .stage-host {
   background-color: var(--panel-2);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .statusbar {
+html[data-platform="windows"][data-ui-family="fluent"] .statusbar {
   min-height: 36px;
   padding: 9px 14px;
   background: var(--panel-2);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .history-rail .grid {
+html[data-platform="windows"][data-ui-family="fluent"] .history-rail .grid {
   gap: 6px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .history-rail .aspect-square {
+html[data-platform="windows"][data-ui-family="fluent"] .history-rail .aspect-square {
   border-radius: 4px;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .history-rail img {
+html[data-platform="windows"][data-ui-family="fluent"] .history-rail img {
   transition: none;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .history-rail .group:hover img {
+html[data-platform="windows"][data-ui-family="fluent"] .history-rail .group:hover img {
   transform: none;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .app-modal-backdrop {
+html[data-platform="windows"][data-ui-family="fluent"] .app-modal-backdrop {
   background: rgb(0 0 0 / 0.32);
   backdrop-filter: none;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .app-modal-card {
+html[data-platform="windows"][data-ui-family="fluent"] .app-modal-card {
   border-color: var(--border);
   border-radius: 8px;
   background: var(--surface);
@@ -401,13 +401,13 @@ html[data-presentation-platform="windows"][data-ui-family="fluent"] .app-modal-c
   backdrop-filter: none;
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .app-modal-header {
+html[data-platform="windows"][data-ui-family="fluent"] .app-modal-header {
   border-bottom-color: var(--border);
 }
 
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .toast,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .modal-card,
-html[data-presentation-platform="windows"][data-ui-family="fluent"] .result-drawer {
+html[data-platform="windows"][data-ui-family="fluent"] .toast,
+html[data-platform="windows"][data-ui-family="fluent"] .modal-card,
+html[data-platform="windows"][data-ui-family="fluent"] .result-drawer {
   border-color: var(--border);
   border-radius: 8px;
   background: var(--surface);

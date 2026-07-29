@@ -1,17 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  claimBatchTaskForLaunch,
   createBatchTaskRecord,
   currentBatchTaskViewCount,
   findTaskForJobSlot,
+  interruptRestoredDirectTasks,
   isRetryableBatchTask,
   localQueuedTasksForWorkspace,
   markMissingJobTasksInterrupted,
+  minimalHistoryItemFromBatchTask,
   nextSlotIndexFromTasks,
+  referencedBatchTasksForWorkspaces,
   runningOrSubmittedTaskCountForWorkspace,
   sortedBatchTasksForCurrentView,
   sortedBatchTasksForWorkspace,
   updateTaskFromHistoryItem,
+  updateTaskById,
   updateTasksFromJobGroup,
 } from "../src/state/batchTaskRecords.ts";
 
@@ -83,6 +88,7 @@ test("continuous pool task records retain their non-sensitive assignment snapsho
     apiMode: "images",
     apiProfileId: "images-a",
     apiProfileName: "Images A",
+    fhlImagesPoolSlot: 4,
     apiBaseURL: "https://images-a.example/v1",
     continuousPoolTask: true,
     prompt: "pool task",
@@ -95,8 +101,34 @@ test("continuous pool task records retain their non-sensitive assignment snapsho
   assert.equal(record.continuousPoolTask, true);
   assert.equal(record.apiProfileId, "images-a");
   assert.equal(record.apiProfileName, "Images A");
+  assert.equal(record.fhlImagesPoolSlot, 4);
   assert.equal(record.apiBaseURL, "https://images-a.example/v1");
   assert.equal(record.queuedReason, "continuous_pool");
+});
+
+test("successful and failed task records retain the assigned FHL slot", () => {
+  const original = createBatchTaskRecord({
+    workspaceId: "ws-1",
+    slotIndex: 0,
+    mode: "generate",
+    apiMode: "images",
+    apiProfileId: "fhl-slot-3",
+    apiProfileName: "FHL-3 Images",
+    fhlImagesPoolSlot: 3,
+    prompt: "slot trace",
+    size: "1024x1024",
+    quality: "medium",
+    outputFormat: "png",
+  });
+  const failed = { ...original, status: "failed", errorMessage: "upstream failed" };
+  assert.equal(failed.fhlImagesPoolSlot, 3);
+
+  const succeeded = {
+    ...original,
+    status: "succeeded",
+    savedPath: "C:\\output\\slot-3.png",
+  };
+  assert.equal(minimalHistoryItemFromBatchTask(succeeded)?.fhlImagesPoolSlot, 3);
 });
 
 test("batch task records preserve every submitted slot before results return", () => {
@@ -356,6 +388,113 @@ test("missing browser job records interrupt restored running tasks", () => {
   assert.match(updated[running.id].errorMessage, /任务记录已失效/);
   assert.equal(updated[knownQueued.id].status, "queued");
   assert.equal(updated[localQueued.id].status, "queued");
+});
+
+test("direct runtime restore interrupts every non-terminal task without dropping its retry context", () => {
+  const queued = {
+    ...task(8, "stale queued"),
+    queuedReason: "continuous_pool",
+    launchState: "submitting",
+    launchAttempt: 3,
+    launchStartedAt: 900,
+    autoRetryScheduledAt: 1200,
+    autoRetryReason: "temporary failure",
+  };
+  const running = {
+    ...task(9, "stale running"),
+    status: "running",
+    jobId: "job-old",
+    groupId: "group-old",
+    apiProfileId: "images-1",
+    apiProfileName: "Images 1",
+  };
+  const succeeded = { ...task(10, "finished"), status: "succeeded", jobId: "job-finished" };
+  const orphan = { ...task(11, "other workspace"), workspaceId: "ws-other", status: "queued" };
+  const byId = Object.fromEntries([queued, running, succeeded, orphan].map((entry) => [entry.id, entry]));
+
+  const updated = interruptRestoredDirectTasks(byId, [{
+    id: "ws-1",
+    batchTaskIds: [queued.id, running.id, succeeded.id],
+  }], 4321);
+
+  for (const stale of [updated[queued.id], updated[running.id]]) {
+    assert.equal(stale.status, "interrupted");
+    assert.equal(stale.updatedAt, 4321);
+    assert.equal(stale.jobId, undefined);
+    assert.equal(stale.groupId, undefined);
+    assert.equal(stale.launchState, undefined);
+    assert.equal(stale.launchAttempt, undefined);
+    assert.equal(stale.launchStartedAt, undefined);
+    assert.equal(stale.queuedReason, undefined);
+    assert.equal(stale.autoRetryScheduledAt, undefined);
+    assert.equal(stale.autoRetryReason, undefined);
+    assert.match(stale.errorMessage, /旧任务不会自动继续/);
+  }
+  assert.equal(updated[running.id].prompt, "stale running");
+  assert.equal(updated[running.id].apiProfileId, "images-1");
+  assert.equal(updated[running.id].apiProfileName, "Images 1");
+  assert.deepEqual(updated[succeeded.id], succeeded);
+  assert.deepEqual(updated[orphan.id], orphan);
+});
+
+test("continuous pool candidates only include tasks referenced by a live workspace", () => {
+  const referenced = { ...task(20, "referenced"), continuousPoolTask: true, queuedReason: "continuous_pool" };
+  const orphan = { ...task(21, "closed workspace"), workspaceId: "ws-closed", continuousPoolTask: true, queuedReason: "continuous_pool" };
+  const unlisted = { ...task(22, "unlisted"), continuousPoolTask: true, queuedReason: "continuous_pool" };
+  const runningOrphan = { ...orphan, id: `${orphan.id}-running`, status: "running", jobId: "job-orphan" };
+  const byId = Object.fromEntries([referenced, orphan, unlisted, runningOrphan].map((entry) => [entry.id, entry]));
+
+  const liveTasks = referencedBatchTasksForWorkspaces([{
+    id: "ws-1",
+    batchTaskIds: [referenced.id],
+  }], byId);
+
+  assert.deepEqual(liveTasks.map((entry) => entry.id), [referenced.id]);
+  assert.equal(liveTasks.filter((entry) => entry.status === "running").length, 0);
+});
+
+test("exact task launch claim updates only the referenced task even when slots match", () => {
+  const first = { ...task(23, "first same slot"), continuousPoolTask: true };
+  const second = { ...task(23, "second same slot"), continuousPoolTask: true };
+  const byId = { [first.id]: first, [second.id]: second };
+
+  const claimed = claimBatchTaskForLaunch(byId, [first.id, second.id], "ws-1", second.id, {
+    jobId: "job-second",
+    apiProfileId: "images-2",
+  });
+
+  assert.equal(claimed.claimed, true);
+  assert.equal(claimed.batchTasksById[first.id].status, "queued");
+  assert.equal(claimed.batchTasksById[first.id].jobId, undefined);
+  assert.equal(claimed.batchTasksById[second.id].status, "running");
+  assert.equal(claimed.batchTasksById[second.id].jobId, "job-second");
+});
+
+test("an exact task id can only be claimed once while its request is active", () => {
+  const queued = { ...task(25, "single transport claim"), continuousPoolTask: true };
+  const first = claimBatchTaskForLaunch({ [queued.id]: queued }, [queued.id], "ws-1", queued.id, {
+    jobId: "job-first",
+  });
+  const second = claimBatchTaskForLaunch(first.batchTasksById, [queued.id], "ws-1", queued.id, {
+    jobId: "job-second",
+  });
+
+  assert.equal(first.claimed, true);
+  assert.equal(second.claimed, false);
+  assert.equal(second.batchTasksById[queued.id].jobId, "job-first");
+});
+
+test("launch claim and exact updates reject tasks outside workspace membership", () => {
+  const orphan = { ...task(24, "orphan claim"), continuousPoolTask: true };
+  const byId = { [orphan.id]: orphan };
+
+  const claim = claimBatchTaskForLaunch(byId, [], "ws-1", orphan.id, { jobId: "must-not-start" });
+  const update = updateTaskById(byId, [], "ws-1", orphan.id, { status: "running", jobId: "must-not-start" });
+
+  assert.equal(claim.claimed, false);
+  assert.equal(claim.batchTasksById, byId);
+  assert.equal(update, byId);
+  assert.deepEqual(byId[orphan.id], orphan);
 });
 
 test("ordinary multi-image groups append into the current session without overwriting earlier slots", () => {

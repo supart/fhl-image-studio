@@ -104,6 +104,7 @@ export async function executePSBridgeRemoteDispatch(
         name: imageNameFromPath(path),
         mimeType: imageMimeType(path),
         imageB64,
+        preparedBase: dispatch.preparedBase === true && sourceImages.length === 0,
       });
     }
     const result = await dependencies.runRemote(

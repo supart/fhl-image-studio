@@ -1,6 +1,6 @@
 # AGPLv3 合规说明
 
-本仓库是 `FHL Image Studio 方汤圆修改版 V2.0.3.1` 的公开源码发布树，基于 `RoseKhlifa/Image-Studio` 做独立修改并以 GNU Affero General Public License v3.0 发布。
+本仓库是 `FHL Image Studio 方汤圆修改版 V2.0.2` 的公开源码发布树，基于 `RoseKhlifa/Image-Studio` 做独立修改并以 GNU Affero General Public License v3.0 发布。
 
 ## 项目来源
 
@@ -21,7 +21,7 @@
 
 ## 本次发布清理
 
-本次 `V2.0.3.1` macOS 发布源码和 Mac DMG 准备流程明确不包含：
+本次 `V2.0.2` 发布源码和便携包准备流程明确不包含：
 
 - API Key、访问令牌、真实账号配置或本机私有配置。
 - `cli.env.local`、`fhl-api.local.json`、`browser-jobs.v1.json`。
@@ -46,10 +46,3 @@ powershell -ExecutionPolicy Bypass -File .\scripts\check-compliance-package.ps1
 ```
 
 该脚本会扫描常见密钥模式、禁止提交的本机配置、生成目录、构建缓存和运行日志。
-
-macOS 与 CI 还会执行：
-
-```bash
-bash scripts/package-release-source.sh
-node scripts/check-release-source.mjs /path/to/staged-source
-```

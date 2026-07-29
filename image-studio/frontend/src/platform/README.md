@@ -6,9 +6,8 @@
 
 - 平台识别
   - `index.ts`
-  - 分别判断宿主平台与展示平台
-  - Mac 正式包使用 `hostPlatform=macos` 与 `presentationPlatform=windows`
-  - 输出 `data-platform`、`data-target-platform`、`data-presentation-platform`、`data-ui-family`
+  - 判断 `macos` / `windows` / `linux` / `android` / `android-pad`
+  - 输出 `data-platform`、`data-target-platform`、`data-ui-family`
 
 - 平台上下文
   - `context.tsx`
@@ -55,8 +54,7 @@
   - 宿主 HTTP 替代通道
 
 - 不要把平台判断重新塞回 `components/` 或 `lib/`。
-  - 宿主能力使用 `isMacHost` / `isWindowsHost`。
-  - 布局和主题使用 `usesMacDesktopUI` / `usesWindowsDesktopUI`。
+  - 组件只能消费 `usePlatform()` 或 `platform/runtime/*` 暴露的结果。
 
 - 若测试依赖平台全局对象，优先修这里的状态隔离。
   - 这次重构后 `android/nativeInvoke.ts` 已经修过“测试切换 window 后 hook 不重装”的问题，后续不要再回退成进程级单例假设。

@@ -38,7 +38,7 @@ export function Toolbar() {
     openPanoramaViewer,
   } = useStudioStore();
   const selRect = annotations.find((a) => a.id === selectedAnnotationId && a.kind === "rect");
-  const { isAndroidPhone, usesMacDesktopUI, usesAppleUI } = usePlatform();
+  const { isAndroidPhone, isMac, usesAppleUI } = usePlatform();
   const [mobileAdjustOpen, setMobileAdjustOpen] = useState(false);
   const [panoramaOutputManagerOpen, setPanoramaOutputManagerOpen] = useState(false);
   const hasImage = !!currentImage;
@@ -100,7 +100,7 @@ export function Toolbar() {
   const showTransformSection = !!currentImage;
   const showSecondaryBar = true;
   const hasViewContent = hasImage || resultGridOpen || historyGalleryOpen;
-  const mergeViewTransformSection = usesMacDesktopUI && showViewReset && !showMaskTools && !showAnnotationTools;
+  const mergeViewTransformSection = isMac && showViewReset && !showMaskTools && !showAnnotationTools;
   const hasContextSection = showMaskTools || showAnnotationTools || (showViewReset && !mergeViewTransformSection);
   const hasTransformTools = !!currentImage;
   const contextCaption = showMaskTools ? "蒙版" : showAnnotationTools ? "标注" : showViewReset ? "视图" : undefined;
@@ -164,7 +164,7 @@ export function Toolbar() {
     />
   );
 
-  if (usesMacDesktopUI) {
+  if (isMac) {
     return (
       <>
       <div className={`canvas-toolbar border-b border-[var(--border)] bg-[var(--toolbar)] px-3 py-2 backdrop-blur-2xl ${usesAppleUI ? "liquid-glass-bar" : ""}`}>

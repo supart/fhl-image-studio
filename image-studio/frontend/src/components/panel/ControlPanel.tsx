@@ -128,7 +128,7 @@ export function ControlPanel() {
   const [continuousSubmitHintOpen, setContinuousSubmitHintOpen] = useState(false);
   const [customConcurrency, setCustomConcurrency] = useState("");
   const [panoramaStudioOpen, setPanoramaStudioOpen] = useState(false);
-  const { isAndroid, isAndroidPhone, isAndroidPad, usesMacDesktopUI, usesWindowsDesktopUI, usesAndroidUI, usesAppleUI, usesFluentUI } = usePlatform();
+  const { isAndroid, isAndroidPhone, isAndroidPad, isMac, isWindows, usesAndroidUI, usesAppleUI, usesFluentUI } = usePlatform();
 
   if (isAndroidPhone) {
     return <AndroidPhoneComposePanel />;
@@ -240,8 +240,8 @@ export function ControlPanel() {
       || sources[0]?.imageBlob
     )
   );
-  const compactMacCompose = usesMacDesktopUI;
-  const compactWindowsCompose = usesWindowsDesktopUI;
+  const compactMacCompose = isMac;
+  const compactWindowsCompose = isWindows;
   const advancedSummary = [
     negativePrompt.trim() ? "已填负向提示词" : "无负向限制",
     outputFormat.toUpperCase(),
@@ -292,7 +292,7 @@ export function ControlPanel() {
   function enableContinuousGenerateMode() {
     setField("continuousGenerateTest", true as any);
     setContinuousSubmitHintOpen(false);
-    pushToast("已开启连续生成模式，再点击生成会按每 API 并发排队", "success", 3200);
+    pushToast("已开启连续生成模式，每次点击提交 1 个任务并按 API 池轮询", "success", 3200);
   }
 
   function handleCustomConcurrencyCommit() {
@@ -315,8 +315,8 @@ export function ControlPanel() {
   }
 
   return (
-    <div data-audit-area="control-panel" className={`control-panel box-border flex shrink-0 flex-col overflow-y-auto border-r border-[var(--border)] bg-[var(--sidebar)] backdrop-blur-2xl ${usesAppleUI ? "liquid-sidebar" : ""} ${usesAndroidUI ? "android-surface-pane" : ""} ${usesMacDesktopUI ? "w-[408px] gap-5 px-6 py-5" : "w-[372px] gap-4 px-5 py-4"} ${usesFluentUI ? "pt-3" : ""}`}>
-      <section className={`platform-card ${usesMacDesktopUI ? "px-5 py-5" : "px-4 py-4"}`}>
+    <div data-audit-area="control-panel" className={`control-panel box-border flex shrink-0 flex-col overflow-y-auto border-r border-[var(--border)] bg-[var(--sidebar)] backdrop-blur-2xl ${usesAppleUI ? "liquid-sidebar" : ""} ${usesAndroidUI ? "android-surface-pane" : ""} ${isMac ? "w-[408px] gap-5 px-6 py-5" : "w-[372px] gap-4 px-5 py-4"} ${usesFluentUI ? "pt-3" : ""}`}>
+      <section className={`platform-card ${isMac ? "px-5 py-5" : "px-4 py-4"}`}>
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between gap-3">
@@ -338,7 +338,7 @@ export function ControlPanel() {
               </button>
             </div>
             {!isAndroid && (
-              <p className={`${usesMacDesktopUI ? "mt-1 text-[12px] leading-6" : "mt-0.5 text-[11px] leading-relaxed"} text-zinc-500 dark:text-zinc-400`}>
+              <p className={`${isMac ? "mt-1 text-[12px] leading-6" : "mt-0.5 text-[11px] leading-relaxed"} text-zinc-500 dark:text-zinc-400`}>
                 保持界面简洁，把注意力留给 prompt、参考图和结果。
               </p>
             )}
@@ -353,7 +353,7 @@ export function ControlPanel() {
               <div className="min-w-0">
                 <div className="text-[12px] font-semibold text-emerald-800 dark:text-emerald-100">连续生成模式</div>
                 <div className="mt-0.5 text-[11px] leading-snug text-emerald-700/80 dark:text-emerald-100/75">
-                  运行中也能继续提交，每次提交 1 张
+                  运行中也能继续提交，每次点击生成 1 张
                 </div>
               </div>
               <button
@@ -376,7 +376,7 @@ export function ControlPanel() {
                     每 API 并发
                   </div>
                   <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
-                    单图固定首个启用 API · 当前上限 {perAPIConcurrencyLimit} · 批量总上限 {fhlPoolTotalConcurrencyLimit}
+                    {enabledFHLPoolAPICount} 个 API × {perAPIConcurrencyLimit} 并发 = 总上限 {fhlPoolTotalConcurrencyLimit} 张
                   </div>
                 </div>
                 <div className="mt-2 grid grid-cols-3 gap-2">
@@ -421,7 +421,7 @@ export function ControlPanel() {
                   <span className="shrink-0 text-[11px] text-current/85">/ API</span>
                 </label>
                 <p className="mt-2 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
-                  连续单图每次只向首个启用 API 新增 1 张，超过该 API 空位时排队。批量图生图仍按 {enabledFHLPoolAPICount} 个已启用 API 轮询，总上限 = API 数 × 每 API 并发；单个 API 最大 5。
+                  每次点击只新增 1 个任务；连续点击的任务按 {enabledFHLPoolAPICount} 个已启用 API 轮询分配，超过总并发空位后自动排队。单个 API 最大并发为 5。
                 </p>
                 {activePoolTasks.length > 0 ? (
                   <div data-audit-id="fhl-pool-live-status" className="mt-3 border-t border-black/[0.06] pt-2.5 dark:border-white/[0.06]">
@@ -471,13 +471,13 @@ export function ControlPanel() {
                   ))}
                 </div>
                 <p className="mt-2 text-[10px] leading-relaxed text-zinc-500 dark:text-zinc-400">
-                  这里控制的是单次提交要生成几张，属于当前这一批任务，不是多次并发。开启连续生成后，每次提交固定为 1 张。
+                  这里控制连续生成关闭时的单批张数。开启连续生成后，每次点击固定生成 1 张，可在运行中继续点击提交。
                 </p>
               </>
             )}
           </div>
         </div>
-        {usesMacDesktopUI && (
+        {isMac && (
           <div className="mt-3">
             <div className="mb-2 text-[11px] uppercase tracking-[0.12em] text-zinc-400 dark:text-zinc-500">模式</div>
             <ModeSwitch
@@ -509,7 +509,7 @@ export function ControlPanel() {
         />
       ) : null}
 
-      {!usesMacDesktopUI && (
+      {!isMac && (
         <Section label="模式">
           <ModeSwitch
             mode={mode}
@@ -678,7 +678,7 @@ export function ControlPanel() {
       />
 
       {/* 高级参数(可折叠)*/}
-      {usesMacDesktopUI ? (
+      {isMac ? (
         <MacAdvancedPanel
           advancedOpen={advancedOpen}
           advancedSummary={advancedSummary}

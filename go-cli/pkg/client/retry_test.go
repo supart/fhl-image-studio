@@ -43,6 +43,14 @@ data: {"type":"response.image_generation_call.generating"}
 	}
 }
 
+func TestIsRetryableFalseForUnsupportedMask(t *testing.T) {
+	raw := `event: upstream_error
+data: {"error":{"type":"invalid_request_error","message":"mask is not supported by free gpt-image edits","code":"ERR-TEST"}}`
+	if IsRetryable(raw) {
+		t.Fatal("unsupported mask is a non-retryable request capability error")
+	}
+}
+
 func TestIsRetryableFalseForSuccess(t *testing.T) {
 	if IsRetryable(`{"status":200,"output":[]}`) {
 		t.Errorf("200 success should not be retryable")

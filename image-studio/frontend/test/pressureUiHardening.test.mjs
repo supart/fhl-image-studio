@@ -39,9 +39,9 @@ test("status bar stays single-line and truncates overflow", () => {
   assert.match(canvasCssSource, /\.statusbar > \* \{[\s\S]*min-width: 0;/);
 });
 
-test("direct launch submit failures update the matching task slot", () => {
+test("direct launch submit failures update the exact claimed task", () => {
   assert.match(storeSource, /const message = `提交失败:\$\{e\?\.message \?\? e\}`/);
-  assert.match(storeSource, /updateTaskForSlot\(/);
+  assert.match(storeSource, /updateTaskById\([\s\S]+snapshot\.taskId/);
   assert.match(storeSource, /errorMessage: message/);
   assert.match(storeSource, /lastLogLine: runtime\.lastLogLine \|\| message/);
   assert.match(storeSource, /jobsCompleted: runtime\.jobsCompleted \+ 1/);

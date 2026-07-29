@@ -36,12 +36,6 @@ type CLIConfigSyncResult struct {
 	APIKeyPresent bool   `json:"apiKeyPresent"`
 }
 
-type cliDataDirectories struct {
-	Input  string
-	Output string
-	Raw    string
-}
-
 func cliConfigFilePath() (string, error) {
 	if root, ok := portablePackageRoot(); ok {
 		return filepath.Join(root, "config", cliEnvFileName), nil
@@ -53,35 +47,12 @@ func cliConfigFilePath() (string, error) {
 	return filepath.Join(root, cliEnvFileName), nil
 }
 
-func defaultCLIDataDirectories() (cliDataDirectories, error) {
-	if root, ok := portablePackageRoot(); ok {
-		return cliDataDirectories{
-			Input:  portableInputDir(root),
-			Output: portableOutputDir(root),
-			Raw:    filepath.Join(portableOutputDir(root), "log"),
-		}, nil
-	}
-	outputRoot, err := defaultOutputDir()
-	if err != nil {
-		return cliDataDirectories{}, err
-	}
-	return cliDataDirectories{
-		Input:  filepath.Join(outputRoot, "input"),
-		Output: filepath.Join(outputRoot, "cli"),
-		Raw:    filepath.Join(logSubdir(outputRoot), "cli"),
-	}, nil
-}
-
 func (s *Service) SyncCLIConfig(input CLIConfigSyncInput) (CLIConfigSyncResult, error) {
 	path, err := cliConfigFilePath()
 	if err != nil {
 		return CLIConfigSyncResult{}, err
 	}
 	previous, err := readCLIEnvFile(path)
-	if err != nil {
-		return CLIConfigSyncResult{}, err
-	}
-	directories, err := defaultCLIDataDirectories()
 	if err != nil {
 		return CLIConfigSyncResult{}, err
 	}
@@ -118,22 +89,11 @@ func (s *Service) SyncCLIConfig(input CLIConfigSyncInput) (CLIConfigSyncResult, 
 		Quality:            cliChoice(input.Quality, []string{"auto", "high", "medium", "low"}, "medium"),
 		Size:               cleanCLIImageSize(input.Size, "1024x1024"),
 		PartialImages:      partialImages,
-	}, directories)
+	})
 	if err := os.MkdirAll(filepath.Dir(path), secureDirMode); err != nil {
 		return CLIConfigSyncResult{}, err
 	}
-	if err := os.Chmod(filepath.Dir(path), secureDirMode); err != nil {
-		return CLIConfigSyncResult{}, err
-	}
-	for _, directory := range []string{directories.Input, directories.Output, directories.Raw} {
-		if err := os.MkdirAll(directory, secureDirMode); err != nil {
-			return CLIConfigSyncResult{}, err
-		}
-	}
 	if err := os.WriteFile(path, []byte(rendered), secureFileMode); err != nil {
-		return CLIConfigSyncResult{}, err
-	}
-	if err := os.Chmod(path, secureFileMode); err != nil {
 		return CLIConfigSyncResult{}, err
 	}
 	abs, err := filepath.Abs(path)
@@ -192,7 +152,7 @@ func cleanCLIImageSize(value, fallback string) string {
 	return fallback
 }
 
-func renderCLIEnv(input CLIConfigSyncInput, directories cliDataDirectories) string {
+func renderCLIEnv(input CLIConfigSyncInput) string {
 	compat := "0"
 	if input.ImagesNewAPICompat {
 		compat = "1"
@@ -212,9 +172,9 @@ func renderCLIEnv(input CLIConfigSyncInput, directories cliDataDirectories) stri
 		"IMAGE_STUDIO_QUALITY=" + input.Quality,
 		"IMAGE_STUDIO_SIZE=" + input.Size,
 		"IMAGE_STUDIO_PARTIAL_IMAGES=" + strconv.Itoa(input.PartialImages),
-		"IMAGE_STUDIO_INPUT_DIR=" + cleanCLIEnvValue(filepath.Clean(directories.Input), "./input"),
-		"IMAGE_STUDIO_OUTPUT_DIR=" + cleanCLIEnvValue(filepath.Clean(directories.Output), "./output"),
-		"IMAGE_STUDIO_RAW_DIR=" + cleanCLIEnvValue(filepath.Clean(directories.Raw), "./output/log"),
+		`IMAGE_STUDIO_INPUT_DIR=.\input`,
+		`IMAGE_STUDIO_OUTPUT_DIR=.\output`,
+		`IMAGE_STUDIO_RAW_DIR=.\output\log`,
 		"",
 	}
 	return strings.Join(lines, "\n")

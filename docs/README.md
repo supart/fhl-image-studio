@@ -1,6 +1,6 @@
 # FHL Image Studio 文档中心
 
-本目录是 FHL Image Studio 方汤圆修改版的统一文档入口。当前索引对应 macOS `V2.0.3.1` 源码树；代码、发布产物和本机运行数据之间的边界以本文档及[项目结构](./project-structure.md)为准。
+本目录是 FHL Image Studio 方汤圆修改版的统一文档入口。当前索引对应桌面版 `V2.0.3` 源码树；代码、发布产物和本机运行数据之间的边界以本文档及[项目结构](./project-structure.md)为准。
 
 ## 快速入口
 
@@ -12,6 +12,8 @@
 | [数据位置与故障排除](./troubleshooting.md) | 数据目录、常见上游错误、恢复和诊断 |
 | [构建与发布](./build.md) | 开发环境、Portable 构建、验证入口和 CI |
 | [项目结构](./project-structure.md) | 当前源码目录、模块职责和维护边界 |
+| [现阶段项目整理](./current-stage-2026-07-28.md) | 桌面端、Portable、Photoshop 插件、Codex 开发入口和最终收尾断点 |
+| [Photoshop 插件兼容说明](./photoshop-plugin-compatibility.md) | 独立销售项目边界、桌面 Bridge 支持范围和兼容版本 |
 
 ## 开发与专题
 
@@ -31,9 +33,8 @@
 | 文档 | 记录内容 |
 | --- | --- |
 | [CHANGELOG](../CHANGELOG.md) | 跨版本、面向发布的功能与修复摘要 |
-| [V2.0.3.1 发布说明](../RELEASE_NOTES_DESKTOP_V2.0.3.1.md) | 当前 macOS 补丁的交付内容、产物和已知边界 |
-| [V2.0.3.1 验收报告](../V2.0.3.1_ACCEPTANCE_REPORT.md) | 当前 macOS 补丁的测试、安全和产物校验 |
-| [V2.0.3 发布说明](../RELEASE_NOTES_DESKTOP_V2.0.3.md) | 上一版 macOS 的完整功能交付记录 |
+| [V2.0.3 发布说明](../RELEASE_NOTES_DESKTOP_V2.0.3.md) | 单一版本的交付内容、产物和已知边界 |
+| [V2.0.3 验收报告](../V2.0.3_ACCEPTANCE_REPORT.md) | 测试矩阵、Portable 产物校验和残余风险 |
 | [详细变更记录](./changes/) | 每个开发批次、事故调查或性能验证的完整过程 |
 | [当前开发交接](../PROJECT_CONTEXT.md) | 当前状态、精确断点、验证结果和恢复方式 |
 
@@ -54,7 +55,6 @@
 | 单版本完整验证结果 | `V*_ACCEPTANCE_REPORT.md` |
 | 当前 Codex 接手所需的最短上下文 | `PROJECT_CONTEXT.md` |
 | Codex 工作约束 | [AGENTS.md](../AGENTS.md) |
-| Codex Skill 的运行契约 | [SKILL.md](../SKILL.md) |
 | 许可证、来源和分发义务 | [LICENSE](../LICENSE)、[NOTICE](../NOTICE.md)、[COMPLIANCE](../COMPLIANCE.md) |
 
 `PROJECT_CONTEXT.md` 不是长期产品手册。后续只在其中保留当前状态、未完成事项、已运行验证和恢复断点；详细过程写入 `docs/changes/`，稳定结论再同步到对应正式文档。

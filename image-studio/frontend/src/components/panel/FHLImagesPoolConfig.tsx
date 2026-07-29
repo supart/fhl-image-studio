@@ -2,13 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, CheckCircle2, LoaderCircle, Save, Settings2, TestTube2, Trash2 } from "lucide-react";
 import { validateAPIKeyForHeader } from "../../lib/apiKey";
 import {
-  apiModeRequiresDirectAPIKey,
   FHL_BASE_URL,
   FHL_IMAGE_MODEL_ID,
   FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT,
   FHL_IMAGES_POOL_SLOT_COUNT,
+  apiModeRequiresDirectAPIKey,
   mapFHLImagesProfilesToPoolSlots,
-  normalizeFHLImagesPoolKeyHint,
 } from "../../lib/profiles";
 import { usePlatform } from "../../platform/context";
 import { useStudioStore } from "../../state/studioStore";
@@ -22,6 +21,12 @@ type PoolSlotDraft = {
 
 type SlotConnectionResult = {
   status: "testing" | "success" | "error";
+};
+
+type PoolTestSummary = {
+  tested: number;
+  succeeded: number;
+  successfulProfileIds: string[];
 };
 
 function createSlotDraft(profile: UpstreamProfile | null): PoolSlotDraft {
@@ -122,18 +127,6 @@ export function FHLImagesPoolConfig({
     })));
   }
 
-  async function activateConfiguredPoolFallbackIfNeeded() {
-    const state = useStudioStore.getState();
-    const currentConnectionReady = !!state.baseURL.trim()
-      && (!apiModeRequiresDirectAPIKey(state.apiMode) || !!state.apiKey.trim());
-    if (currentConnectionReady) return;
-
-    const fallback = mapFHLImagesProfilesToPoolSlots(state.profiles).find((profile) => (
-      !!profile && normalizeFHLImagesPoolKeyHint(profile.fhlImagesPoolKeyHint) !== undefined
-    ));
-    if (fallback) await setActiveProfile(fallback.id);
-  }
-
   async function testSavedPoolSlot(index: number, profile: UpstreamProfile): Promise<boolean> {
     setTestingSlotIndex(index);
     setSlotConnectionResults((current) => ({ ...current, [index]: { status: "testing" } }));
@@ -146,16 +139,42 @@ export function FHLImagesPoolConfig({
     }
   }
 
-  async function autoTestSavedPoolSlots(): Promise<{ tested: number; succeeded: number }> {
+  function hasReadyActiveProfile(): boolean {
+    const state = useStudioStore.getState();
+    const hasActiveProfile = state.profiles.some((profile) => profile.id === state.activeProfileId);
+    return hasActiveProfile
+      && !!state.baseURL.trim()
+      && (!apiModeRequiresDirectAPIKey(state.apiMode) || !!state.apiKey.trim());
+  }
+
+  async function activateSuccessfulProfileIfNeeded(successfulProfileIds: readonly string[]): Promise<void> {
+    if (successfulProfileIds.length === 0 || hasReadyActiveProfile()) return;
+    const successfulIds = new Set(successfulProfileIds);
+    const target = mapFHLImagesProfilesToPoolSlots(useStudioStore.getState().profiles)
+      .find((profile) => !!profile && successfulIds.has(profile.id));
+    if (!target) return;
+
+    await setActiveProfile(target.id);
+    const state = useStudioStore.getState();
+    if (state.activeProfileId !== target.id || !hasReadyActiveProfile()) {
+      throw new Error(`${transportLabel} 连接测试成功，但设为当前 API 失败，请在“当前普通生成 API”中重新选择。`);
+    }
+  }
+
+  async function autoTestSavedPoolSlots(): Promise<PoolTestSummary> {
     const savedSlots = mapFHLImagesProfilesToPoolSlots(useStudioStore.getState().profiles);
     const targets = savedSlots
-      .map((profile, index) => (profile ? { profile, index } : null))
+      .map((profile, index) => (profile?.fhlImagesPoolKeyHint ? { profile, index } : null))
       .filter((item): item is { profile: UpstreamProfile; index: number } => !!item);
     let succeeded = 0;
+    const successfulProfileIds: string[] = [];
     for (const { profile, index } of targets) {
-      if (await testSavedPoolSlot(index, profile)) succeeded += 1;
+      if (await testSavedPoolSlot(index, profile)) {
+        succeeded += 1;
+        successfulProfileIds.push(profile.id);
+      }
     }
-    return { tested: targets.length, succeeded };
+    return { tested: targets.length, succeeded, successfulProfileIds };
   }
 
   async function handleSave({ autoTest = true }: { autoTest?: boolean } = {}): Promise<boolean> {
@@ -219,13 +238,13 @@ export function FHLImagesPoolConfig({
           });
         }
       }
-      await activateConfiguredPoolFallbackIfNeeded();
       refreshAfterMutation({ clearAllKeys: true });
       if (autoTest) {
         const pendingMessage = `${transportLabel} 连续池配置已保存，正在自动测试连接...`;
         setSuccessMessage(pendingMessage);
         pushToast(pendingMessage, "info", 3200);
-        const { tested, succeeded } = await autoTestSavedPoolSlots();
+        const { tested, succeeded, successfulProfileIds } = await autoTestSavedPoolSlots();
+        await activateSuccessfulProfileIfNeeded(successfulProfileIds);
         const message = tested > 0
           ? `${transportLabel} API 配置测试完成：${succeeded}/${tested} 个成功。`
           : `${transportLabel} 连续池配置已保存。`;
@@ -245,6 +264,7 @@ export function FHLImagesPoolConfig({
       pushToast(message, "success", 3200);
       return true;
     } catch (error: any) {
+      setSuccessMessage(null);
       setErrorMessage(error?.message ?? `保存 ${transportLabel} 连续池配置失败。`);
       return false;
     } finally {
@@ -270,7 +290,15 @@ export function FHLImagesPoolConfig({
     setErrorMessage(null);
     setSuccessMessage(null);
     const connected = await testSavedPoolSlot(index, profile);
-    if (connected) setSuccessMessage(`第 ${index + 1} 个 FHL API 槽连接正常。`);
+    if (connected) {
+      try {
+        await activateSuccessfulProfileIfNeeded([profile.id]);
+        setSuccessMessage(`第 ${index + 1} 个 FHL API 槽连接正常。`);
+      } catch (error: any) {
+        setSuccessMessage(null);
+        setErrorMessage(error?.message ?? "连接测试成功，但设为当前 API 失败。");
+      }
+    }
   }
 
   async function handleSetActive(profile: UpstreamProfile) {
@@ -297,6 +325,12 @@ export function FHLImagesPoolConfig({
         setErrorMessage("该配置仍有排队或运行中的任务，等待任务结束后再删除。");
         return;
       }
+      setSlotConnectionResults((current) => {
+        if (!current[index]) return current;
+        const next = { ...current };
+        delete next[index];
+        return next;
+      });
       refreshAfterMutation({ clearAllKeys: false });
       const message = `第 ${index + 1} 个 FHL API 槽配置已删除。`;
       setSuccessMessage(message);
@@ -330,7 +364,9 @@ export function FHLImagesPoolConfig({
           const keyInputName = `fhl-images-pool-api-key-${slotNumber}`;
           const keyHint = profile?.fhlImagesPoolKeyHint;
           const redactedKeyHint = keyHint ? displayKeyHint(keyHint) : "";
-          const slotConnectionResult = slotConnectionResults[index];
+          const slotConnectionResult = profile || slot.apiKey.trim()
+            ? slotConnectionResults[index]
+            : undefined;
           const rowStatus = slotConnectionResult?.status === "testing"
             ? "测试中"
             : slotConnectionResult?.status === "success"

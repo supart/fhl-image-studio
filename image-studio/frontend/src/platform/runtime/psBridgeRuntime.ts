@@ -16,6 +16,7 @@ import {
 import {
   buildPSBridgeProfileInput,
   historyItemFromPSBridgeEvent,
+  isPSBridgeRetryHost,
   psBridgeProfileSignature,
   type PSBridgeHistoryEvent,
   type PSBridgeProfileInput,
@@ -168,7 +169,7 @@ export function startPSBridgeRuntime(): void {
   if (installPSBridgeRuntime()) return;
   if (typeof window === "undefined") return;
   const hostname = String(window.location?.hostname || "").toLowerCase();
-  if (hostname !== "wails.localhost") return;
+  if (!isPSBridgeRetryHost(hostname)) return;
   let attempts = 0;
   const retry = () => {
     if (installPSBridgeRuntime() || attempts >= PS_BRIDGE_INSTALL_RETRIES) return;

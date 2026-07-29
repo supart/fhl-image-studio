@@ -21,10 +21,11 @@ import type {
 } from "../types/domain";
 import { compactWorkspaceSessionTasks } from "./workspaceSessionTasks";
 import type { FHLTransportMode, ModeConfig, Stroke } from "./studioStore.types";
-import { isWindowsHost } from "../platform";
+import { isWindows } from "../platform";
 import {
   ACTIVE_PROFILE_LS_KEY,
   PROFILES_LS_KEY,
+  normalizeFHLImagesPoolSlot,
   normalizeFHLPoolPerAPIConcurrencyLimit,
   tryParseProfile,
 } from "../lib/profiles";
@@ -102,7 +103,7 @@ export function applyTheme(theme: ThemeMode) {
   unbindSystemThemeListener();
   document.documentElement.setAttribute("data-appearance", theme);
   writeResolvedTheme(resolvedTheme(theme));
-  if (isWindowsHost) {
+  if (isWindows) {
     if (theme === "system") WindowSetSystemDefaultTheme();
     else if (theme === "dark") WindowSetDarkTheme();
     else WindowSetLightTheme();
@@ -574,6 +575,7 @@ export function normalizeBatchTasks(value: unknown): Record<string, BatchTaskRec
         : "responses",
       apiProfileId: typeof raw.apiProfileId === "string" && raw.apiProfileId.trim() ? raw.apiProfileId.trim() : undefined,
       apiProfileName: typeof raw.apiProfileName === "string" && raw.apiProfileName.trim() ? raw.apiProfileName.trim() : undefined,
+      fhlImagesPoolSlot: normalizeFHLImagesPoolSlot(raw.fhlImagesPoolSlot),
       apiBaseURL: typeof raw.apiBaseURL === "string" && raw.apiBaseURL.trim() ? raw.apiBaseURL.trim() : undefined,
       continuousPoolTask: raw.continuousPoolTask === true,
       prompt,

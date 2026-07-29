@@ -23,7 +23,7 @@
   - README / CHANGELOG / Release Notes
 - Codex Skill 改为版本化命名：
   - Skill 名：`fhl-image-studio-v2-0-2-1`
-  - 安装路径：`C:\Users\TANG\.codex\skills\fhl-image-studio-v2-0-2-1\SKILL.md`
+  - 安装路径：`<用户目录>\.codex\skills\fhl-image-studio-v2-0-2-1\SKILL.md`
   - 旧稳定名 `fhl-image-studio` 已移到 `.disabled`，避免多版本混淆。
 
 ## 桌面关键文件
@@ -75,7 +75,7 @@
 请继续 Android V2.0.2.1 对齐任务。桌面版 V2.0.2.1 已经完成一个小版本更新，需要把关键修复同步到安卓。
 
 桌面源码包路径：
-I:\AI\Image-Studio\FHL-Image-Studio方汤圆版-桌面版整理\V2.0.2-开发版3-测试版\桌面V2.0.2-开发整合包\源码
+<开发工作区>\FHL-Image-Studio\源码
 
 本次桌面小版本已完成：
 1. 修复 FHL Responses / gpt-image-2 在明确尺寸下比例选择不稳定的问题。

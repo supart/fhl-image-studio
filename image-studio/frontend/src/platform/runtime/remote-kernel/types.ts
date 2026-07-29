@@ -6,6 +6,7 @@ export type KernelImageSource = {
   mimeType?: string | null;
   imageB64?: string | null;
   imageBlob?: Blob | null;
+  preparedBase?: boolean;
 };
 
 export type RemoteGeneratePayload = {

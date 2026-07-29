@@ -65,7 +65,7 @@ export function PromptEditorSection({
   onRewritePrompt: () => void;
   onSetStyleTag: (value: string) => void;
 }) {
-  const { usesMacDesktopUI, usesFluentUI } = usePlatform();
+  const { isMac, usesFluentUI } = usePlatform();
   const promptPopoverAnchorRef = useRef<HTMLButtonElement | null>(null);
   const promptPrefixRef = useRef<HTMLTextAreaElement | null>(null);
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
@@ -99,9 +99,9 @@ export function PromptEditorSection({
     : promptTextProviderLabel
       ? "先上传、生成或导入一张图片"
       : promptTextStatus;
-  const promptPrefixMinHeight = usesFluentUI ? 72 : usesMacDesktopUI ? 88 : 72;
-  const promptCollapsedHeight = usesFluentUI ? 116 : usesMacDesktopUI ? 132 : 116;
-  const promptExpandedMinHeight = usesFluentUI ? 124 : usesMacDesktopUI ? 176 : 124;
+  const promptPrefixMinHeight = usesFluentUI ? 72 : isMac ? 88 : 72;
+  const promptCollapsedHeight = usesFluentUI ? 116 : isMac ? 132 : 116;
+  const promptExpandedMinHeight = usesFluentUI ? 124 : isMac ? 176 : 124;
   const optimizationGuidanceMinHeight = 62;
 
   const resizePromptPrefix = () => {
@@ -254,8 +254,8 @@ export function PromptEditorSection({
           {mode === "edit" ? "修改要求" : "文生图 prompt"}
         </span>
       </div>
-      <div className={`platform-card relative overflow-visible ${usesMacDesktopUI ? "p-5" : "p-4"}`}>
-        <div className={`border border-black/[0.06] bg-[var(--surface)]/60 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:border-white/[0.06] dark:bg-white/[0.025] ${usesFluentUI ? "rounded-[10px]" : usesMacDesktopUI ? "rounded-[16px]" : "rounded-[12px]"}`}>
+      <div className={`platform-card relative overflow-visible ${isMac ? "p-5" : "p-4"}`}>
+        <div className={`border border-black/[0.06] bg-[var(--surface)]/60 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:border-white/[0.06] dark:bg-white/[0.025] ${usesFluentUI ? "rounded-[10px]" : isMac ? "rounded-[16px]" : "rounded-[12px]"}`}>
         <div
           onDragEnter={(event) => {
             if (!event.dataTransfer.types.includes("Files")) return;
@@ -430,7 +430,7 @@ export function PromptEditorSection({
                 }}
                 onInput={() => requestAnimationFrame(resizePromptPrefix)}
                 onBlur={resizePromptPrefix}
-                className={`focus-ring w-full resize-none overflow-hidden border border-[color:var(--accent)]/18 bg-[var(--surface)] text-zinc-900 placeholder:text-zinc-400 dark:text-zinc-100 dark:placeholder:text-zinc-500 ${usesFluentUI ? "min-h-[72px] rounded-[10px] px-3.5 py-2.5 text-[13px] leading-[1.6]" : usesMacDesktopUI ? "min-h-[88px] rounded-[14px] px-4 py-3 text-[13px] leading-[1.65]" : "min-h-[72px] rounded-[12px] px-3.5 py-2.5 text-[12px] leading-[1.6]"}`}
+                className={`focus-ring w-full resize-none overflow-hidden border border-[color:var(--accent)]/18 bg-[var(--surface)] text-zinc-900 placeholder:text-zinc-400 dark:text-zinc-100 dark:placeholder:text-zinc-500 ${usesFluentUI ? "min-h-[72px] rounded-[10px] px-3.5 py-2.5 text-[13px] leading-[1.6]" : isMac ? "min-h-[88px] rounded-[14px] px-4 py-3 text-[13px] leading-[1.65]" : "min-h-[72px] rounded-[12px] px-3.5 py-2.5 text-[12px] leading-[1.6]"}`}
               />
             </div>
           ) : null}
@@ -492,16 +492,16 @@ export function PromptEditorSection({
                 <Trash2 className="h-3 w-3" />
                 清空
               </button>
-              <span className={`font-mono-token tabular-nums ${usesMacDesktopUI ? "rounded-full bg-black/[0.04] px-2 py-0.5 text-[11px] dark:bg-white/[0.06]" : ""} text-zinc-400 dark:text-zinc-500`}>{promptLen}</span>
+              <span className={`font-mono-token tabular-nums ${isMac ? "rounded-full bg-black/[0.04] px-2 py-0.5 text-[11px] dark:bg-white/[0.06]" : ""} text-zinc-400 dark:text-zinc-500`}>{promptLen}</span>
             </div>
           </div>
-          {usesMacDesktopUI && (
+          {isMac && (
             <p className="mb-3 text-[12px] leading-6 text-zinc-500 dark:text-zinc-400">
               建议把主体、场景、镜头、材质和光照拆成短句，模板会追加到当前内容末尾。
             </p>
           )}
           <div
-            className={`relative overflow-hidden border border-[color:var(--accent)]/18 bg-[var(--surface)] transition-[border-color,box-shadow] focus-within:border-[color:var(--accent)]/40 focus-within:shadow-[0_0_0_3px_rgb(0_122_255_/_0.14)] ${usesFluentUI ? "rounded-[10px]" : usesMacDesktopUI ? "rounded-[18px]" : "rounded-[14px]"}`}
+            className={`relative overflow-hidden border border-[color:var(--accent)]/18 bg-[var(--surface)] transition-[border-color,box-shadow] focus-within:border-[color:var(--accent)]/40 focus-within:shadow-[0_0_0_3px_rgb(0_122_255_/_0.14)] ${usesFluentUI ? "rounded-[10px]" : isMac ? "rounded-[18px]" : "rounded-[14px]"}`}
           >
             <button
               type="button"
@@ -527,7 +527,7 @@ export function PromptEditorSection({
             }}
             onInput={() => requestAnimationFrame(resizePrompt)}
             onBlur={resizePrompt}
-              className={`block w-full resize-none overflow-x-hidden border-0 bg-transparent text-zinc-900 placeholder:text-zinc-400 outline-none ${promptExpanded ? "overflow-y-hidden" : "overflow-y-auto"} dark:text-zinc-100 dark:placeholder:text-zinc-500 ${usesFluentUI ? "px-3.5 py-3 text-[14px] leading-[1.65]" : usesMacDesktopUI ? "px-4 py-3.5 text-[15px] leading-[1.72]" : "px-3.5 py-3 text-[14px] leading-[1.65]"}`}
+              className={`block w-full resize-none overflow-x-hidden border-0 bg-transparent text-zinc-900 placeholder:text-zinc-400 outline-none ${promptExpanded ? "overflow-y-hidden" : "overflow-y-auto"} dark:text-zinc-100 dark:placeholder:text-zinc-500 ${usesFluentUI ? "px-3.5 py-3 text-[14px] leading-[1.65]" : isMac ? "px-4 py-3.5 text-[15px] leading-[1.72]" : "px-3.5 py-3 text-[14px] leading-[1.65]"}`}
           />
           </div>
           {optimizeWithImageContext ? (
@@ -553,15 +553,15 @@ export function PromptEditorSection({
             </p>
           ) : null}
         </div>
-        <div className={`mt-3 ${usesMacDesktopUI ? "flex flex-col gap-3" : "flex gap-2.5 items-center justify-between"}`}>
-          <div className={`${usesMacDesktopUI ? "grid grid-cols-1 gap-2.5" : "flex gap-2.5 items-center"}`}>
-            <div className={`relative ${usesMacDesktopUI ? "min-w-0" : "shrink-0"}`}>
+        <div className={`mt-3 ${isMac ? "flex flex-col gap-3" : "flex gap-2.5 items-center justify-between"}`}>
+          <div className={`${isMac ? "grid grid-cols-1 gap-2.5" : "flex gap-2.5 items-center"}`}>
+            <div className={`relative ${isMac ? "min-w-0" : "shrink-0"}`}>
               <button
                 ref={promptPopoverAnchorRef}
                 type="button"
                 onClick={() => setPromptPopover((v) => !v)}
                 title="prompt 模板与历史"
-                className={`platform-pill inline-flex items-center justify-center gap-1.5 ${usesMacDesktopUI ? "min-h-[38px] w-full px-3 py-2 text-[11px] font-medium" : "px-3 py-1.5 text-[10px]"} transition-colors ${
+                className={`platform-pill inline-flex items-center justify-center gap-1.5 ${isMac ? "min-h-[38px] w-full px-3 py-2 text-[11px] font-medium" : "px-3 py-1.5 text-[10px]"} transition-colors ${
                   promptPopover
                     ? "bg-[var(--accent-soft)] text-[var(--accent)] ring-1 ring-[color:var(--accent)]/20"
                     : "text-zinc-500 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]"
@@ -583,14 +583,14 @@ export function PromptEditorSection({
               )}
             </div>
           </div>
-          <div className={`flex flex-wrap ${usesMacDesktopUI ? "items-center justify-between gap-2.5" : "ml-auto items-center justify-end gap-2"}`}>
-            <span className={`${usesMacDesktopUI ? "ml-auto rounded-full bg-black/[0.03] px-2.5 py-1.5 text-[11px] dark:bg-white/[0.04]" : "text-[10px]"} text-zinc-400 dark:text-zinc-500`}>{submitShortcutLabel}</span>
+          <div className={`flex flex-wrap ${isMac ? "items-center justify-between gap-2.5" : "ml-auto items-center justify-end gap-2"}`}>
+            <span className={`${isMac ? "ml-auto rounded-full bg-black/[0.03] px-2.5 py-1.5 text-[11px] dark:bg-white/[0.04]" : "text-[10px]"} text-zinc-400 dark:text-zinc-500`}>{submitShortcutLabel}</span>
             {!optimizeWithImageContext ? (
               <button
                 type="button"
                 onClick={onOptimizePromptBase}
                 disabled={!optimizeReady || promptBusy}
-                className={`platform-pill prompt-ai-optimize-button inline-flex min-h-[38px] min-w-[92px] items-center justify-center gap-1.5 border border-yellow-500 bg-yellow-300 text-yellow-950 shadow-sm ${usesMacDesktopUI ? "px-3 py-2 text-[11px] font-semibold" : "px-3 py-1.5 text-[10px] font-semibold"} transition-colors ${
+                className={`platform-pill prompt-ai-optimize-button inline-flex min-h-[38px] min-w-[92px] items-center justify-center gap-1.5 border border-yellow-500 bg-yellow-300 text-yellow-950 shadow-sm ${isMac ? "px-3 py-2 text-[11px] font-semibold" : "px-3 py-1.5 text-[10px] font-semibold"} transition-colors ${
                   isOptimizingPrompt
                     ? "bg-yellow-200 text-yellow-950"
                     : "hover:border-yellow-400 hover:bg-yellow-200 hover:text-yellow-950"
@@ -604,7 +604,7 @@ export function PromptEditorSection({
           </div>
         </div>
         </div>
-        <div className={`mt-3 border border-[color:var(--accent)]/20 bg-[var(--accent-soft)] p-3 ${usesFluentUI ? "rounded-[10px]" : usesMacDesktopUI ? "rounded-[16px]" : "rounded-[12px]"}`}>
+        <div className={`mt-3 border border-[color:var(--accent)]/20 bg-[var(--accent-soft)] p-3 ${usesFluentUI ? "rounded-[10px]" : isMac ? "rounded-[16px]" : "rounded-[12px]"}`}>
           <div className="mb-2.5 flex items-center justify-between gap-3">
             <label className="text-[10px] uppercase tracking-[0.12em] text-[var(--accent)]">
               指令改写提示词
@@ -635,7 +635,7 @@ export function PromptEditorSection({
               }}
               onInput={() => requestAnimationFrame(resizeOptimizationGuidance)}
               onBlur={resizeOptimizationGuidance}
-              className={`focus-ring min-h-[62px] w-full min-w-0 resize-none overflow-hidden border border-[color:var(--accent)]/20 bg-[var(--surface)] py-2 leading-[1.55] text-zinc-900 placeholder:text-zinc-400 dark:text-zinc-100 dark:placeholder:text-zinc-500 ${usesFluentUI ? "rounded-[10px] px-3.5 text-[13px]" : usesMacDesktopUI ? "rounded-[14px] px-4 text-[13px]" : "rounded-[12px] px-3.5 text-[12px]"}`}
+              className={`focus-ring min-h-[62px] w-full min-w-0 resize-none overflow-hidden border border-[color:var(--accent)]/20 bg-[var(--surface)] py-2 leading-[1.55] text-zinc-900 placeholder:text-zinc-400 dark:text-zinc-100 dark:placeholder:text-zinc-500 ${usesFluentUI ? "rounded-[10px] px-3.5 text-[13px]" : isMac ? "rounded-[14px] px-4 text-[13px]" : "rounded-[12px] px-3.5 text-[12px]"}`}
               title="输入要强制执行的提示词修改指令"
             />
             <div className="flex justify-end">
@@ -643,7 +643,7 @@ export function PromptEditorSection({
                 type="button"
                 onClick={onRewritePrompt}
                 disabled={!rewriteReady || promptBusy}
-                className={`platform-pill inline-flex min-h-[38px] min-w-[92px] items-center justify-center gap-1.5 ${usesMacDesktopUI ? "px-3 py-2 text-[11px] font-medium" : "px-3 py-1.5 text-[10px]"} transition-colors ${
+                className={`platform-pill inline-flex min-h-[38px] min-w-[92px] items-center justify-center gap-1.5 ${isMac ? "px-3 py-2 text-[11px] font-medium" : "px-3 py-1.5 text-[10px]"} transition-colors ${
                   isOptimizingPrompt
                     ? "bg-[var(--surface)] text-[var(--accent)]"
                     : "bg-[var(--surface)] text-[var(--accent)] hover:brightness-95"
@@ -656,7 +656,7 @@ export function PromptEditorSection({
             </div>
           </div>
         </div>
-        <div className={`mt-3 border-t border-black/[0.06] pt-3 dark:border-white/[0.06] ${usesMacDesktopUI ? "space-y-2.5" : "space-y-2"}`}>
+        <div className={`mt-3 border-t border-black/[0.06] pt-3 dark:border-white/[0.06] ${isMac ? "space-y-2.5" : "space-y-2"}`}>
           <div className="flex items-center justify-between gap-3">
             <label className="text-[10px] uppercase tracking-[0.12em] text-zinc-400 dark:text-zinc-500">
               风格模板

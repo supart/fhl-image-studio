@@ -27,7 +27,7 @@ const (
 // imagesSubdir / logSubdir 把根目录拆为「生成的 PNG」和「原始响应/排错日志」两个子文件夹。
 // 用户在 SettingsPanel 里可以「打开输出目录」=> 落到根,所以两类内容在同一个文件夹下并列。
 func imagesSubdir(root string) string { return filepath.Join(root, "images") }
-func logSubdir(root string) string    { return platformLogSubdir(root) }
+func logSubdir(root string) string    { return filepath.Join(root, "log") }
 
 type validatedImageData struct {
 	Bytes     []byte

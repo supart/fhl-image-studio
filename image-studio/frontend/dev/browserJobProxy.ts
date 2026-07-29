@@ -27,6 +27,7 @@ import type {
   JobSlotSnapshot,
   JobStatus,
 } from "../src/types/domain.ts";
+import { normalizeFHLImagesPoolSlot } from "../src/lib/profiles.ts";
 
 type JobSubscriber = {
   res: ServerResponse;
@@ -377,6 +378,7 @@ export class BrowserJobManager {
           apiMode: group.apiMode === "images" || group.apiMode === "apimart" || group.apiMode === "runninghub"
             ? group.apiMode
             : "responses",
+          fhlImagesPoolSlot: normalizeFHLImagesPoolSlot(group.fhlImagesPoolSlot),
           slots,
           slotIds: slots.map((slot) => slot.jobId),
           statusSummary: summarizeJobStatuses(slots),
@@ -431,6 +433,7 @@ export class BrowserJobManager {
       apiMode: effectivePayload.apiMode,
       apiProfileId: typeof effectivePayload.apiProfileId === "string" ? effectivePayload.apiProfileId.trim() || undefined : undefined,
       apiProfileName: typeof effectivePayload.apiProfileName === "string" ? effectivePayload.apiProfileName.trim() || undefined : undefined,
+      fhlImagesPoolSlot: normalizeFHLImagesPoolSlot(effectivePayload.fhlImagesPoolSlot),
       prompt: effectivePayload.prompt,
       batchCount: slots.length,
       size: effectivePayload.size,
@@ -577,6 +580,7 @@ export class BrowserJobManager {
         apiMode: credential.apiMode,
         apiProfileId: profileId,
         apiProfileName: credential.apiProfileName,
+        fhlImagesPoolSlot: normalizeFHLImagesPoolSlot(credential.fhlImagesPoolSlot),
         requestPolicy: credential.requestPolicy,
         imagesNewAPICompat: credential.imagesNewAPICompat,
         textModelID: credential.textModelID,

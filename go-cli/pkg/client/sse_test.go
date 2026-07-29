@@ -80,6 +80,28 @@ func TestExtractNoImageReturnsSentinelError(t *testing.T) {
 	}
 }
 
+func TestExtractSurfacesUpstreamError(t *testing.T) {
+	raw := "event: upstream_error\n" + sseLine(t, map[string]any{
+		"error": map[string]any{
+			"type":    "invalid_request_error",
+			"code":    "ERR-TEST",
+			"message": "mask is not supported by free gpt-image edits",
+		},
+	})
+	_, err := ExtractImageResult(raw)
+	if err == nil {
+		t.Fatal("expected upstream error")
+	}
+	if errors.Is(err, ErrNoImageInResponse) {
+		t.Fatalf("err = %v, should preserve the upstream error", err)
+	}
+	for _, want := range []string{"mask is not supported", "ERR-TEST", "invalid_request_error"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("err = %q, want %q", err, want)
+		}
+	}
+}
+
 func TestExtractFromPlainJSONBody(t *testing.T) {
 	pngB64 := base64.StdEncoding.EncodeToString([]byte("\x89PNG\r\n\x1a\nfake"))
 	raw, _ := json.Marshal(map[string]any{
