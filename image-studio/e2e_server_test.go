@@ -293,7 +293,11 @@ func TestE2ERuntimeUsesUniqueSystemTempSandbox(t *testing.T) {
 	if first.root == second.root || first.token == second.token {
 		t.Fatalf("E2E runtimes must have unique roots and tokens")
 	}
-	tempRoot, err := filepath.Abs(os.TempDir())
+	tempRoot, err := filepath.EvalSymlinks(os.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tempRoot, err = filepath.Abs(tempRoot)
 	if err != nil {
 		t.Fatal(err)
 	}

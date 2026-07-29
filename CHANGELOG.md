@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## Desktop V2.0.3 - 2026-07-24
+## 桌面版 V2.0.3 - 2026-07-24
 
 ### 正式发布整理 - 2026-07-29
 
@@ -8,7 +8,7 @@
 - GitHub CI 与 Windows 发布构建统一使用 Node.js 24.13.1、Go 1.26.3、Wails v2.12.0 和产品版本 2.0.3。
 - 独立销售和交付的 Photoshop 插件不进入桌面源码归档或 GitHub Release 资产；桌面仓库仅保留 Bridge 兼容支持与文档。
 
-### Added
+### 新增
 
 - 新增固定 10 槽 FHL Images API 连续池，支持独立连通性测试、槽位状态、API 来源追踪和每 Key 并发管理。
 - 新增独立 FHL 文本 API 凭据和 `gpt-5.5` Responses 测试区，`AI 优化` 与图片反推优先使用该凭据，不复用 Images Key。
@@ -19,7 +19,7 @@
 - 新增 Photoshop 2023+ 本地 Bridge：桌面端在 `127.0.0.1:47631-47640` 自动选择空闲端口，为独立 UXP 插件提供单任务生成、状态、结果与取消接口。
 - 新增对独立销售 Photoshop UXP 插件 V0.1.0 的桌面 Bridge 支持，覆盖文生图、图生图、选区修改、按图层多参考、透明边缘裁切、结果回写和最近 50 条元数据记录；插件不保存 API 凭据，也不随桌面 GitHub、源码包或 Portable 分发。
 
-### Changed
+### 调整
 
 - FHL 并发设置改为每 API 上限；10 个已启用 API 选择 `4/API` 时总容量为 40，临时降级只影响对应 API。
 - 单图生成固定使用第一个已启用 API；批量任务保留 API1→API10 轮询和原 API 绑定。
@@ -29,7 +29,7 @@
 - 正式桌面数据使用稳定 namespace `fhl-image-studio-desktop`，Vite/Codex 开发数据使用 `fhl-image-studio-desktop-dev`。
 - 发布形态收敛为开源源码与 Portable ZIP；不再构建或维护 Windows Setup 安装器，减少重复打包、数据目录和卸载链路。
 
-### Fixed
+### 修复
 
 - 修复连续模式首次点击后只显示“正在生成”、任务网格不出现且状态栏任务数为 0 的问题；任务记录、工作区任务 ID、运行计数和网格状态现在一次性提交，首次任务也会立即显示。
 - 修复原生连续任务未能认领或启动时可能无限停留在“正在请求”的问题；对应任务现在进入可见失败状态并保留重试入口，不再留下无任务的运行态。
@@ -53,7 +53,7 @@
 - 修复 Photoshop 插件比例/分辨率使用紧凑字符串导致 FHL 回退默认尺寸的问题；现统一发送桌面版同规格精确像素。
 - 修复 Photoshop 选区蒙版 Alpha 全不透明、提交前未固化及文生图模式仍可能携带蒙版的问题，并补齐 GrayscaleAlpha 转换。
 
-### Performance
+### 性能优化
 
 - IndexedDB 升级 `[createdAt, id]` 复合索引，每页严格读取 48 条，支持最新/最早方向独立游标和相册近底部自动加载。
 - 历史元数据不再持久化 `imageBlob` / `previewBlob`，有真实输出路径时不再保存完整 `imageB64`。
@@ -61,12 +61,12 @@
 - `CanvasStage` 改为精细 Zustand selector，卡片使用稳定 key 和 `memo`，减少无关状态触发的整页重渲染。
 - 浏览器任务注册表保留全部活动任务和最近 500 个终态 group，覆盖 397/500 项恢复。
 
-### Migration
+### 数据迁移
 
 - 启动时幂等迁移 V2.0.2.1 正式数据和旧开发数据；目标设置优先，profiles 按 ID 合并，工作区选择较新 `updatedAt`，历史按 ID 去重。
 - Keyring 仅在新凭据为空时复制旧凭据，明文只存在迁移函数局部变量中，不写入日志或 Zustand。
 
-### Verified
+### 验证
 
 - 连续任务可见性回归通过：frontend Node `577/577`、UI `23/23`、聚焦任务/队列 `61/61`、TypeScript、Windows 构建、desktop/CLI Go test+vet、Worker `5/5`；新增真实 Store 原生提交测试使用离线 Wails Mock，证明一次提交只创建并显示一个任务且只调用一次本地生成入口。
 - 连续队列最终回归通过：frontend Node `571/571`、UI `22/22`、聚焦队列/恢复/single-flight `49/49`、TypeScript、Windows 构建、desktop/CLI Go test+vet、Worker `5/5`；Lint 为 `0` 错误和既有 `63` 条警告。
@@ -74,8 +74,8 @@
 - 已通过虚拟列表、独立批量提交、恢复规则、namespace 与凭据清理的聚焦类型检查和单元测试。
 - 完整前端/Go 检查、Windows 构建、便携包安全扫描和 9230 E2E 结果记录在 `V2.0.3_ACCEPTANCE_REPORT.md`。
 
-- Final release verification passed: frontend Node 552/552, UI 12/12,
-  typecheck, lint, Windows build, desktop/CLI Go test+vet, and Worker 5/5.
+- 正式发布验证通过：前端 Node `552/552`、UI `12/12`、类型检查、Lint、
+  Windows 构建、桌面端/CLI Go test+vet，以及 Worker `5/5`。
 - Photoshop Bridge 收尾验证通过：frontend Node 556/556、UI 12/12、
   独立插件合同 16/16、Bridge runtime 4/4、desktop/CLI Go test+vet、Worker
   5/5、Windows Wails 构建、Portable/源码安全扫描和 `git diff --check`。
@@ -83,11 +83,10 @@
   桌面兼容证据记录，不属于桌面 GitHub 或 Portable 发布产物。
 - Codex 浏览器确认已贴回的 3840x1920 全景不再显示任何贴回入口，真正的镜头图和编辑镜头图仍保留完整贴回能力。
 - Codex 浏览器确认手动贴回“对齐”页显示默认 `边缘羽化 10%`，且“蒙版羽化”只在蒙版页出现。
-- Packaged 397-item E2E mounted 36 result cards and 8 input rows, requested no
-  full-image or Blob sources, restored a blank state after reload, and logged
-  no browser warnings/errors.
-- Portable, ZIP, and source safety scans reported 0 issues. A disposable cold
-  start imported no V2.0.2.1 namespace data and created no user image files.
+- 已打包的 397 项 E2E 加载了 36 张结果卡和 8 行输入，不请求完整图片或 Blob
+  源；刷新后能恢复为空白状态，且浏览器无警告或错误日志。
+- Portable、ZIP 和源码安全扫描均为 0 个问题；一次可丢弃的冷启动未导入
+  V2.0.2.1 命名空间数据，也未创建用户图片文件。
 
 ## Desktop V2.0.2.1 - 2026-06-29
 

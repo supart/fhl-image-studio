@@ -38,7 +38,7 @@
 - 旧版 `fhl-image-studio-*` Codex Skill 已弃用，不再随源码包或 Portable 提供安装入口。
 - Photoshop 插件不属于桌面版发布产物。其源码、CCX、安装工具和销售交付物不进入桌面版 GitHub、源码包或 Portable ZIP；桌面版只记录兼容版本和 Bridge 支持。
 
-## Windows Portable
+## Windows Portable 免安装版
 
 - 仅支持 Windows 10/11 x64，解压后运行 `一键启动FHL Studio V2.0.3.cmd`，无需安装和管理员权限。
 - Portable 继续使用 Wails/WebView2 轻量窗口，复用同一套 React 前端和 Go 后端；正常运行不依赖外部浏览器、Node、Vite 或安装程序。

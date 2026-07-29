@@ -107,11 +107,6 @@ func samePath(a, b string) bool {
 	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
 }
 
-func dirExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
-}
-
 func imageStudioWebviewProfileScore(path string) int64 {
 	var total int64
 	var matched int64
