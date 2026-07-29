@@ -3,7 +3,7 @@
 ## 发布范围
 
 - 发布目标为 Windows x64 Portable `V2.0.3`。
-- GitHub 使用独立分支 `release/windows-v2.0.3` 与独立标签 `windows-v2.0.3`。
+- GitHub 使用独立分支 `release/windows-v2.0.3` 与最终独立标签 `windows-v2.0.3-release`。早期准备标签 `windows-v2.0.3` 保留不改写。
 - 这是 Windows 的独立补充发布，不替代、不覆盖 macOS `v2.0.3` 或 `v2.0.3.1`。
 - 独立销售的 Photoshop 插件不包含在仓库、源码 ZIP 或 Release 附件中；桌面端仅保留本机 Bridge v1 的兼容实现与文档。
 
@@ -33,6 +33,7 @@
 - Cloudflare Worker：5/5 通过。
 - 源码、Portable ZIP 的合规与发布安全扫描：0 问题。
 - 未调用真实或付费生图接口。
+- GitHub Actions `30447276745` 全部通过：Linux 竞态检测、Windows Go test/vet、Wails Windows 构建、前端、Worker 和发布安全检查均为成功。
 
 ## 凭据与分发说明
 
@@ -43,4 +44,4 @@
 ## 回滚
 
 - Windows 发布资产的回滚来源是 `FHL-Image-Studio-V2.0.3-正式发布审核版-20260729` 中保留的原始审核 ZIP。
-- 若 Windows 发布出现问题，只撤销 `windows-v2.0.3` 对应的独立 Release、标签和分支；不得修改 macOS 已发布的标签、Release 或附件。
+- 若 Windows 发布出现问题，只撤销 `windows-v2.0.3-release` 对应的独立 Release、标签和分支；不得修改 macOS 已发布的标签、Release 或附件。

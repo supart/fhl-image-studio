@@ -53,9 +53,10 @@
 - 详细 Windows GitHub 发布记录：`docs/changes/2026-07-29-github-windows-v2.0.3-release.md`。
 - 回滚：保留未改动的正式审核目录；如有必要，只移除独立 Windows Release、标签和分支。绝不编辑 macOS Release。
 
-## CI 修复待验证
+## 最终 CI 与发布准备
 
 - GitHub Actions 运行 `30446009232` 的失败日志确认了两项跨平台问题：Linux 竞态检查编译桌面后端时缺少非 Windows 的 `dirExists`；Windows E2E 测试比较系统临时目录时遇到 8.3 短路径与长路径不一致。
-- 修复已完成：将 `dirExists` 移至跨平台的 `backend/persistence.go`，并在 E2E 测试中先解析临时目录的真实路径再比较。
-- 本机桌面端 `go test ./...` 和 `go vet ./...` 已通过；本机 `go test -race ./backend` 因当前 Go 环境未启用 CGo 而无法执行，需由 GitHub Linux Runner 复核。
-- 本次 Windows V2.0.3 的对外发布标题、Release 正文、验收报告、发布记录和最新版变更日志标题均已改为中文；技术文件名、命令和校验值保持不变。
+- 修复已完成：将 `dirExists` 移至跨平台的 `backend/persistence.go`；E2E 测试先解析临时目录的真实路径再比较；Linux 测试同时隔离 `HOME` 与 `XDG_CONFIG_HOME`。
+- 本机桌面端 `go test ./...` 与 `go vet ./...` 通过。GitHub CI 运行 `30447276745` 已全绿，覆盖 Linux 竞态检测、Windows Go test/vet、Wails Windows 构建、前端、Worker 和发布安全检查。
+- 本次 Windows V2.0.3 的对外发布标题、Release 正文、验收报告、发布记录和最新版变更日志均为中文；技术文件名、命令和校验值保持不变。
+- 最终发布使用新的 Windows 专用标签 `windows-v2.0.3-release`，避免改写早期准备标签 `windows-v2.0.3`；预计 Release 地址为 `https://github.com/supart/fhl-image-studio/releases/tag/windows-v2.0.3-release`，且不标记为 Latest。
