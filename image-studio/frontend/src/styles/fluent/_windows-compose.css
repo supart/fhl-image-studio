@@ -1,0 +1,65 @@
+/* Windows compose accordion. Mirrors macOS density, rendered with Fluent chrome. */
+
+html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-panel {
+  padding: 12px;
+}
+
+html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-toggle {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+}
+
+html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-title {
+  display: block;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-summary {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-state {
+  display: inline-flex;
+  min-height: 30px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  border-radius: 4px;
+  padding: 0 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-toggle:hover .windows-compose-state {
+  background: var(--tool-hover-bg);
+  color: var(--text);
+}
+
+html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-body > .platform-card,
+html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-body > section {
+  padding: 12px;
+}

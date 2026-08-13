@@ -1,0 +1,157 @@
+name: Android Release Review Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: Android version name
+        required: true
+        default: V2.0.3
+        type: string
+      version_code:
+        description: Android version code
+        required: true
+        default: "1050003"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-android-review:
+    name: Build signed Android review artifacts
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact requested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Verify immutable build identity
+        shell: bash
+        env:
+          RELEASE_VERSION_NAME: ${{ inputs.version_name }}
+          RELEASE_VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          test "$RELEASE_VERSION_NAME" = "V2.0.3"
+          test "$RELEASE_VERSION_CODE" = "1050003"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Node 24.13.1
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.13.1"
+          cache: npm
+          cache-dependency-path: image-studio/frontend/package-lock.json
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android packages
+        shell: bash
+        run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Set up Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Safety scan
+        shell: pwsh
+        run: ./scripts/check-android-release-safety.ps1 -Root "$PWD"
+
+      - name: Validate signing secrets
+        shell: bash
+        env:
+          ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          test -n "$ANDROID_RELEASE_KEYSTORE_BASE64"
+          test -n "$ANDROID_RELEASE_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_RELEASE_KEY_ALIAS"
+          test -n "$ANDROID_RELEASE_KEY_PASSWORD"
+
+      - name: Restore release keystore
+        shell: bash
+        env:
+          ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/fhl-android-signing"
+          printf '%s' "$ANDROID_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/fhl-android-signing/release.jks"
+          test -s "$RUNNER_TEMP/fhl-android-signing/release.jks"
+
+      - name: Install frontend dependencies
+        working-directory: image-studio/frontend
+        run: npm ci
+
+      - name: Run frontend and Worker gates
+        shell: bash
+        run: |
+          npm --prefix image-studio/frontend test
+          ./image-studio/frontend/node_modules/.bin/tsc -p image-studio/frontend/tsconfig.json --noEmit --pretty false
+          npm --prefix cloudflare-worker run check
+          npm --prefix cloudflare-worker test
+          npm --prefix image-studio/frontend run build:android
+
+      - name: Write Android local.properties
+        shell: bash
+        run: printf 'sdk.dir=%s\n' "$ANDROID_HOME" > android-shell/local.properties
+
+      - name: Build signed Release APK
+        shell: bash
+        env:
+          IMAGE_STUDIO_ANDROID_USE_PREBUILT_FRONTEND: "1"
+          IMAGE_STUDIO_ANDROID_VERSION_NAME: V2.0.3
+          IMAGE_STUDIO_ANDROID_VERSION_CODE: "1050003"
+          IMAGE_STUDIO_GIT_COMMIT: ${{ github.sha }}
+          IMAGE_STUDIO_BUILD_ID: android-v2.0.3-release
+          IMAGE_STUDIO_KEYSTORE_PATH: ${{ runner.temp }}/fhl-android-signing/release.jks
+          IMAGE_STUDIO_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          IMAGE_STUDIO_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          IMAGE_STUDIO_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: gradle -p android-shell --no-daemon testDebugUnitTest lintRelease assembleRelease
+
+      - name: Verify APK contract and release certificate
+        shell: bash
+        run: |
+          APK="android-shell/app/build/outputs/apk/release/app-release.apk"
+          APKSIGNER="$ANDROID_HOME/build-tools/34.0.0/apksigner"
+          APKANALYZER="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+          EXPECTED_CERT="6b04a805e50cf66e37c740ad0336bbdf6445653f93802005967babf472e8da36"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/apksigner.txt"
+          ACTUAL_CERT=$(sed -n 's/.*certificate SHA-256 digest: //p' "$RUNNER_TEMP/apksigner.txt" | head -n 1 | tr '[:upper:]' '[:lower:]')
+          test "$ACTUAL_CERT" = "$EXPECTED_CERT"
+          test "$("$APKANALYZER" manifest application-id "$APK")" = "top.fangtangyuan.fhlstudio.android"
+          test "$("$APKANALYZER" manifest version-name "$APK")" = "V2.0.3"
+          test "$("$APKANALYZER" manifest version-code "$APK")" = "1050003"
+          test "$("$APKANALYZER" manifest min-sdk "$APK")" = "28"
+          test "$("$APKANALYZER" manifest target-sdk "$APK")" = "34"
+          "$APKANALYZER" manifest print "$APK" | grep -q 'android:debuggable="false"'
+
+      - name: Package review artifacts
+        shell: bash
+        run: |
+          mkdir -p dist
+          BASE="FHL-Image-Studio-Fangtangyuan-V2.0.3-Android-Release-20260813"
+          SOURCE="FHL-Image-Studio-Fangtangyuan-V2.0.3-Android-Source-20260813.zip"
+          cp android-shell/app/build/outputs/apk/release/app-release.apk "dist/$BASE.apk"
+          (cd dist && zip -9 "$BASE.zip" "$BASE.apk")
+          git archive --format=zip --prefix=fhl-image-studio-v2.0.3/ -o "dist/$SOURCE" HEAD
+          (cd dist && sha256sum "$BASE.apk" "$BASE.zip" > "$BASE.sha256.txt")
+          (cd dist && sha256sum "$SOURCE" > "${SOURCE%.zip}.sha256.txt")
+
+      - name: Upload review artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fhl-image-studio-android-v2.0.3-review
+          path: dist/*
+          retention-days: 14
+          if-no-files-found: error

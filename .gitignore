@@ -1,0 +1,46 @@
+release-assets/
+artifacts/
+V2.0.3-验收记录/
+发布包/
+PROJECT_CONTEXT.md
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+*.log
+*.tmp
+
+# Local user data and secrets
+input/
+output/
+intermediate/
+config/*.local*
+config/cli.env.local
+config/fhl-api.local.json
+cli.env.local
+fhl-api.local.json
+browser-jobs.v1.json
+.local/
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+
+# Frontend / Android build outputs
+node_modules/
+dist/
+build/
+.gradle/
+.gradle-wrapper/
+.tmp/
+.tmp-*/
+android-test-builds/
+compat-screenshots/
+local.properties
+*.tsbuildinfo
+
+# Release binaries are attached to GitHub Releases, not committed.
+*.apk
+*.zip
