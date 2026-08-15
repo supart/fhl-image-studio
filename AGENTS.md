@@ -2,12 +2,16 @@
 
 ## Development Track
 
-- This workspace now builds the formal desktop `V2.0.3` release from the tested V2.0.2.1 Wails baseline plus the verified July changes.
-- The user-facing desktop package, CLI, Skill, and EXE version are `V2.0.3`; Android remains on its existing version.
-- Release artifacts use the stable `fhl-image-studio-desktop` namespace; Vite development uses `fhl-image-studio-desktop-dev`.
+- This is the Windows desktop `V2.0.4` development workspace based on tag `windows-v2.0.3-release` at commit `814da3e64566cc2e7838378639a3c5e7b6e8b948`.
+- Make all new Windows desktop changes inside this workspace. Do not modify, clean, rebuild, or copy runtime data from sibling historical or release directories.
+- The user-facing desktop package, CLI, and EXE remain `V2.0.3` until the user starts the final V2.0.4 version sweep.
+- Keep release storage on the stable `fhl-image-studio-desktop` namespace and Vite development on `fhl-image-studio-desktop-dev`.
+- Keep the existing `migration.desktop-v2.0.3` marker unless a new data migration is intentionally designed and tested.
 - Preserve the Wails stability contract: imported external images must be materialized into managed package paths, and packaged E2E verification must cover reference previews, batch images, and result previews.
+- Record each meaningful batch in `docs/changes`, update `CHANGELOG.md` for user-visible changes, and keep `PROJECT_CONTEXT.md` as the concise current handoff.
+- Do not run real or paid image-generation requests unless the user explicitly authorizes that separate verification.
 
-You are working in the portable package root for FHL Studio V2.0.3.
+You are working in the source root for the Windows V2.0.4 development track.
 
 ## Preferred local tool
 
@@ -28,8 +32,9 @@ You are working in the portable package root for FHL Studio V2.0.3.
 ## Run flow
 
 - Run commands through Windows `cmd /c`.
-- Prefer the package-root launcher for UI-first setup:
-  - `cmd /c "一键启动FHL Studio V2.0.3.cmd"`
+- Prefer the outer development launcher for Wails development:
+  - `cmd /c "..\..\一键启动V2.0.4开发版.cmd"`
+- The package-root `一键启动FHL Studio V2.0.3.cmd` remains the current packaged-version launcher and is not the development entry.
 - Use the local CLI from the package root:
   - `cmd /c "image-cli.cmd" --prompt "test prompt"`
 
