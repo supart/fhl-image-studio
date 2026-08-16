@@ -1,6 +1,6 @@
 # FHL Image Studio 文档中心
 
-本目录是 FHL Image Studio 方汤圆修改版的统一文档入口。当前索引对应桌面版 `V2.0.3` 源码树；代码、发布产物和本机运行数据之间的边界以本文档及[项目结构](./project-structure.md)为准。
+本目录是 FHL Image Studio 方汤圆修改版的统一文档入口。当前索引对应桌面版 `V2.0.4` 开发源码树；代码、发布产物和本机运行数据之间的边界以本文档及[项目结构](./project-structure.md)为准。
 
 ## 快速入口
 
@@ -26,7 +26,7 @@
 | [内容审核风险改写规则](./content-audit-risk-rules.md) | 上游内容安全错误的分析与提示词处理原则 |
 | [反馈渠道](./feedback.md) | Issue 与用户反馈入口 |
 
-`android-v2.0.2.1-handoff.md`、`mumu-android-debug.md`、`cross-platform-kernel-plan.md` 等文件保留为历史或跨项目协作资料。当前桌面 V2.0.3 源码树不包含 `android-shell/`，因此这些文件不能替代当前桌面构建说明。
+`android-v2.0.2.1-handoff.md`、`mumu-android-debug.md`、`cross-platform-kernel-plan.md` 等文件保留为历史或跨项目协作资料。当前桌面 V2.0.4 源码树不包含 `android-shell/`，因此这些文件不能替代当前桌面构建说明。
 
 ## 版本与验收
 

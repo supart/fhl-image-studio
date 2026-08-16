@@ -28,6 +28,8 @@ jobs:
       - name: Install frontend dependencies
         working-directory: image-studio/frontend
         run: npm ci
+      - name: Check product version metadata
+        run: node scripts/sync-version-metadata.mjs --check
       - name: Lint
         working-directory: image-studio/frontend
         run: npm run lint
@@ -146,15 +148,20 @@ jobs:
       - name: Install Wails CLI
         shell: pwsh
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+      - name: Check product version metadata
+        shell: pwsh
+        run: node .\scripts\sync-version-metadata.mjs --check
       - name: Build Windows application
         working-directory: image-studio
         shell: pwsh
         env:
-          IMAGE_STUDIO_PRODUCT_VERSION: "2.0.3"
-          IMAGE_STUDIO_FRONTEND_VERSION: "2.0.3"
-          VITE_APP_VERSION: "2.0.3"
           IMAGE_STUDIO_STORAGE_NAMESPACE: fhl-image-studio-desktop
-        run: wails build -platform windows/amd64 -clean -ldflags "-X github.com/yuanhua/image-gptcodex/pkg/client.Version=2.0.3"
+        run: |
+          $version = [string](Get-Content -Raw ..\product-version.json | ConvertFrom-Json).version
+          $env:IMAGE_STUDIO_PRODUCT_VERSION = $version
+          $env:IMAGE_STUDIO_FRONTEND_VERSION = $version
+          $env:VITE_APP_VERSION = $version
+          wails build -platform windows/amd64 -clean -ldflags "-X github.com/yuanhua/image-gptcodex/pkg/client.Version=$version"
 
   release-hygiene:
     name: Release hygiene

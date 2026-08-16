@@ -12,7 +12,7 @@
 | Portable WebView/IndexedDB | 包内 `config\webview`。 |
 | 拖入、粘贴和变换中间图 | Portable 包内 `input`。 |
 
-Windows V2.0.3 默认输出：
+Windows V2.0.4 默认输出：
 
 | 运行形态 | GUI 图片 | GUI 原始响应 | CLI / Codex 输出 |
 |---|---|---|---|

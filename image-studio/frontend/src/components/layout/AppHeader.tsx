@@ -165,14 +165,14 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
   return (
     <div className="desktop-header-stack sticky top-0 z-40">
       <div
-        className={`drag-region flex min-h-[30px] items-center gap-2 border-b border-sky-500/20 bg-sky-50/95 px-4 text-[12px] font-medium text-slate-700 shadow-[0_1px_0_rgb(255_255_255_/_0.72)_inset] backdrop-blur-2xl dark:border-sky-400/20 dark:bg-sky-950/60 dark:text-slate-200 ${
+        className={`desktop-attribution-bar drag-region flex min-h-[30px] items-center gap-2 border-b border-sky-500/20 bg-sky-50/95 px-4 text-[12px] font-medium text-slate-700 shadow-[0_1px_0_rgb(255_255_255_/_0.72)_inset] backdrop-blur-2xl dark:border-sky-400/20 dark:bg-sky-950/60 dark:text-slate-200 ${
           usesAppleUI ? "liquid-glass-bar" : ""
         }`}
         aria-label="开源项目来源"
       >
         <span className="shrink-0 font-semibold text-sky-700 dark:text-sky-300">开源致谢</span>
         <span className="hidden shrink-0 text-slate-400 dark:text-slate-500 sm:inline">/</span>
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+        <div className="desktop-attribution-links flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
           <button
             type="button"
             data-audit-id="open-original-repo"
@@ -205,7 +205,7 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
       </div>
       <header
         data-audit-area="header"
-        className={`drag-region app-header flex items-center gap-3 border-b border-[var(--border)] bg-[var(--toolbar)] backdrop-blur-2xl ${
+        className={`desktop-app-header drag-region app-header flex items-center gap-3 border-b border-[var(--border)] bg-[var(--toolbar)] backdrop-blur-2xl ${
           usesAppleUI ? "liquid-glass-bar" : ""
         } ${
           usesAppleUI
@@ -215,11 +215,11 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
               : "min-h-12 px-4"
         }`}
       >
-        <div className={`min-w-0 flex-1 ${isMac ? "mac-header-copy" : ""}`}>
+        <div className={`desktop-header-brand-slot min-w-0 flex-1 ${isMac ? "mac-header-copy" : ""}`}>
           <AppHeaderBrand />
         </div>
 
-        <div className={`no-drag ml-auto flex shrink-0 items-center ${isMac ? "mac-header-actions" : ""} ${usesFluentUI ? "gap-1" : isMac ? "gap-2" : "gap-1.5"}`}>
+        <div className={`desktop-header-actions no-drag ml-auto flex shrink-0 items-center ${isMac ? "mac-header-actions" : ""} ${usesFluentUI ? "gap-1" : isMac ? "gap-2" : "gap-1.5"}`}>
           <HeaderIconBtn
             onClick={() => newWorkspace()}
             title={workspaces.length > 1 ? `${workspaces.length} 个标签 · 新建` : "新建标签"}
@@ -232,7 +232,7 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
               </span>
             )}
           </HeaderIconBtn>
-          <div className={`platform-seg flex items-center p-0.5 ring-1 ${
+          <div className={`desktop-header-theme platform-seg flex items-center p-0.5 ring-1 ${
             usesFluentUI
               ? "bg-white/66 ring-black/[0.08] dark:bg-white/[0.04] dark:ring-white/[0.08]"
               : "rounded-full bg-black/[0.04] ring-black/[0.05] dark:bg-white/[0.06] dark:ring-white/[0.06]"
@@ -262,12 +262,14 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
           {!isMac && <HeaderIconBtn
             onClick={() => openExternalURLForPlatform(REPO_URL, OpenExternalURL).catch(() => pushToast("无法打开浏览器", "error"))}
             title="GitHub"
+            auditId="open-github"
           >
             <Github className="h-4 w-4" />
           </HeaderIconBtn>}
           {!isMac && <HeaderIconBtn
             onClick={openStarPrompt}
             title="给项目点个 Star"
+            auditId="open-star"
           >
             <Star className="h-4 w-4 text-amber-500 dark:text-amber-400" fill="currentColor" strokeWidth={1.5} />
           </HeaderIconBtn>}

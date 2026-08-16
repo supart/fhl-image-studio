@@ -1,10 +1,13 @@
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$exe = Join-Path $root "FHL Studio 方汤圆版 V2.0.3.exe"
-if (-not (Test-Path -LiteralPath $exe)) {
-  $exe = Get-ChildItem -LiteralPath $root -Filter "FHL Studio *.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+$manifestPath = Join-Path $root "product-version.json"
+if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+  throw "Missing product version manifest: $manifestPath"
 }
+$versionConfig = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+$displayVersion = [string]$versionConfig.displayVersion
+$exe = Join-Path $root "FHL Studio 方汤圆版 $displayVersion.exe"
 
 $logDir = Join-Path $root "output\log"
 foreach ($dir in @("input", "output", "intermediate", "config", "output\log")) {
@@ -30,7 +33,7 @@ if (-not $exe -or -not (Test-Path -LiteralPath $exe)) {
   Add-Content -LiteralPath $startLog -Value "MISSING_EXE" -Encoding UTF8
   Write-Host ""
   Write-Host "[FHL Studio] Missing desktop executable beside this launcher."
-  Write-Host "Expected: FHL Studio 方汤圆版 V2.0.3.exe"
+  Write-Host "Expected: FHL Studio 方汤圆版 $displayVersion.exe"
   Write-Host "Folder:   $root"
   exit 1
 }

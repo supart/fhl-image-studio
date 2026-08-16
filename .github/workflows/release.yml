@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 要创建或更新的 Windows Release 标签
+        description: 要创建的 Windows Release 标签
         required: true
-        default: windows-v2.0.3
+        default: windows-v2.0.4-release
 
 permissions:
   contents: write
@@ -33,25 +33,42 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: image-studio/frontend/package-lock.json
+      - name: Validate release identity
+        shell: pwsh
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          node .\scripts\sync-version-metadata.mjs --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $config = Get-Content -Raw .\product-version.json | ConvertFrom-Json
+          if ($env:REQUESTED_TAG -ne [string]$config.windowsTag) {
+            throw "Release tag must exactly match $($config.windowsTag)."
+          }
+          $packageName = "FHL-Image-Studio-Desktop-$($config.displayVersion)-Windows-Portable"
+          "PRODUCT_VERSION=$($config.version)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "DISPLAY_VERSION=$($config.displayVersion)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "WINDOWS_TAG=$($config.windowsTag)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PACKAGE_NAME=$packageName" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "RELEASE_NOTES_NAME=RELEASE_NOTES_DESKTOP_$($config.displayVersion).md" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Install Wails CLI
         shell: pwsh
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
       - name: Build portable package
         shell: pwsh
-        run: .\scripts\package-windows-portable-v2.0.3.ps1 -OutputRoot "$env:RUNNER_TEMP\release-assets"
+        run: .\scripts\package-windows-portable.ps1 -OutputRoot "$env:RUNNER_TEMP\release-assets"
       - name: Check portable package safety
         shell: pwsh
         run: |
-          $root = Join-Path $env:RUNNER_TEMP "release-assets\FHL-Image-Studio-Desktop-V2.0.3-Windows-Portable"
-          $zip = Join-Path $env:RUNNER_TEMP "release-assets\FHL-Image-Studio-Desktop-V2.0.3-Windows-Portable.zip"
+          $root = Join-Path $env:RUNNER_TEMP "release-assets\$env:PACKAGE_NAME"
+          $zip = Join-Path $env:RUNNER_TEMP "release-assets\$env:PACKAGE_NAME.zip"
           .\scripts\check-release-safety.ps1 -ReleaseRoot $root -ZipPath $zip
       - uses: actions/upload-artifact@v4
         with:
-          name: FHL-Image-Studio-Desktop-V2.0.3-Windows-Portable
-          path: ${{ runner.temp }}\release-assets\FHL-Image-Studio-Desktop-V2.0.3-Windows-Portable.zip
+          name: ${{ env.PACKAGE_NAME }}
+          path: ${{ runner.temp }}\release-assets\${{ env.PACKAGE_NAME }}.zip
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.tag }}
-          name: FHL Image Studio Windows 桌面版 V2.0.3 正式发布
-          body_path: RELEASE_NOTES_DESKTOP_V2.0.3.md
-          files: ${{ runner.temp }}\release-assets\FHL-Image-Studio-Desktop-V2.0.3-Windows-Portable.zip
+          tag_name: ${{ env.WINDOWS_TAG }}
+          name: FHL Image Studio Windows 桌面版 ${{ env.DISPLAY_VERSION }} 正式发布
+          body_path: ${{ env.RELEASE_NOTES_NAME }}
+          files: ${{ runner.temp }}\release-assets\${{ env.PACKAGE_NAME }}.zip

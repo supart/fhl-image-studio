@@ -10,9 +10,10 @@ import { FHLTransportToggle } from "./FHLTransportToggle";
 import { FHL_INVITE_CODE, FHL_REGISTER_URL } from "../../lib/fhlAPI";
 import { openExternalURLForPlatform } from "../../platform/android/bridge";
 import { OpenExternalURL } from "../../platform/runtime/host";
+import { appVersion } from "../../lib/version";
 
 const BRAND_TITLE = "FHL Image Studio 方汤圆版";
-const BRAND_VERSION = "V2.0.3";
+const BRAND_VERSION = `V${appVersion}`;
 const HEADER_LOGO_SRC = "favicon.png";
 const FHL_QQ_GROUP = "207550870";
 const FHL_QQ_PROMO = `FHL官方QQ交流群:${FHL_QQ_GROUP} 进群免费获取GPT image2生图福利！`;
@@ -158,17 +159,17 @@ export function AppHeaderBrand() {
   if (isWindows) {
     return (
       <>
-        <div className="flex min-w-0 items-center gap-2.5">
+        <div className="windows-header-brand flex min-w-0 items-center gap-2.5">
           <img
-            className="h-11 w-11 shrink-0 rounded-[10px] object-cover shadow-[0_4px_12px_rgb(15_23_42_/_0.16)]"
+            className="windows-header-logo h-11 w-11 shrink-0 rounded-[10px] object-cover shadow-[0_4px_12px_rgb(15_23_42_/_0.16)]"
             src={HEADER_LOGO_SRC}
             alt=""
             aria-hidden="true"
           />
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <div className="flex min-w-0 items-center gap-2">
+          <div className="windows-header-content flex min-w-0 flex-1 flex-col gap-1">
+            <div className="windows-header-primary-row flex min-w-0 items-center gap-2">
               <div
-                className="shrink-0 truncate text-[14px] font-[600] tracking-[0] text-zinc-900 dark:text-zinc-100"
+                className="windows-header-title shrink-0 truncate text-[14px] font-[600] tracking-[0] text-zinc-900 dark:text-zinc-100"
                 style={{ fontFamily: "var(--title-font)" }}
                 title={BRAND_TITLE}
               >
@@ -182,7 +183,7 @@ export function AppHeaderBrand() {
                 {BRAND_VERSION}
               </span>
               <div
-                className="min-w-0 truncate text-[11px] font-[500] tracking-[0] text-[var(--accent)]"
+                className="windows-header-promo min-w-0 truncate text-[11px] font-[500] tracking-[0] text-[var(--accent)]"
                 title={FHL_QQ_PROMO}
               >
                 {FHL_QQ_PROMO}
@@ -216,7 +217,7 @@ export function AppHeaderBrand() {
                 </span>
               </button>
             </div>
-            <div className="flex min-w-0 items-center gap-2 text-[10px] text-zinc-500 dark:text-zinc-400">
+            <div className="windows-header-secondary-row flex min-w-0 items-center gap-2 text-[10px] text-zinc-500 dark:text-zinc-400">
               <button
                 type="button"
                 data-audit-id="fhl-config"
@@ -230,8 +231,10 @@ export function AppHeaderBrand() {
                 {hasFHLConfiguration ? <Check className="h-4 w-4" /> : <KeyRound className="h-4 w-4" />}
                 <span className="whitespace-nowrap">{hasFHLConfiguration ? "FHL API 配置" : "一键配置 FHL API"}</span>
               </button>
-              <FHLTransportToggle mode={fhlTransportMode} onChange={setFHLTransportMode} />
-              <div className="min-w-0 flex-1">
+              <div className="windows-header-transport">
+                <FHLTransportToggle mode={fhlTransportMode} onChange={setFHLTransportMode} />
+              </div>
+              <div className="windows-header-hitokoto min-w-0 flex-1">
                 <HitokotoStrip />
               </div>
             </div>

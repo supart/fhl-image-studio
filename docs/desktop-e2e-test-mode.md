@@ -1,13 +1,13 @@
 # 桌面 E2E 测试模式
 
-桌面版 `V2.0.3` 提供只用于本机打包回归的浏览器镜像。`9230` 不是产品 API，也不能用于真实生图或上游连接测试。
+桌面版 `V2.0.4` 提供只用于本机打包回归的浏览器镜像。`9230` 不是产品 API，也不能用于真实生图或上游连接测试。
 
 ## 启动
 
 推荐只启动隔离镜像，不打开桌面窗口：
 
 ```cmd
-"image-studio\build\bin\FHL Studio 方汤圆版 V2.0.3.exe" --e2e-only --e2e-port 9230
+"image-studio\build\bin\FHL Studio 方汤圆版 V2.0.4.exe" --e2e-only --e2e-port 9230
 ```
 
 然后打开：

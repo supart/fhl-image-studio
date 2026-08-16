@@ -1,7 +1,7 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "2.0.3",
+  "version": "2.0.4",
   "type": "module",
   "scripts": {
     "dev": "node ./scripts/platform-vite.mjs dev",
@@ -21,6 +21,8 @@
     "test": "npm run test:node && npm run test:ui",
     "test:node": "node ./scripts/run-tests.mjs",
     "test:ui": "vitest run",
+    "version:check": "node ../../scripts/sync-version-metadata.mjs --check",
+    "version:sync": "node ../../scripts/sync-version-metadata.mjs --write",
     "preview": "vite preview"
   },
   "dependencies": {

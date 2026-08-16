@@ -7,8 +7,7 @@ import (
 )
 
 func TestEnsureManagedReadablePath(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv(publicRootEnvName, "")
+	t.Setenv(publicRootEnvName, t.TempDir())
 	svc := NewService()
 	root := t.TempDir()
 	svc.addTrustedOutputRoot(root)

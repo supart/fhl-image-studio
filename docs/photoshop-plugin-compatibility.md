@@ -32,20 +32,20 @@ FHL-Image-Studio Photoshop 插件是独立销售、独立维护和独立交付�
 | --- | --- |
 | Windows | Windows 10 / Windows 11 x64 |
 | Photoshop | Photoshop 2023（24.0.0）及更高版本 |
-| 桌面端 | FHL Studio 方汤圆版 V2.0.3 |
+| 桌面端 | FHL Studio 方汤圆版 V2.0.4 |
 | Photoshop 插件 | FHL-Image-Studio-Plugins V0.1.0 |
 | Bridge | `/fhl-ps/v1`，本机 `127.0.0.1:47631-47640` |
 
-V2.0.3-dev 与 V2.0.3 Portable 使用相同 Bridge v1 协议，插件都可以连接。
+V2.0.4 开发版与后续 V2.0.4 Portable 使用相同 Bridge v1 协议，插件都可以连接。
 开发版需要手动启动；插件的目录授权和自动启动只接受带
-`.fhl-studio-portable` 标记及正式 V2.0.3 EXE 的 Portable 根目录。
+`.fhl-studio-portable` 标记及正式 V2.0.4 EXE 的 Portable 根目录。
 
 不要同时运行开发版和 Portable。Photoshop 只会连接当前扫描到的一个 Bridge，
 同时运行可能造成端口和当前 API Profile 来源混淆。
 
 ## 兼容承诺
 
-- 桌面 V2.0.3 维护 Bridge v1 的现有请求路径和会话模型。
+- 桌面 V2.0.4 维护 Bridge v1 的现有请求路径和会话模型。
 - Bridge 不向插件公开 API Key、Credential Manager 用户名、上游 Base URL 或
   代理配置。
 - 桌面端升级如果改变 Bridge 字段、Profile 能力或 Portable 启动约定，必须先

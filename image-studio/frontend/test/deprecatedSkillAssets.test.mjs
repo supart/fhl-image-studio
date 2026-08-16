@@ -14,8 +14,8 @@ test("deprecated Codex Skill assets stay out of source and release packages", as
     readText("README.md"),
     readText("docs/README.md"),
     readText("RELEASE_NOTES_DESKTOP_V2.0.3.md"),
-    readText("scripts/prepare-release-source-v2.0.3.ps1"),
-    readText("scripts/package-windows-portable-v2.0.3.ps1"),
+    readText("scripts/prepare-release-source.ps1"),
+    readText("scripts/package-windows-portable.ps1"),
   ]);
 
   await Promise.all([
@@ -36,7 +36,7 @@ test("manual CLI chain remains available after Skill removal", async () => {
   const [agents, cli, packageScript] = await Promise.all([
     readText("AGENTS.md"),
     readText("image-cli.cmd"),
-    readText("scripts/package-windows-portable-v2.0.3.ps1"),
+    readText("scripts/package-windows-portable.ps1"),
   ]);
 
   assert.match(agents, /cli\.env\.local/);

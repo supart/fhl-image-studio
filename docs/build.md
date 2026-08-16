@@ -1,14 +1,14 @@
 # 构建与发布
 
-本文档以当前桌面版 `V2.0.3` 源码树为准。当前正式交付目标是 Windows 10/11 x64；仓库仍保留 macOS、Linux 和 Android 前端目标，但本源码树不包含 `android-shell/`，不能直接构建 APK。
+本文档以当前桌面版 `V2.0.4` 开发源码树为准。正式交付目标是 Windows 10/11 x64；仓库仍保留 macOS、Linux 和 Android 前端目标，但本源码树不包含 `android-shell/`，不能直接构建 APK。
 
-## V2.0.3 交付形态
+## V2.0.4 交付形态
 
 | 产物 | 定位 | 说明 |
 | --- | --- | --- |
 | GitHub 仓库与源码归档 | 主体 | AGPLv3 开源源码，是项目的主要交付和协作入口。 |
-| `FHL-Image-Studio-Desktop-V2.0.3-Windows-Portable.zip` | Windows 便利包 | 唯一预编译 Windows 包，解压后由包内启动脚本运行，数据默认保存在包内。 |
-| `FHL-Image-Studio-Desktop-V2.0.3-Source` | 本地验收暂存 | 排除 API、用户图片、日志、本机配置、WebView 数据和二进制的干净源码。 |
+| `FHL-Image-Studio-Desktop-V2.0.4-Windows-Portable.zip` | Windows 便利包 | 封板时生成的唯一预编译 Windows 包；当前开发阶段尚未生成。 |
+| `FHL-Image-Studio-Desktop-V2.0.4-Source` | 本地验收暂存 | 封板时生成的干净源码；排除 API、用户图片、日志、本机配置、WebView 数据和二进制。 |
 
 已发布版本从 [GitHub Releases](https://github.com/supart/fhl-image-studio/releases) 下载。项目不提供 Setup、MSI 或 MSIX；Windows 用户直接解压 Portable ZIP。
 
@@ -63,15 +63,15 @@ wails build -platform windows/amd64 -clean
 ## Windows Portable
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\package-windows-portable-v2.0.3.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\package-windows-portable.ps1
 ```
 
-Portable ZIP 解压后使用 `一键启动FHL Studio V2.0.3.cmd`。包内 `.fhl-studio-portable` 标记决定数据边界，GUI 输出位于 `output\images`，CLI 输出位于 `output`，WebView 数据位于 `config\webview`。
+Portable ZIP 解压后使用 `一键启动FHL Studio V2.0.4.cmd`。包内 `.fhl-studio-portable` 标记决定数据边界，GUI 输出位于 `output\images`，CLI 输出位于 `output`，WebView 数据位于 `config\webview`。
 
 ## 干净源码包
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\prepare-release-source-v2.0.3.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\prepare-release-source.ps1
 ```
 
 发布前继续运行安全检查：
@@ -121,7 +121,7 @@ node .\scripts\local-smoke-check.mjs
 bash scripts/package-local-macos-app.sh
 ```
 
-Linux 需要目标系统的 GTK/WebKitGTK 开发依赖，再在 `image-studio/` 中执行对应 `wails build`。这些平台当前不在 V2.0.3 Windows 正式交付验收范围内，发布前需要各自在目标系统重新验证。
+Linux 需要目标系统的 GTK/WebKitGTK 开发依赖，再在 `image-studio/` 中执行对应 `wails build`。这些平台当前不在 V2.0.4 Windows 正式交付验收范围内，发布前需要各自在目标系统重新验证。
 
 ## Android 说明
 
@@ -129,7 +129,7 @@ Linux 需要目标系统的 GTK/WebKitGTK 开发依赖，再在 `image-studio/` 
 
 ## 版本与 CI
 
-- `scripts/sync-version-metadata.mjs` 用于同步 Wails 和前端版本元数据。
+- `product-version.json` 是产品版本唯一来源；`scripts/sync-version-metadata.mjs --check` 校验所有活动元数据，`--write` 执行受控同步。
 - `.github/workflows/ci.yml` 运行前端、Worker、Go、Windows Wails 构建和发布安全检查。
-- `.github/workflows/release.yml` 仅响应 `v2.0.3` 标签，构建 Portable ZIP 并附加到 GitHub Release；源码由 GitHub 自动归档。
-- 本地 V2.0.3 验收结果记录在 [V2.0.3_ACCEPTANCE_REPORT.md](../V2.0.3_ACCEPTANCE_REPORT.md)。
+- `.github/workflows/release.yml` 只接受 `windows-v2.0.4-release`，构建 Portable ZIP 并附加到 GitHub Release；当前开发阶段不执行。
+- V2.0.3 的历史验收结果继续保存在 [V2.0.3_ACCEPTANCE_REPORT.md](../V2.0.3_ACCEPTANCE_REPORT.md)。

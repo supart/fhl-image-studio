@@ -9,11 +9,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Version = "2.0.3"
-$DisplayVersion = "V2.0.3"
-$ExeName = "FHL Studio 方汤圆版 V2.0.3.exe"
-$PackageName = "FHL-Image-Studio-Desktop-V2.0.3-Windows-Portable"
-
 function Resolve-SourceRoot {
   param([string]$Value)
   if ($Value.Trim()) {
@@ -109,6 +104,21 @@ function Build-CliRuntime {
 }
 
 $Root = Resolve-SourceRoot $SourceRoot
+$ManifestPath = Join-Path $Root "product-version.json"
+if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
+  throw "找不到产品版本清单: $ManifestPath"
+}
+& node (Join-Path $Root "scripts\sync-version-metadata.mjs") --check
+if ($LASTEXITCODE -ne 0) {
+  throw "产品版本元数据不一致，请先运行版本同步。"
+}
+$VersionConfig = Get-Content -Raw -LiteralPath $ManifestPath | ConvertFrom-Json
+$Version = [string]$VersionConfig.version
+$DisplayVersion = [string]$VersionConfig.displayVersion
+$ExeName = "FHL Studio 方汤圆版 $DisplayVersion.exe"
+$PackageName = "FHL-Image-Studio-Desktop-$DisplayVersion-Windows-Portable"
+$LauncherName = "一键启动FHL Studio $DisplayVersion.cmd"
+$ReleaseNotesName = "RELEASE_NOTES_DESKTOP_$DisplayVersion.md"
 $ImageStudioRoot = Join-Path $Root "image-studio"
 if (-not (Test-Path -LiteralPath (Join-Path $ImageStudioRoot "wails.json"))) {
   throw "找不到 Wails 项目: $ImageStudioRoot"
@@ -173,8 +183,9 @@ if (Test-Path -LiteralPath $PackageRoot) {
 Ensure-Dir $PackageRoot
 
 Copy-Item -LiteralPath $BuiltExe -Destination (Join-Path $PackageRoot $ExeName) -Force
-Copy-Item -LiteralPath (Join-Path $Root "scripts\portable-windows-launcher-v2.0.3.cmd") -Destination (Join-Path $PackageRoot "一键启动FHL Studio V2.0.3.cmd") -Force
-Copy-Item -LiteralPath (Join-Path $Root "scripts\portable-windows-launcher-v2.0.3.ps1") -Destination (Join-Path $PackageRoot "portable-windows-launcher-v2.0.3.ps1") -Force
+Copy-Item -LiteralPath (Join-Path $Root "scripts\portable-windows-launcher.cmd") -Destination (Join-Path $PackageRoot $LauncherName) -Force
+Copy-Item -LiteralPath (Join-Path $Root "scripts\portable-windows-launcher.ps1") -Destination (Join-Path $PackageRoot "portable-windows-launcher.ps1") -Force
+Copy-Item -LiteralPath $ManifestPath -Destination (Join-Path $PackageRoot "product-version.json") -Force
 
 foreach ($dir in @("input", "output", "output\images", "output\thumbs", "output\previews", "output\log", "intermediate", "config")) {
   Ensure-Dir (Join-Path $PackageRoot $dir)
@@ -187,7 +198,7 @@ Copy-IfExists (Join-Path $Root "README.md") (Join-Path $PackageRoot "README.md")
 Copy-IfExists (Join-Path $Root "NOTICE.md") (Join-Path $PackageRoot "NOTICE.md")
 Copy-IfExists (Join-Path $Root "COMPLIANCE.md") (Join-Path $PackageRoot "COMPLIANCE.md")
 Copy-IfExists (Join-Path $Root "LICENSE") (Join-Path $PackageRoot "LICENSE")
-Copy-IfExists (Join-Path $Root "RELEASE_NOTES_DESKTOP_V2.0.3.md") (Join-Path $PackageRoot "RELEASE_NOTES_DESKTOP_V2.0.3.md")
+Copy-IfExists (Join-Path $Root $ReleaseNotesName) (Join-Path $PackageRoot $ReleaseNotesName)
 Copy-IfExists (Join-Path $Root "config\cli.env.example") (Join-Path $PackageRoot "config\cli.env.example")
 Copy-IfExists (Join-Path $Root "image-cli.cmd") (Join-Path $PackageRoot "image-cli.cmd")
 Copy-IfExists (Join-Path $Root "AGENTS.md") (Join-Path $PackageRoot "AGENTS.md")
@@ -198,7 +209,7 @@ $Guide = @"
 
 ## 启动方式
 
-双击 `一键启动FHL Studio V2.0.3.cmd`。
+双击 `$LauncherName`。
 
 这个启动器只负责创建包内目录、设置便携包根目录并启动 EXE，不需要 Node、npm、Vite 或 5173 端口。
 

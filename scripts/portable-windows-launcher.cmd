@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 
 set "ROOT=%~dp0"
-set "PS1=%ROOT%portable-windows-launcher-v2.0.3.ps1"
+set "PS1=%ROOT%portable-windows-launcher.ps1"
 
 if not exist "%PS1%" (
   echo [FHL Studio] Missing launcher script:

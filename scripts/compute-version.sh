@@ -13,10 +13,10 @@ if [[ -z "${base_version}" ]]; then
   latest_tag="$(git tag --list --sort=-version:refname 'v*' | head -n 1 || true)"
   if [[ "${latest_tag}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
     base_version="${BASH_REMATCH[1]}"
-  elif [[ -f "image-studio/wails.json" ]]; then
-    base_version="$(ruby -rjson -e 'print JSON.parse(File.read("image-studio/wails.json")).dig("info", "productVersion")')"
+  elif [[ -f "product-version.json" ]]; then
+    base_version="$(node -p 'JSON.parse(require("fs").readFileSync("product-version.json", "utf8")).version')"
   else
-    echo "base version not provided and no git tag/image-studio/wails.json version found" >&2
+    echo "base version not provided and no git tag/product-version.json version found" >&2
     exit 1
   fi
 fi
@@ -52,14 +52,13 @@ IFS=. read -r major minor patch <<< "${product_version}"
 android_build_fragment=$(( (run_number % 100) * 10 + run_attempt ))
 android_version_code=$(( major * 10000000 + minor * 100000 + patch * 1000 + android_build_fragment ))
 
-cat <<EOF
-BASE_VERSION=${base_version}
-PRODUCT_VERSION=${product_version}
-APP_VERSION=${app_version}
-FRONTEND_VERSION=${app_version}
-ANDROID_VERSION_NAME=${android_version_name}
-ANDROID_VERSION_CODE=${android_version_code}
-VERSION_CHANNEL=${channel}
-VERSION_REF=${ref_name}
-VERSION_SHA=${short_sha}
-EOF
+printf '%s\n' \
+  "BASE_VERSION=${base_version}" \
+  "PRODUCT_VERSION=${product_version}" \
+  "APP_VERSION=${app_version}" \
+  "FRONTEND_VERSION=${app_version}" \
+  "ANDROID_VERSION_NAME=${android_version_name}" \
+  "ANDROID_VERSION_CODE=${android_version_code}" \
+  "VERSION_CHANNEL=${channel}" \
+  "VERSION_REF=${ref_name}" \
+  "VERSION_SHA=${short_sha}"

@@ -1,6 +1,6 @@
 # 项目结构
 
-本文档记录桌面版 `V2.0.3` 当前源码树，最后核对日期为 `2026-07-25`。项目文档的分类和归档位置见[文档中心](./README.md)。
+本文档记录桌面版 `V2.0.4` 当前开发源码树，最后核对日期为 `2026-08-17`。项目文档的分类和归档位置见[文档中心](./README.md)。
 
 ## 顶层目录
 
@@ -115,8 +115,8 @@ go-cli/
 
 当前主要脚本：
 
-- `package-windows-portable-v2.0.3.ps1`：构建 Windows 免安装 Portable ZIP。
-- `prepare-release-source-v2.0.3.ps1`：准备不含私有数据和二进制的源码包。
+- `package-windows-portable.ps1`：读取产品版本清单并构建 Windows 免安装 Portable ZIP。
+- `prepare-release-source.ps1`：读取产品版本清单并准备不含私有数据和二进制的源码包。
 - `check-release-safety.ps1`、`check-compliance-package.ps1`：发布负载与合规扫描。
 - `start-desktop-e2e.cmd`：启动隔离的桌面 E2E 模式。
 - `verify-local-platform-kernel.mjs`、`local-smoke-check.mjs`：跨运行时和本地模拟验证。

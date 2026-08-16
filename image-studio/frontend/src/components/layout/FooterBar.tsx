@@ -33,22 +33,22 @@ export function FooterBar() {
 
   return (
     <footer data-audit-area="footer" className={`${isWindows ? "footer-bar" : ""} flex items-center justify-between border-t border-[var(--border)] bg-[var(--toolbar)] px-4 text-[11px] text-zinc-500 backdrop-blur-2xl dark:text-zinc-400 ${usesAppleUI ? "liquid-glass-bar" : ""} ${usesFluentUI ? "min-h-[36px]" : "min-h-10"}`}>
-      <div className="flex items-center gap-1">
+      <div className="desktop-footer-links flex items-center gap-1">
         <FooterBtn onClick={openOutputLocation} auditId="open-output-dir">
           <Folder className="h-3 w-3" /> {androidTarget.isAndroid ? "保存位置" : "输出目录"}
         </FooterBtn>
         {!isMac && (
           <>
-            <FooterBtn onClick={() => open(REPO_URL)}>
+            <FooterBtn onClick={() => open(REPO_URL)} auditId="footer-github">
               <Github className="h-3 w-3" /> GitHub
             </FooterBtn>
-            <FooterBtn onClick={() => open(ISSUES_URL)}>
+            <FooterBtn onClick={() => open(ISSUES_URL)} auditId="footer-feedback">
               <MessageSquare className="h-3 w-3" /> 反馈
             </FooterBtn>
           </>
         )}
       </div>
-      <div className="flex items-center gap-3">
+      <div className="desktop-footer-stats flex items-center gap-3">
         <span className="flex items-baseline gap-1">
           <span className="opacity-70">今日已生图:</span>
           <span className="font-medium text-zinc-700 dark:text-zinc-300 tabular-nums">{todayCount}</span>
@@ -68,7 +68,7 @@ export function FooterBar() {
           </>
         )}
       </div>
-      <div className="flex items-center gap-2">
+      <div className="desktop-footer-status flex items-center gap-2">
         <span>{activeRunning ? "运行中" : anyRunning ? "后台运行中" : "就绪"}</span>
         <span
           className={`h-1.5 w-1.5 rounded-full ${

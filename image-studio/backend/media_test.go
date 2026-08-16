@@ -14,7 +14,7 @@ import (
 )
 
 func TestMediaHandlerServesRegisteredFullAndAVIFThumb(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Setenv(publicRootEnvName, t.TempDir())
 	root, err := defaultOutputDir()
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +122,7 @@ func TestMediaHandlerServesRegisteredFullAndAVIFThumb(t *testing.T) {
 }
 
 func TestRegisterImportedImageAssetCreatesManagedAVIFPreview(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Setenv(publicRootEnvName, t.TempDir())
 	importDir, err := importsDir()
 	if err != nil {
 		t.Fatal(err)

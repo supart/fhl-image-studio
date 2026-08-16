@@ -1,3 +1,3 @@
 @echo off
-call "%~dp0一键启动FHL Studio V2.0.3.cmd" %*
+call "%~dp0一键启动FHL Studio.cmd" %*
 exit /b %ERRORLEVEL%

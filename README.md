@@ -1,4 +1,4 @@
-# FHL Image Studio 方汤圆修改版 V2.0.3
+# FHL Image Studio 方汤圆修改版 V2.0.4
 
 > 开源致谢：Image-Studio 原作者 RoseKhlifa
 >
@@ -6,7 +6,7 @@
 >
 > 方汤圆修改版项目地址：https://github.com/supart/fhl-image-studio
 
-FHL Image Studio 方汤圆修改版是基于 Image-Studio 的独立修改发行版，面向桌面端图片生成、图生图、编辑和提示词工作流。本仓库为桌面版 `V2.0.3` 源码，采用 AGPLv3 发布，不内置任何 API Key、测试图片或个人本机配置。
+FHL Image Studio 方汤圆修改版是基于 Image-Studio 的独立修改发行版，面向桌面端图片生成、图生图、编辑和提示词工作流。本仓库当前开发版本为桌面版 `V2.0.4`，采用 AGPLv3 发布，不内置任何 API Key、测试图片或个人本机配置。
 
 本项目与上游原项目无隶属、背书或维护关系。请在二次分发、公开部署或网络服务使用时遵守 AGPLv3 的源码提供义务。
 
@@ -58,8 +58,9 @@ Photoshop UXP 插件是与桌面版、安卓版并列的独立销售项目。它
 - [数据位置与故障排除](./docs/troubleshooting.md)
 - [构建与发布](./docs/build.md)
 - [项目结构](./docs/project-structure.md)
-- [V2.0.3 发布说明](./RELEASE_NOTES_DESKTOP_V2.0.3.md)
-- [V2.0.3 验收报告](./V2.0.3_ACCEPTANCE_REPORT.md)
+- [V2.0.4 开发发布说明](./RELEASE_NOTES_DESKTOP_V2.0.4.md)
+- [V2.0.3 历史发布说明](./RELEASE_NOTES_DESKTOP_V2.0.3.md)
+- [V2.0.3 历史验收报告](./V2.0.3_ACCEPTANCE_REPORT.md)
 
 单批实现和排错过程记录在 [`docs/changes/`](./docs/changes/)；`PROJECT_CONTEXT.md` 只用于当前开发断点和接手恢复，不作为长期产品说明。
 
@@ -90,7 +91,7 @@ scripts\start-desktop-e2e.cmd
 只启动浏览器镜像、不打开桌面窗口：
 
 ```cmd
-"image-studio\build\bin\FHL Studio 方汤圆版 V2.0.3.exe" --e2e-only --e2e-port 9230
+"image-studio\build\bin\FHL Studio 方汤圆版 V2.0.4.exe" --e2e-only --e2e-port 9230
 ```
 
 启动后打开：
@@ -104,15 +105,15 @@ http://127.0.0.1:9230/
 Windows Portable 免安装包（唯一预编译 Windows 发行形态）：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\package-windows-portable-v2.0.3.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\package-windows-portable.ps1
 ```
 
-生成后的用户包使用 `一键启动FHL Studio V2.0.3.cmd` 启动，不依赖 Node、Vite 或 5173 预览服务。生成内容默认保存在便携包内的 `output/`，导入图在 `input/`，中间文件在 `intermediate/`，日志在 `output/log/`。
+生成后的用户包使用带当前版本号的 `一键启动FHL Studio V2.0.4.cmd` 启动，不依赖 Node、Vite 或 5173 预览服务。生成内容默认保存在便携包内的 `output/`，导入图在 `input/`，中间文件在 `intermediate/`，日志在 `output/log/`。
 
 发布源码暂存：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\prepare-release-source-v2.0.3.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\prepare-release-source.ps1
 ```
 
 这个脚本会复制一份干净源码树用于 GitHub 发布，保留当前架构目录和占位文件，但排除 `cli.env.local`、`config/webview/`、生成图片、日志、缓存和 EXE。
@@ -127,7 +128,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\prepare-release-source-v2.0.3
 
 `--status --json` 只读返回当前包版本、活动 API、模型、尺寸与目录状态；API Key 只显示是否已配置，不会打印明文。
 
-旧版 `fhl-image-studio-*` Codex Skill 已弃用，V2.0.3 源码包和 Portable 均不再提供或安装该 Skill。桌面端、Photoshop 插件和手动 CLI 不受影响。
+旧版 `fhl-image-studio-*` Codex Skill 已弃用，V2.0.4 源码包和 Portable 均不再提供或安装该 Skill。桌面端、Photoshop 插件和手动 CLI 不受影响。
 
 前端检查：
 
@@ -151,7 +152,7 @@ wails build
 powershell -ExecutionPolicy Bypass -File .\scripts\check-compliance-package.ps1 -Root .
 ```
 
-CI 会在 GitHub Actions 中分别执行 Go、前端和发布安全检查。Windows Portable 的重建使用独立 `windows-v2.0.3` 标签对应的手动 Release 工作流，不会触发或覆盖 macOS 的 Release；源码继续由 Git 仓库和 GitHub Release 自动源码归档提供。
+CI 会在 GitHub Actions 中分别执行版本一致性、Go、前端和发布安全检查。Windows Portable 的正式发布只接受清单指定的 `windows-v2.0.4-release` 标签，不会触发或覆盖 macOS 的 Release；当前开发分支不会自动发布。
 
 ## API 配置
 

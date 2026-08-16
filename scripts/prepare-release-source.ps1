@@ -5,8 +5,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$PackageName = "FHL-Image-Studio-Desktop-V2.0.3-Source"
-
 function Resolve-SourceRoot {
   param([string]$Value)
   if ($Value.Trim()) {
@@ -49,6 +47,19 @@ function Copy-Tree {
 }
 
 $Root = Resolve-SourceRoot $SourceRoot
+$ManifestPath = Join-Path $Root "product-version.json"
+if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
+  throw "找不到产品版本清单: $ManifestPath"
+}
+& node (Join-Path $Root "scripts\sync-version-metadata.mjs") --check
+if ($LASTEXITCODE -ne 0) {
+  throw "产品版本元数据不一致，请先运行版本同步。"
+}
+$VersionConfig = Get-Content -Raw -LiteralPath $ManifestPath | ConvertFrom-Json
+$DisplayVersion = [string]$VersionConfig.displayVersion
+$PackageName = "FHL-Image-Studio-Desktop-$DisplayVersion-Source"
+$CurrentReleaseNotes = "RELEASE_NOTES_DESKTOP_$DisplayVersion.md"
+$CurrentAcceptanceReport = "$DisplayVersion`_ACCEPTANCE_REPORT.md"
 if ($OutputRoot.Trim()) {
   $ReleaseRoot = $OutputRoot
 } else {
@@ -79,15 +90,17 @@ foreach ($file in @(
   "image-cli.cmd",
   "LICENSE",
   "NOTICE.md",
+  "product-version.json",
   "README.md",
   "RELEASE_NOTES_DESKTOP_V2.0.1.md",
   "RELEASE_NOTES_DESKTOP_V2.0.2.md",
   "RELEASE_NOTES_DESKTOP_V2.0.2.1.md",
   "RELEASE_NOTES_DESKTOP_V2.0.3.md",
+  $CurrentReleaseNotes,
   "V2.0.3_ACCEPTANCE_REPORT.md",
+  $CurrentAcceptanceReport,
   "start-ui.cmd",
-  "一键启动FHL Studio V2.0.3.cmd",
-  "一键启动FHL Studio V2.0.3-兼容入口.cmd"
+  "一键启动FHL Studio.cmd"
 )) {
   Copy-IfExists (Join-Path $Root $file) (Join-Path $StageRoot $file)
 }
@@ -95,8 +108,7 @@ foreach ($file in @(
 # Windows PowerShell 5.1 can misread UTF-8 script literals without BOM.
 # Keep an ASCII-only fallback for required Chinese-named release files.
 foreach ($pattern in @(
-  "AGPL-*.md",
-  "*FHL Studio V2.0.3*.cmd"
+  "AGPL-*.md"
 )) {
   Get-ChildItem -LiteralPath $Root -Filter $pattern -File -ErrorAction SilentlyContinue |
     ForEach-Object {

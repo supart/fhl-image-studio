@@ -98,7 +98,7 @@
 
 Android APK 统一构建 `android` 前端目标，运行时根据窗口尺寸和方向切换 phone / pad 壳层，不再分别维护 phone/pad 两套 APK。
 
-当前 V2.0.3 桌面源码树不包含 `android-shell/`，因此上表 Android 行描述的是保留的平台设计与历史实现，不代表本仓库当前可以直接构建 APK。项目以开源源码为主体，Windows 只提供 x64 Portable ZIP 免安装包。
+当前 V2.0.4 桌面源码树不包含 `android-shell/`，因此上表 Android 行描述的是保留的平台设计与历史实现，不代表本仓库当前可以直接构建 APK。项目以开源源码为主体，Windows 只提供 x64 Portable ZIP 免安装包。
 
 ## 快捷键
 

@@ -1,5 +1,9 @@
 /* Fluent responsive pane rules. */
 
+.compact-pane-nav {
+  display: none;
+}
+
 @media (max-width: 1180px) {
   html[data-ui-family="fluent"] {
     --fluent-pane-left: clamp(320px, 31vw, 360px);
@@ -8,7 +12,7 @@
 }
 
 @media (max-width: 980px) {
-  html[data-ui-family="fluent"] .studio {
+  html[data-ui-family="fluent"] .studio:not(.fullscreen) {
     grid-template-columns: minmax(320px, 36vw) minmax(0, 1fr);
   }
 
@@ -23,7 +27,7 @@
     --fluent-pane-right: 300px;
   }
 
-  html[data-platform="windows"][data-ui-family="fluent"] .studio {
+  html[data-platform="windows"][data-ui-family="fluent"] .studio:not(.fullscreen) {
     grid-template-columns: var(--fluent-pane-left) minmax(0, 1fr) var(--fluent-pane-right);
   }
 
@@ -37,11 +41,146 @@
 }
 
 @media (max-width: 980px) {
-  html[data-platform="windows"][data-ui-family="fluent"] .studio {
+  html[data-platform="windows"][data-ui-family="fluent"] .studio:not(.fullscreen) {
     grid-template-columns: minmax(320px, 36vw) minmax(0, 1fr);
   }
 
   html[data-platform="windows"][data-ui-family="fluent"] .history-rail {
     display: none;
+  }
+
+  html[data-platform="windows"][data-ui-family="fluent"] .windows-header-promo,
+  html[data-platform="windows"][data-ui-family="fluent"] .windows-header-primary-row [data-audit-id="copy-qq"] {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  html[data-platform="windows"][data-ui-family="fluent"] .desktop-attribution-bar {
+    align-items: flex-start;
+    min-height: 0;
+    padding: 5px 8px;
+  }
+
+  html[data-platform="windows"][data-ui-family="fluent"] .desktop-attribution-links {
+    row-gap: 2px;
+  }
+
+  html[data-platform="windows"][data-ui-family="fluent"] .desktop-app-header {
+    min-height: 58px;
+    gap: 6px;
+    padding: 6px 8px;
+  }
+
+  html[data-platform="windows"][data-ui-family="fluent"] .desktop-header-brand-slot {
+    overflow: hidden;
+  }
+
+  html[data-platform="windows"][data-ui-family="fluent"] .desktop-app-header [data-audit-id="new-workspace"],
+  html[data-platform="windows"][data-ui-family="fluent"] .desktop-app-header [data-audit-id="open-github"],
+  html[data-platform="windows"][data-ui-family="fluent"] .desktop-app-header [data-audit-id="open-star"],
+  html[data-platform="windows"][data-ui-family="fluent"] .desktop-header-theme,
+  html[data-platform="windows"][data-ui-family="fluent"] .windows-header-promo,
+  html[data-platform="windows"][data-ui-family="fluent"] .windows-header-primary-row [data-audit-id="copy-qq"],
+  html[data-platform="windows"][data-ui-family="fluent"] .windows-header-primary-row [data-audit-id="register-fhl"],
+  html[data-platform="windows"][data-ui-family="fluent"] .windows-header-hitokoto {
+    display: none;
+  }
+
+  html[data-platform="windows"][data-ui-family="fluent"] .windows-header-brand,
+  html[data-platform="windows"][data-ui-family="fluent"] .windows-header-content,
+  html[data-platform="windows"][data-ui-family="fluent"] .windows-header-primary-row,
+  html[data-platform="windows"][data-ui-family="fluent"] .windows-header-secondary-row {
+    min-width: 0;
+  }
+
+  html[data-platform="windows"][data-ui-family="fluent"] .windows-header-logo {
+    width: 40px;
+    height: 40px;
+  }
+
+  html[data-platform="windows"][data-ui-family="fluent"] .windows-header-title {
+    flex-shrink: 1;
+  }
+
+  html[data-platform="windows"][data-ui-family="fluent"] .windows-header-secondary-row {
+    gap: 4px;
+  }
+
+  html[data-platform="windows"][data-ui-family="fluent"] .studio:not(.fullscreen) {
+    display: flex;
+    flex-direction: column;
+    grid-template-columns: none;
+    overflow-x: hidden;
+    overflow-y: hidden;
+  }
+
+  html[data-platform="windows"][data-ui-family="fluent"] .studio:not(.fullscreen) > .control-panel,
+  html[data-platform="windows"][data-ui-family="fluent"] .studio:not(.fullscreen) > .canvas-shell,
+  html[data-platform="windows"][data-ui-family="fluent"] .studio:not(.fullscreen) > .history-rail {
+    display: none;
+    flex: 1 1 0;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  html[data-platform="windows"][data-ui-family="fluent"] .studio:not(.fullscreen)[data-compact-pane="compose"] > .control-panel,
+  html[data-platform="windows"][data-ui-family="fluent"] .studio:not(.fullscreen)[data-compact-pane="canvas"] > .canvas-shell,
+  html[data-platform="windows"][data-ui-family="fluent"] .studio:not(.fullscreen)[data-compact-pane="history"] > .history-rail {
+    display: flex;
+  }
+
+  html[data-platform="windows"][data-ui-family="fluent"] .compact-pane-nav {
+    display: grid;
+    flex: 0 0 auto;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--border);
+    background: var(--toolbar);
+  }
+
+  html[data-platform="windows"][data-ui-family="fluent"] .studio.fullscreen > .compact-pane-nav {
+    display: none;
+  }
+
+  html[data-platform="windows"][data-ui-family="fluent"] .compact-pane-button {
+    display: inline-flex;
+    min-width: 0;
+    min-height: 32px;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  html[data-platform="windows"][data-ui-family="fluent"] .compact-pane-button[aria-pressed="true"] {
+    border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  html[data-platform="windows"][data-ui-family="fluent"] .footer-bar {
+    min-height: 36px;
+    padding: 6px 8px;
+  }
+
+  html[data-platform="windows"][data-ui-family="fluent"] .desktop-footer-links [data-audit-id="footer-github"],
+  html[data-platform="windows"][data-ui-family="fluent"] .desktop-footer-links [data-audit-id="footer-feedback"],
+  html[data-platform="windows"][data-ui-family="fluent"] .desktop-footer-stats,
+  html[data-platform="windows"][data-ui-family="fluent"] .footer-mid {
+    display: none;
+  }
+
+  html[data-platform="windows"][data-ui-family="fluent"] .desktop-footer-links,
+  html[data-platform="windows"][data-ui-family="fluent"] .desktop-footer-status {
+    min-width: 0;
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 }

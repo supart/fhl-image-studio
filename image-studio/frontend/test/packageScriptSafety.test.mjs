@@ -6,7 +6,7 @@ const sourceRoot = new URL("../../..", import.meta.url);
 
 test("Windows packaging uses explicit tools and exact current-build artifacts", async () => {
   const script = await readFile(
-    new URL("scripts/package-windows-portable-v2.0.3.ps1", sourceRoot),
+    new URL("scripts/package-windows-portable.ps1", sourceRoot),
     "utf8",
   );
 
@@ -23,11 +23,13 @@ test("Windows packaging uses explicit tools and exact current-build artifacts", 
 });
 
 test("release workflow publishes the portable zip without an installer toolchain", async () => {
-  const workflow = await readFile(
-    new URL(".github/workflows/release.yml", sourceRoot),
-    "utf8",
-  );
+  const [workflow, manifest] = await Promise.all([
+    readFile(new URL(".github/workflows/release.yml", sourceRoot), "utf8"),
+    readFile(new URL("product-version.json", sourceRoot), "utf8").then(JSON.parse),
+  ]);
 
-  assert.match(workflow, /FHL-Image-Studio-Desktop-V2\.0\.3-Windows-Portable\.zip/);
+  assert.match(workflow, new RegExp(manifest.windowsTag.replaceAll(".", "\\.")));
+  assert.match(workflow, /REQUESTED_TAG.*windowsTag/s);
+  assert.match(workflow, /package-windows-portable\.ps1/);
   assert.doesNotMatch(workflow, /nsis|package-windows-installer|Windows-Setup/i);
 });
