@@ -44,12 +44,15 @@ if (!supportedModes.has(mode)) {
 const env = { ...process.env, NODE_USE_ENV_PROXY: process.env.NODE_USE_ENV_PROXY || "1", VITE_TARGET_PLATFORM: mode };
 // Browser fallback credentials are origin-scoped, so keep the local dev origin stable.
 const devHost = process.env.IMAGE_STUDIO_DEV_HOST?.trim() || "127.0.0.1";
+const devPort = process.env.IMAGE_STUDIO_DEV_PORT?.trim() || "";
 
 if (command === "build") {
   await run("node_modules/typescript/bin/tsc", ["--noEmit"], env);
   await run("node_modules/vite/bin/vite.js", ["build", "--mode", mode], env);
 } else if (command === "dev") {
-  await run("node_modules/vite/bin/vite.js", ["--mode", mode, "--host", devHost], env);
+  const devArgs = ["--mode", mode, "--host", devHost];
+  if (devPort) devArgs.push("--port", devPort, "--strictPort");
+  await run("node_modules/vite/bin/vite.js", devArgs, env);
 } else {
   throw new Error(`Unsupported command: ${command}`);
 }

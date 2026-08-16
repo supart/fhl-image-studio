@@ -147,5 +147,7 @@ test("platform-vite keeps browser-backed dev profiles on one loopback origin", a
   const { readFileSync } = await import("node:fs");
   const source = readFileSync(new URL("../scripts/platform-vite.mjs", import.meta.url), "utf8");
   assert.match(source, /IMAGE_STUDIO_DEV_HOST\?\.trim\(\)\s*\|\|\s*"127\.0\.0\.1"/);
-  assert.match(source, /\["--mode", mode, "--host", devHost\]/);
+  assert.match(source, /const devArgs = \["--mode", mode, "--host", devHost\]/);
+  assert.match(source, /IMAGE_STUDIO_DEV_PORT\?\.trim\(\)/);
+  assert.match(source, /devArgs\.push\("--port", devPort, "--strictPort"\)/);
 });
