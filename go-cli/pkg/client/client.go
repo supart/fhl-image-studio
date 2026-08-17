@@ -50,7 +50,7 @@ func RequestAndExtractWithPartial(
 		return ImageResult{}, err
 	}
 	req := Request{
-		URL:     baseURL + "/v1/responses",
+		URL:     openAIAPIEndpoint(baseURL, "/v1/responses"),
 		APIKey:  opts.APIKey,
 		Payload: payload,
 	}

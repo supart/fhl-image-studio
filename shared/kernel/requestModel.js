@@ -26,6 +26,10 @@ export function normalizeBaseURL(raw) {
   return String(raw || "").trim().replace(/\/+$/, "");
 }
 
+export function normalizeOpenAIAPIBaseURL(raw) {
+  return normalizeBaseURL(raw).replace(/(\/v1)+$/i, "");
+}
+
 export function normalizeAPIMode(apiMode) {
   if (apiMode === "images") return "images";
   if (apiMode === "apimart") return "apimart";

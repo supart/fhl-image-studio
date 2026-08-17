@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -26,8 +27,15 @@ const (
 )
 
 var (
-	runningHubPollInterval = 2500 * time.Millisecond
-	runningHubTextAspects  = map[string]struct{}{
+	runningHubPollInterval    = 2500 * time.Millisecond
+	runningHubTextAspectOrder = []string{
+		"1:1", "3:2", "2:3", "5:4", "4:5", "16:9", "9:16", "21:9",
+		"3:4", "4:3", "9:21", "2:1", "1:2", "3:1", "1:3",
+	}
+	runningHubImageAspectOrder = []string{
+		"1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "21:9", "9:21",
+	}
+	runningHubTextAspects = map[string]struct{}{
 		"1:1": {}, "3:2": {}, "2:3": {}, "5:4": {}, "4:5": {},
 		"16:9": {}, "9:16": {}, "21:9": {}, "3:4": {}, "4:3": {},
 		"9:21": {}, "2:1": {}, "1:2": {}, "3:1": {}, "1:3": {},
@@ -189,7 +197,6 @@ func RequestRunningHub(
 	}
 
 	mode := runningHubModeForOptions(opts)
-	aspect, resolution := runningHubAspectAndResolution(opts.Size, mode)
 	imageURLs := []string{}
 	if mode == "image-to-image" {
 		paths := opts.imageSourcePathsForEdit()
@@ -207,7 +214,7 @@ func RequestRunningHub(
 	}
 
 	report("RunningHub submitting async task", 0)
-	taskID, images, err := submitRunningHubTask(ctx, httpClient, baseURL, opts, mode, aspect, resolution, imageURLs, rawSink)
+	taskID, images, err := submitRunningHubTask(ctx, httpClient, baseURL, opts, imageURLs, rawSink)
 	if err != nil {
 		return ImageResult{}, err
 	}
@@ -322,22 +329,10 @@ func submitRunningHubTask(
 	httpClient *http.Client,
 	baseURL string,
 	opts Options,
-	mode string,
-	aspect string,
-	resolution string,
 	imageURLs []string,
 	rawSink io.Writer,
 ) (string, []runningHubImageValue, error) {
-	payload := map[string]any{
-		"model":        normalizeRunningHubModel(opts.ImageModelID),
-		"mode":         mode,
-		"prompt":       opts.Prompt,
-		"aspect_ratio": aspect,
-		"resolution":   resolution,
-	}
-	if mode == "image-to-image" {
-		payload["image_urls"] = imageURLs
-	}
+	payload := buildRunningHubSubmitPayload(opts, imageURLs)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", nil, fmt.Errorf("marshal RunningHub payload: %w", err)
@@ -370,6 +365,22 @@ func submitRunningHubTask(
 		images = nil
 	}
 	return taskID, images, nil
+}
+
+func buildRunningHubSubmitPayload(opts Options, imageURLs []string) map[string]any {
+	mode := runningHubModeForOptions(opts)
+	aspect, resolution := runningHubAspectAndResolution(opts.Size, mode)
+	payload := map[string]any{
+		"model":        normalizeRunningHubModel(opts.ImageModelID),
+		"mode":         mode,
+		"prompt":       opts.Prompt,
+		"aspect_ratio": aspect,
+		"resolution":   resolution,
+	}
+	if mode == "image-to-image" {
+		payload["image_urls"] = imageURLs
+	}
+	return payload
 }
 
 func pollRunningHubTask(
@@ -626,11 +637,11 @@ func nearestRunningHubAspect(size string, mode string) string {
 	ratio := float64(parsed.width) / float64(parsed.height)
 	bestAspect := "1:1"
 	bestDistance := 9999.0
-	candidates := runningHubTextAspects
+	candidates := runningHubTextAspectOrder
 	if mode == "image-to-image" {
-		candidates = runningHubImageAspects
+		candidates = runningHubImageAspectOrder
 	}
-	for aspect := range candidates {
+	for _, aspect := range candidates {
 		parts := strings.Split(aspect, ":")
 		if len(parts) != 2 {
 			continue
@@ -641,10 +652,7 @@ func nearestRunningHubAspect(size string, mode string) string {
 			continue
 		}
 		candidateRatio := float64(candidateWidth) / float64(candidateHeight)
-		distance := candidateRatio - ratio
-		if distance < 0 {
-			distance = -distance
-		}
+		distance := math.Abs(math.Log(ratio) - math.Log(candidateRatio))
 		if distance < bestDistance {
 			bestDistance = distance
 			bestAspect = aspect

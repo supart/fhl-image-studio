@@ -47,6 +47,53 @@ func supportsImagesResponseFormat(model string, mode Mode) bool {
 	return family == "dalle2" || family == "dalle3"
 }
 
+func buildImagesGenerationPayload(opts Options) map[string]any {
+	model := strings.TrimSpace(opts.ImageModelID)
+	if model == "" {
+		model = ImageModel
+	}
+	rawSize := strings.TrimSpace(opts.Size)
+	size := ""
+	if strings.EqualFold(rawSize, "auto") {
+		size = "auto"
+	} else {
+		size = normalizeOpenAIImageSize(rawSize)
+	}
+	if size == "" {
+		size = DefaultSize
+	}
+	quality := opts.Quality
+	if quality == "" {
+		quality = DefaultQuality
+	}
+	outputFormat := opts.OutputFormat
+	if outputFormat == "" {
+		outputFormat = OutputFormat
+	}
+	payload := map[string]any{
+		"model":         model,
+		"prompt":        opts.Prompt,
+		"n":             1,
+		"size":          size,
+		"quality":       quality,
+		"output_format": outputFormat,
+	}
+	if opts.ImagesNewAPICompat || supportsImagesResponseFormat(model, ModeGenerate) {
+		payload["response_format"] = "b64_json"
+	}
+	if !opts.ImagesNewAPICompat {
+		payload["stream"] = true
+		payload["partial_images"] = normalizePartialImages(opts.PartialImages)
+	}
+	if shouldSendExtendedImageParameters(opts.RequestPolicy) && opts.Seed != 0 {
+		payload["seed"] = opts.Seed
+	}
+	if shouldSendExtendedImageParameters(opts.RequestPolicy) && strings.TrimSpace(opts.NegativePrompt) != "" {
+		payload["negative_prompt"] = strings.TrimSpace(opts.NegativePrompt)
+	}
+	return payload
+}
+
 type imagesAPIDatum struct {
 	B64JSON       string `json:"b64_json"`
 	URL           string `json:"url"`
@@ -175,7 +222,6 @@ func RequestImagesAPIWithPartial(
 	if err != nil {
 		return ImageResult{}, err
 	}
-
 	model := opts.ImageModelID
 	if model == "" {
 		model = ImageModel
@@ -198,7 +244,6 @@ func RequestImagesAPIWithPartial(
 	if outputFormat == "" {
 		outputFormat = OutputFormat
 	}
-	includeExtended := shouldSendExtendedImageParameters(opts.RequestPolicy)
 	useNewAPICompat := opts.ImagesNewAPICompat
 
 	var (
@@ -216,36 +261,16 @@ func RequestImagesAPIWithPartial(
 		if err != nil {
 			return ImageResult{}, err
 		}
-		url = baseURL + "/v1/images/edits"
+		url = openAIAPIEndpoint(baseURL, "/v1/images/edits")
 		body = multipartBuf
 		contentType = mpType
 	} else {
-		payload := map[string]any{
-			"model":         model,
-			"prompt":        opts.Prompt,
-			"n":             1,
-			"size":          size,
-			"quality":       quality,
-			"output_format": outputFormat,
-		}
-		if useNewAPICompat || supportsImagesResponseFormat(model, opts.Mode) {
-			payload["response_format"] = "b64_json"
-		}
-		if !useNewAPICompat {
-			payload["stream"] = true
-			payload["partial_images"] = normalizePartialImages(opts.PartialImages)
-		}
-		if includeExtended && opts.Seed != 0 {
-			payload["seed"] = opts.Seed
-		}
-		if includeExtended && strings.TrimSpace(opts.NegativePrompt) != "" {
-			payload["negative_prompt"] = opts.NegativePrompt
-		}
+		payload := buildImagesGenerationPayload(opts)
 		b, err := json.Marshal(payload)
 		if err != nil {
 			return ImageResult{}, fmt.Errorf("marshal payload: %w", err)
 		}
-		url = baseURL + "/v1/images/generations"
+		url = openAIAPIEndpoint(baseURL, "/v1/images/generations")
 		body = bytes.NewReader(b)
 		contentType = "application/json"
 	}

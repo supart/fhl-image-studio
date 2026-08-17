@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -43,6 +44,11 @@ var apimartSupportedAspects = map[string]struct{}{
 	"1:3":  {},
 	"21:9": {},
 	"9:21": {},
+}
+
+var apimartSupportedAspectOrder = []string{
+	"auto", "1:1", "3:2", "2:3", "4:3", "3:4", "5:4", "4:5",
+	"16:9", "9:16", "2:1", "1:2", "3:1", "1:3", "21:9", "9:21",
 }
 
 var apimartSizeToAspect = map[string]string{
@@ -369,15 +375,7 @@ func submitAPIMartTask(
 	imageURLs []string,
 	rawSink io.Writer,
 ) (string, []string, error) {
-	payload := map[string]any{
-		"model":             normalizeAPIMartModel(opts.ImageModelID),
-		"prompt":            opts.Prompt,
-		"n":                 1,
-		"size":              aspectForAPIMartSize(opts.Size),
-		"resolution":        normalizeAPIMartResolution(resolutionForAPIMartSize(opts.Size), opts.ImageModelID),
-		"official_fallback": false,
-		"image_urls":        imageURLs,
-	}
+	payload := buildAPIMartSubmitPayload(opts, imageURLs)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", nil, fmt.Errorf("marshal APIMart payload: %w", err)
@@ -405,6 +403,20 @@ func submitAPIMartTask(
 		return "", nil, err
 	}
 	return extractAPIMartTaskID(data), collectAPIMartImageValues(data), nil
+}
+
+func buildAPIMartSubmitPayload(opts Options, imageURLs []string) map[string]any {
+	model := normalizeAPIMartModel(opts.ImageModelID)
+	normalizedImageURLs := append([]string{}, imageURLs...)
+	return map[string]any{
+		"model":             model,
+		"prompt":            opts.Prompt,
+		"n":                 1,
+		"size":              aspectForAPIMartSize(opts.Size),
+		"resolution":        normalizeAPIMartResolution(resolutionForAPIMartSize(opts.Size), model),
+		"official_fallback": false,
+		"image_urls":        normalizedImageURLs,
+	}
 }
 
 func pollAPIMartTask(
@@ -665,7 +677,7 @@ func nearestAPIMartAspect(size string) string {
 	ratio := float64(parsed.width) / float64(parsed.height)
 	bestAspect := "1:1"
 	bestDistance := 9999.0
-	for aspect := range apimartSupportedAspects {
+	for _, aspect := range apimartSupportedAspectOrder {
 		if aspect == "auto" {
 			continue
 		}
@@ -679,10 +691,7 @@ func nearestAPIMartAspect(size string) string {
 			continue
 		}
 		candidateRatio := float64(candidateWidth) / float64(candidateHeight)
-		distance := candidateRatio - ratio
-		if distance < 0 {
-			distance = -distance
-		}
+		distance := math.Abs(math.Log(ratio) - math.Log(candidateRatio))
 		if distance < bestDistance {
 			bestDistance = distance
 			bestAspect = aspect

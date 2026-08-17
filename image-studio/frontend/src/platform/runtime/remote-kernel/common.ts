@@ -11,7 +11,7 @@ import {
   describeProblem as describeSharedProblem,
   isRetryableRaw as isRetryableRawShared,
   normalizeAPIMode as normalizeSharedAPIMode,
-  normalizeBaseURL as normalizeSharedBaseURL,
+  normalizeOpenAIAPIBaseURL as normalizeSharedOpenAIAPIBaseURL,
   normalizeImageModel as normalizeSharedImageModel,
   repairSizeForOpenAI,
   normalizeTextModel as normalizeSharedTextModel,
@@ -216,8 +216,7 @@ export async function compressSourceDataURLForUpload(dataURL: string, sourceCoun
 }
 
 export function normalizeBaseURL(raw: string): string {
-  const normalizedRaw = normalizeSharedBaseURL(raw);
-  const normalized = normalizedRaw.replace(/(\/v1)+$/i, "");
+  const normalized = normalizeSharedOpenAIAPIBaseURL(raw);
   if (isLocalPreviewHost() && normalized === FHL_BASE_URL) {
     return `${window.location.origin}${FHL_LOCAL_PROXY_PREFIX}`;
   }
@@ -231,7 +230,7 @@ export function normalizeBaseURL(raw: string): string {
 }
 
 function normalizeBaseURLForRouting(raw: string): string {
-  return normalizeSharedBaseURL(raw).replace(/(\/v1)+$/i, "");
+  return normalizeSharedOpenAIAPIBaseURL(raw);
 }
 
 function normalizeExactSizeForRouting(size: string): string {

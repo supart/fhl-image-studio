@@ -1,12 +1,13 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "cases": [
     {
       "id": "responses-openai-verbatim",
       "request": {
         "apiProfileId": "profile-fixture-responses",
         "apiMode": "responses",
-        "baseURL": "https://upstream.example",
+        "mode": "generate",
+        "baseURL": "https://upstream.example/v1/",
         "prompt": "fixture red square",
         "size": "1024x1024",
         "quality": "auto",
@@ -16,14 +17,40 @@
         "requestPolicy": "openai",
         "noPromptRevision": true,
         "imagesNewAPICompat": false,
+        "partialImages": 1,
         "seed": 41,
-        "negativePrompt": "fixture blur"
+        "negativePrompt": "fixture blur",
+        "uploadedImageURLs": []
       },
       "expected": {
         "normalizedRequestPolicy": "openai",
         "instructionMode": "verbatim",
         "extendedParameters": false,
-        "workerStatus": 200
+        "workerStatus": 200,
+        "wire": {
+          "url": "https://upstream.example/v1/responses",
+          "endpointPath": "/v1/responses",
+          "bodyType": "json",
+          "body": {
+            "model": "fixture-text-model",
+            "input": [{ "role": "user", "content": [{ "type": "input_text", "text": "fixture red square" }] }],
+            "tools": [{
+              "type": "image_generation",
+              "model": "fixture-image-model",
+              "action": "generate",
+              "size": "1024x1024",
+              "quality": "auto",
+              "output_format": "png",
+              "moderation": "low",
+              "partial_images": 1
+            }],
+            "tool_choice": { "type": "image_generation" },
+            "reasoning": { "effort": "xhigh" },
+            "store": false,
+            "stream": true,
+            "instructions": "You are a tool runner. Pass the user prompt to image_generation VERBATIM. DO NOT rewrite, expand, polish, or revise it in any way. Use the exact text the user gave."
+          }
+        }
       }
     },
     {
@@ -31,6 +58,7 @@
       "request": {
         "apiProfileId": "profile-fixture-compat",
         "apiMode": "responses",
+        "mode": "generate",
         "baseURL": "https://upstream.example",
         "prompt": "fixture blue circle",
         "size": "1024x1024",
@@ -41,14 +69,42 @@
         "requestPolicy": "compat",
         "noPromptRevision": false,
         "imagesNewAPICompat": false,
+        "partialImages": 1,
         "seed": 42,
-        "negativePrompt": "fixture noise"
+        "negativePrompt": "fixture noise",
+        "uploadedImageURLs": []
       },
       "expected": {
         "normalizedRequestPolicy": "compat",
         "instructionMode": "adaptation",
         "extendedParameters": true,
-        "workerStatus": 200
+        "workerStatus": 200,
+        "wire": {
+          "url": "https://upstream.example/v1/responses",
+          "endpointPath": "/v1/responses",
+          "bodyType": "json",
+          "body": {
+            "model": "fixture-text-model",
+            "input": [{ "role": "user", "content": [{ "type": "input_text", "text": "fixture blue circle" }] }],
+            "tools": [{
+              "type": "image_generation",
+              "model": "fixture-image-model",
+              "action": "generate",
+              "size": "1024x1024",
+              "quality": "low",
+              "output_format": "png",
+              "moderation": "low",
+              "partial_images": 1,
+              "seed": 42,
+              "negative_prompt": "fixture noise"
+            }],
+            "tool_choice": { "type": "image_generation" },
+            "reasoning": { "effort": "xhigh" },
+            "store": false,
+            "stream": true,
+            "instructions": "Use the image_generation tool and return an image result, not a text-only answer. If the user's wording is ambiguous or may trigger a safety refusal, adapt it into a policy-compliant visual prompt while preserving the creative intent."
+          }
+        }
       }
     },
     {
@@ -56,6 +112,7 @@
       "request": {
         "apiProfileId": "profile-fixture-images",
         "apiMode": "images",
+        "mode": "generate",
         "baseURL": "https://upstream.example",
         "prompt": "fixture green triangle",
         "size": "1024x1024",
@@ -66,14 +123,240 @@
         "requestPolicy": "compat",
         "noPromptRevision": true,
         "imagesNewAPICompat": true,
+        "partialImages": 1,
         "seed": 43,
-        "negativePrompt": "fixture artifacts"
+        "negativePrompt": "fixture artifacts",
+        "uploadedImageURLs": []
       },
       "expected": {
         "normalizedRequestPolicy": "compat",
         "instructionMode": "verbatim",
         "extendedParameters": true,
-        "workerStatus": 400
+        "workerStatus": 400,
+        "wire": {
+          "url": "https://upstream.example/v1/images/generations",
+          "endpointPath": "/v1/images/generations",
+          "bodyType": "json",
+          "body": {
+            "model": "fixture-image-model",
+            "prompt": "fixture green triangle",
+            "n": 1,
+            "size": "1024x1024",
+            "quality": "medium",
+            "output_format": "png",
+            "response_format": "b64_json",
+            "seed": 43,
+            "negative_prompt": "fixture artifacts"
+          }
+        }
+      }
+    },
+    {
+      "id": "images-openai-streaming",
+      "request": {
+        "apiProfileId": "profile-fixture-images-stream",
+        "apiMode": "images",
+        "mode": "generate",
+        "baseURL": "https://upstream.example/v1/",
+        "prompt": "fixture streaming scene",
+        "size": "1536x1024",
+        "quality": "high",
+        "outputFormat": "webp",
+        "textModelID": "",
+        "imageModelID": "gpt-image-2",
+        "requestPolicy": "openai",
+        "noPromptRevision": true,
+        "imagesNewAPICompat": false,
+        "partialImages": 2,
+        "seed": 44,
+        "negativePrompt": "fixture omitted",
+        "uploadedImageURLs": []
+      },
+      "expected": {
+        "normalizedRequestPolicy": "openai",
+        "instructionMode": "verbatim",
+        "extendedParameters": false,
+        "workerStatus": 400,
+        "wire": {
+          "url": "https://upstream.example/v1/images/generations",
+          "endpointPath": "/v1/images/generations",
+          "bodyType": "json",
+          "body": {
+            "model": "gpt-image-2",
+            "prompt": "fixture streaming scene",
+            "n": 1,
+            "size": "1536x1024",
+            "quality": "high",
+            "output_format": "webp",
+            "stream": true,
+            "partial_images": 2
+          }
+        }
+      }
+    },
+    {
+      "id": "apimart-generate-gemini-compact",
+      "request": {
+        "apiProfileId": "profile-fixture-apimart-generate",
+        "apiMode": "apimart",
+        "mode": "generate",
+        "baseURL": "https://api.apimart.example",
+        "prompt": "fixture APIMart landscape",
+        "size": "16:9@2k",
+        "quality": "auto",
+        "outputFormat": "png",
+        "textModelID": "",
+        "imageModelID": "gemini-3-pro-image-preview",
+        "requestPolicy": "openai",
+        "noPromptRevision": true,
+        "imagesNewAPICompat": false,
+        "partialImages": 1,
+        "seed": 0,
+        "negativePrompt": "",
+        "uploadedImageURLs": []
+      },
+      "expected": {
+        "normalizedRequestPolicy": "openai",
+        "instructionMode": "verbatim",
+        "extendedParameters": false,
+        "workerStatus": 400,
+        "wire": {
+          "url": "https://api.apimart.example/v1/images/generations",
+          "endpointPath": "/v1/images/generations",
+          "bodyType": "json",
+          "body": {
+            "model": "gemini-3-pro-image-preview",
+            "prompt": "fixture APIMart landscape",
+            "n": 1,
+            "size": "16:9",
+            "resolution": "2K",
+            "official_fallback": false,
+            "image_urls": []
+          }
+        }
+      }
+    },
+    {
+      "id": "apimart-edit-custom-pixels",
+      "request": {
+        "apiProfileId": "profile-fixture-apimart-edit",
+        "apiMode": "apimart",
+        "mode": "edit",
+        "baseURL": "https://api.apimart.example",
+        "prompt": "fixture APIMart edit",
+        "size": "2500x2232",
+        "quality": "auto",
+        "outputFormat": "png",
+        "textModelID": "",
+        "imageModelID": "gpt-image-2",
+        "requestPolicy": "openai",
+        "noPromptRevision": true,
+        "imagesNewAPICompat": false,
+        "partialImages": 1,
+        "seed": 0,
+        "negativePrompt": "",
+        "uploadedImageURLs": ["https://upload.example/source-a.png", "https://upload.example/source-b.png"]
+      },
+      "expected": {
+        "normalizedRequestPolicy": "openai",
+        "instructionMode": "verbatim",
+        "extendedParameters": false,
+        "workerStatus": 400,
+        "wire": {
+          "url": "https://api.apimart.example/v1/images/generations",
+          "endpointPath": "/v1/images/generations",
+          "bodyType": "json",
+          "body": {
+            "model": "gpt-image-2",
+            "prompt": "fixture APIMart edit",
+            "n": 1,
+            "size": "5:4",
+            "resolution": "4k",
+            "official_fallback": false,
+            "image_urls": ["https://upload.example/source-a.png", "https://upload.example/source-b.png"]
+          }
+        }
+      }
+    },
+    {
+      "id": "runninghub-text-custom-pixels",
+      "request": {
+        "apiProfileId": "profile-fixture-runninghub-text",
+        "apiMode": "runninghub",
+        "mode": "generate",
+        "baseURL": "http://127.0.0.1:8117",
+        "prompt": "fixture RunningHub poster",
+        "size": "2500x2232",
+        "quality": "auto",
+        "outputFormat": "png",
+        "textModelID": "",
+        "imageModelID": "banana2",
+        "requestPolicy": "openai",
+        "noPromptRevision": true,
+        "imagesNewAPICompat": false,
+        "partialImages": 1,
+        "seed": 0,
+        "negativePrompt": "",
+        "uploadedImageURLs": []
+      },
+      "expected": {
+        "normalizedRequestPolicy": "openai",
+        "instructionMode": "verbatim",
+        "extendedParameters": false,
+        "workerStatus": 400,
+        "wire": {
+          "url": "http://127.0.0.1:8117/api/generate",
+          "endpointPath": "/api/generate",
+          "bodyType": "json",
+          "body": {
+            "model": "banana2",
+            "mode": "text-to-image",
+            "prompt": "fixture RunningHub poster",
+            "aspect_ratio": "5:4",
+            "resolution": "4k"
+          }
+        }
+      }
+    },
+    {
+      "id": "runninghub-edit-compact",
+      "request": {
+        "apiProfileId": "profile-fixture-runninghub-edit",
+        "apiMode": "runninghub",
+        "mode": "edit",
+        "baseURL": "http://127.0.0.1:8117",
+        "prompt": "fixture RunningHub edit",
+        "size": "16:9@2k",
+        "quality": "auto",
+        "outputFormat": "png",
+        "textModelID": "",
+        "imageModelID": "image-g2",
+        "requestPolicy": "openai",
+        "noPromptRevision": true,
+        "imagesNewAPICompat": false,
+        "partialImages": 1,
+        "seed": 0,
+        "negativePrompt": "",
+        "uploadedImageURLs": ["https://runninghub.example/source.png"]
+      },
+      "expected": {
+        "normalizedRequestPolicy": "openai",
+        "instructionMode": "verbatim",
+        "extendedParameters": false,
+        "workerStatus": 400,
+        "wire": {
+          "url": "http://127.0.0.1:8117/api/generate",
+          "endpointPath": "/api/generate",
+          "bodyType": "json",
+          "body": {
+            "model": "image_g2",
+            "mode": "image-to-image",
+            "prompt": "fixture RunningHub edit",
+            "aspect_ratio": "16:9",
+            "resolution": "2k",
+            "image_urls": ["https://runninghub.example/source.png"]
+          }
+        }
       }
     }
   ]

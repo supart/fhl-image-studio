@@ -238,6 +238,7 @@ test("kernel generate follows the shared request contract fixtures", async () =>
       globalThis.fetch = async (url, init) => {
         captured = {
           url: String(url),
+          contentType: new Headers(init.headers).get("content-type"),
           body: JSON.parse(await readBodyText(init.body)),
         };
         return new Response(
@@ -262,7 +263,9 @@ test("kernel generate follows the shared request contract fixtures", async () =>
         assert.equal(captured, null, entry.id);
         return;
       }
-      assert.equal(captured.url, "https://upstream.example/v1/responses", entry.id);
+      assert.equal(captured.url, entry.expected.wire.url, entry.id);
+      assert.equal(captured.contentType, "application/json", entry.id);
+      assert.deepEqual(captured.body, entry.expected.wire.body, entry.id);
       assert.equal(
         captured.body.instructions.includes("VERBATIM"),
         entry.expected.instructionMode === "verbatim",

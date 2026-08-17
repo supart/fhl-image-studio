@@ -118,7 +118,7 @@ type RunningHubTask = {
   raw?: unknown;
 };
 
-function runningHubEndpoint(baseURL: string, path: string): string {
+export function runningHubEndpoint(baseURL: string, path: string): string {
   return `${normalizeBaseURL(baseURL)}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
@@ -170,9 +170,37 @@ function parseRunningHubSize(size: string, mode: "text-to-image" | "image-to-ima
       resolution: (aspectMatch[2] as "1k" | "2k" | "4k" | undefined) || "1k",
     };
   }
+  const pixelMatch = normalized.match(/^(\d+)x(\d+)$/);
+  const maxSide = pixelMatch ? Math.max(Number(pixelMatch[1]), Number(pixelMatch[2])) : 0;
+  const derivedResolution = maxSide > 2048 ? "4k" : maxSide > 1536 ? "2k" : "1k";
   return {
     aspect: SIZE_TO_ASPECT[normalized] || nearestAspect(normalized, mode),
-    resolution: SIZE_TO_RESOLUTION[normalized] || "1k",
+    resolution: SIZE_TO_RESOLUTION[normalized] || derivedResolution,
+  };
+}
+
+export type RunningHubSubmitPayload = {
+  model: "banana2" | "image_g2";
+  mode: "text-to-image" | "image-to-image";
+  prompt: string;
+  aspect_ratio: string;
+  resolution: "1k" | "2k" | "4k";
+  image_urls?: string[];
+};
+
+export function buildRunningHubSubmitPayload(
+  payload: RemoteJobRequest["payload"],
+  imageURLs: string[],
+): RunningHubSubmitPayload {
+  const mode = runningHubMode(payload.mode);
+  const { aspect, resolution } = parseRunningHubSize(payload.size, mode);
+  return {
+    model: normalizeModelKey(payload.imageModelID),
+    mode,
+    prompt: payload.prompt,
+    aspect_ratio: aspect,
+    resolution,
+    ...(mode === "image-to-image" ? { image_urls: imageURLs } : {}),
   };
 }
 
@@ -258,7 +286,6 @@ export async function requestRunningHubOnce(
   const payload = request.payload;
   const baseURL = normalizeBaseURL(payload.baseURL);
   const mode = runningHubMode(payload.mode);
-  const { aspect, resolution } = parseRunningHubSize(payload.size, mode);
   const sourceDataURLs = mode === "image-to-image" ? await resolveSourceDataURLs(request.sourceImages, payload) : [];
 
   if (mode === "image-to-image" && sourceDataURLs.length === 0) {
@@ -270,16 +297,9 @@ export async function requestRunningHubOnce(
     imageURLs.push(await uploadSourceImage(baseURL, sourceDataURLs[index], index, attempt, callbacks));
   }
 
-  const submitPayload = {
-    model: normalizeModelKey(payload.imageModelID),
-    mode,
-    prompt: payload.prompt,
-    aspect_ratio: aspect,
-    resolution,
-    ...(mode === "image-to-image" ? { image_urls: imageURLs } : {}),
-  };
+  const submitPayload = buildRunningHubSubmitPayload(payload, imageURLs);
 
-  callbacks.onLog?.(`RunningHub 提交 ${mode} 任务：${submitPayload.model} ${aspect} ${resolution}`);
+  callbacks.onLog?.(`RunningHub 提交 ${mode} 任务：${submitPayload.model} ${submitPayload.aspect_ratio} ${submitPayload.resolution}`);
   const submitResponse = await fetch(runningHubEndpoint(baseURL, "/api/generate"), {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },

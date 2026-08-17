@@ -23,6 +23,35 @@ export function buildResponsesPayload(
   return buildSharedResponsesPayload(payload, sourceDataURLs, { maskMimeType });
 }
 
+export function buildImagesGenerationPayload(
+  payload: RemoteGeneratePayload,
+): Record<string, unknown> {
+  const imageModel = normalizeImageModel(payload.imageModelID);
+  const rawSize = payload.size || "1024x1024";
+  const repairedPayload = repairSizeForOpenAI({ size: rawSize });
+  const body: Record<string, unknown> = {
+    model: imageModel,
+    prompt: payload.prompt,
+    n: 1,
+    size: repairedPayload?.size || rawSize,
+    quality: payload.quality || "auto",
+    output_format: payload.outputFormat || "png",
+  };
+  const useNewAPICompat = shouldUseImagesNewAPICompat(payload);
+  if (useNewAPICompat || supportsImagesResponseFormat(imageModel, "generate")) {
+    body.response_format = "b64_json";
+  }
+  if (!useNewAPICompat) {
+    body.stream = true;
+    body.partial_images = normalizePartialImages(payload.partialImages);
+  }
+  if (shouldSendExtendedImageParameters(payload.requestPolicy) && payload.seed) body.seed = payload.seed;
+  if (shouldSendExtendedImageParameters(payload.requestPolicy) && payload.negativePrompt.trim()) {
+    body.negative_prompt = payload.negativePrompt.trim();
+  }
+  return body;
+}
+
 export async function buildImagesRequestBody(
   request: RemoteJobRequest,
   sourceDataURLs: string[],
@@ -74,23 +103,7 @@ export async function buildImagesRequestBody(
     return { url: `${baseURL}/v1/images/edits`, body: form };
   }
 
-  const payload: Record<string, unknown> = {
-    model: imageModel,
-    prompt: request.payload.prompt,
-    n: 1,
-    size,
-    quality,
-    output_format: outputFormat,
-  };
-  if (useNewAPICompat || supportsImagesResponseFormat(imageModel, mode)) {
-    payload.response_format = "b64_json";
-  }
-  if (!useNewAPICompat) {
-    payload.stream = true;
-    payload.partial_images = partialImages;
-  }
-  if (includeExtended && request.payload.seed) payload.seed = request.payload.seed;
-  if (includeExtended && request.payload.negativePrompt.trim()) payload.negative_prompt = request.payload.negativePrompt.trim();
+  const payload = buildImagesGenerationPayload(request.payload);
   return {
     url: `${baseURL}/v1/images/generations`,
     headers: { "Content-Type": "application/json" },

@@ -35,6 +35,22 @@ func ValidateBaseURL(raw string) (string, error) {
 	}
 }
 
+func normalizeOpenAIAPIBaseURL(raw string) string {
+	cleaned := strings.TrimRight(strings.TrimSpace(raw), "/")
+	for strings.HasSuffix(strings.ToLower(cleaned), "/v1") {
+		cleaned = strings.TrimRight(cleaned[:len(cleaned)-3], "/")
+	}
+	return cleaned
+}
+
+func openAIAPIEndpoint(baseURL string, path string) string {
+	root := normalizeOpenAIAPIBaseURL(baseURL)
+	if strings.HasPrefix(path, "/") {
+		return root + path
+	}
+	return root + "/" + path
+}
+
 func isLoopbackHost(host string) bool {
 	if host == "" {
 		return false

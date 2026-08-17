@@ -4,8 +4,7 @@ import {
   describeProblem,
   isRetryableRaw,
   MAX_ATTEMPTS,
-  normalizeAPIMode,
-  normalizeBaseURL,
+  normalizeOpenAIAPIBaseURL,
   RETRY_BACKOFF_MS,
 } from "../../shared/kernel/requestModel.js";
 
@@ -32,7 +31,7 @@ async function sleep(ms) {
 function resolveUpstreamBaseURL(env, request) {
   const url = new URL(request.url);
   const headerOverride = request.headers.get("x-image-studio-upstream-base-url") || "";
-  return normalizeBaseURL(
+  return normalizeOpenAIAPIBaseURL(
     headerOverride
       || url.searchParams.get("baseURL")
       || env.IMAGE_STUDIO_UPSTREAM_BASE_URL
@@ -133,7 +132,7 @@ function collectSourceDataURLs(payload) {
 }
 
 async function forwardResponses(env, payload, apiKey) {
-  const upstreamBaseURL = normalizeBaseURL(payload.baseURL || env.IMAGE_STUDIO_UPSTREAM_BASE_URL || "");
+  const upstreamBaseURL = normalizeOpenAIAPIBaseURL(payload.baseURL || env.IMAGE_STUDIO_UPSTREAM_BASE_URL || "");
   if (!upstreamBaseURL) {
     return json({ error: { message: "Worker 未配置上游 BASE_URL" } }, { status: 400 });
   }
@@ -205,7 +204,7 @@ async function forwardOpenAIPath(env, request, apiKey) {
 }
 
 async function forwardPromptOptimize(env, body, apiKey) {
-  const upstreamBaseURL = normalizeBaseURL(body.baseURL || env.IMAGE_STUDIO_UPSTREAM_BASE_URL || "");
+  const upstreamBaseURL = normalizeOpenAIAPIBaseURL(body.baseURL || env.IMAGE_STUDIO_UPSTREAM_BASE_URL || "");
   if (!upstreamBaseURL) {
     return json({ error: { message: "Worker 未配置上游 BASE_URL" } }, { status: 400 });
   }
@@ -288,7 +287,7 @@ export default {
 
     if (request.method === "POST" && url.pathname === "/kernel/generate") {
       const body = sanitizePayload(await request.json().catch(() => ({})));
-      if (normalizeAPIMode(body.apiMode) !== "responses") {
+      if (body.apiMode && body.apiMode !== "responses") {
         return json({ error: { message: "当前 Worker 入口只代理 Responses API 模式" } }, { status: 400 });
       }
       return forwardResponses(env, body, apiKey);

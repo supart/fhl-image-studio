@@ -344,7 +344,15 @@ function resolutionForSize(size: string): "1k" | "2k" | "4k" {
   const normalized = String(size || "").trim().toLowerCase();
   const parsed = parseAPIMartSize(normalized);
   if (parsed?.resolution) return parsed.resolution;
-  return SIZE_TO_RESOLUTION[normalized] || "1k";
+  const mapped = SIZE_TO_RESOLUTION[normalized];
+  if (mapped) return mapped;
+  const pixelMatch = normalized.match(/^(\d+)x(\d+)$/);
+  if (!pixelMatch) return "1k";
+  const maxSide = Math.max(Number(pixelMatch[1]), Number(pixelMatch[2]));
+  if (!Number.isFinite(maxSide)) return "1k";
+  if (maxSide > 2048) return "4k";
+  if (maxSide > 1536) return "2k";
+  return "1k";
 }
 
 function normalizeAPIMartModel(modelID: string): string {
@@ -353,6 +361,22 @@ function normalizeAPIMartModel(modelID: string): string {
 
 function normalizeAPIMartResolution(resolution: "1k" | "2k" | "4k", model: string): string {
   return model.toLowerCase().includes("gemini") ? resolution.toUpperCase() : resolution;
+}
+
+export function buildAPIMartSubmitPayload(
+  payload: RemoteJobRequest["payload"],
+  imageURLs: string[],
+): Record<string, unknown> {
+  const model = normalizeAPIMartModel(payload.imageModelID);
+  return {
+    model,
+    prompt: payload.prompt,
+    n: 1,
+    size: aspectForSize(payload.size),
+    resolution: normalizeAPIMartResolution(resolutionForSize(payload.size), model),
+    official_fallback: false,
+    image_urls: imageURLs,
+  };
 }
 
 function isLocalPreviewHost(): boolean {
@@ -366,7 +390,7 @@ function downloadURLForImageResult(value: string): string {
   return `${window.location.origin}${APIMART_IMAGE_LOCAL_PROXY_PREFIX}/download?url=${encodeURIComponent(value)}`;
 }
 
-function apimartEndpoint(baseURL: string, path: string): string {
+export function apimartEndpoint(baseURL: string, path: string): string {
   const root = baseURL.replace(/\/+$/, "").replace(/\/v1$/i, "");
   return `${root}${path.startsWith("/") ? path : `/${path}`}`;
 }
@@ -553,17 +577,7 @@ async function submitTask(
   attempt: number,
 ): Promise<{ taskId: string; images: string[]; rawPath: string | null }> {
   const apiKey = normalizeAPIKeyForHeader(request.payload.apiKey);
-  const model = normalizeAPIMartModel(request.payload.imageModelID);
-  const resolution = resolutionForSize(request.payload.size);
-  const body = {
-    model,
-    prompt: request.payload.prompt,
-    n: 1,
-    size: aspectForSize(request.payload.size),
-    resolution: normalizeAPIMartResolution(resolution, model),
-    official_fallback: false,
-    image_urls: imageURLs,
-  };
+  const body = buildAPIMartSubmitPayload(request.payload, imageURLs);
   callbacks.onProgress?.("APIMart 提交异步任务", 0, 0);
   callbacks.onLog?.(`[APIMart] 提交异步任务 ${body.size}/${body.resolution}`);
   const response = await fetch(apimartEndpoint(baseURL, "/v1/images/generations"), {

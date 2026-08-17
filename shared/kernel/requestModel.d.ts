@@ -32,6 +32,7 @@ export type SharedImageRequestPayload = {
 };
 
 export function normalizeBaseURL(raw: string): string;
+export function normalizeOpenAIAPIBaseURL(raw: string): string;
 export function normalizeAPIMode(apiMode: string): "responses" | "images" | "apimart";
 export function normalizeRequestPolicy(requestPolicy: string): RequestPolicy;
 export function normalizeTextModel(modelID: string): string;
@@ -83,4 +84,3 @@ export function retryableMarkers(): string[];
 export function isRetryableRaw(raw: string): boolean;
 export function describeAPIError(error: Record<string, unknown>): string;
 export function describeProblem(raw: string): string;
-
