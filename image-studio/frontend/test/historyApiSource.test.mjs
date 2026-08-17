@@ -149,7 +149,10 @@ test("switching API profiles preserves the current batch preview", () => {
   assert.match(setActiveProfileBlock, /activeProfileRuntimePatch\(profile, before\.fhlTransportMode\)/);
   assert.doesNotMatch(setActiveProfileBlock, /resultGridOpen:\s*false/);
   assert.doesNotMatch(setActiveProfileBlock, /selectedBatchTaskId:\s*null/);
-  assert.doesNotMatch(setActiveProfileBlock, /patchWorkspaceRuntime/);
+  assert.match(
+    setActiveProfileBlock,
+    /patchWorkspaceRuntime\(before\.workspaces, workspaceId, \{ activeProfileId: id \}\)/,
+  );
   assert.match(canvasStageSource, /function apiSourceMatchesActiveProfile/);
   assert.match(canvasStageSource, /source\.apiMode === "runninghub" && apiMode === "runninghub"/);
   assert.match(canvasStageSource, /const resultGridMatchesActiveApiSource = displayBatchSlots\.every/);

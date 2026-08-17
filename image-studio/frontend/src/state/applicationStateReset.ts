@@ -144,6 +144,7 @@ export function createApplicationResetPatch(workspace: Workspace): Partial<Studi
     annotations: [],
     undoStack: [],
     redoStack: [],
+    workspacePromptOperations: {},
     compareB: null,
     compareMode: "curtain",
     compareSplit: 0.5,

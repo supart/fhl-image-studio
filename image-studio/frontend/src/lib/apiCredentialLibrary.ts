@@ -65,6 +65,10 @@ export function hasActiveAPIWork(input: {
   fhlTextAPITestStatus?: string;
   isOptimizingPrompt?: boolean;
   isReversingPrompt?: boolean;
+  workspacePromptOperations?: Record<string, {
+    isOptimizingPrompt?: boolean;
+    isReversingPrompt?: boolean;
+  }>;
   jobGroupsByWorkspace?: Record<string, Array<{
     statusSummary?: { queued?: number; running?: number };
     slots?: Array<{ status?: string }>;
@@ -79,6 +83,9 @@ export function hasActiveAPIWork(input: {
     || input.isReversingPrompt
     || Object.keys(input.runningJobMeta ?? {}).length > 0
   ) return true;
+  if (Object.values(input.workspacePromptOperations ?? {}).some((operation) => (
+    operation.isOptimizingPrompt || operation.isReversingPrompt
+  ))) return true;
   if (Object.values(input.batchTasksById).some((task) => (
     task.status === "queued" || task.status === "running" || task.launchState === "submitting"
   ))) return true;

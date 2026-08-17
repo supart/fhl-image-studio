@@ -31,7 +31,13 @@ import {
   toPreviewOnlyHistoryItem,
   withMediaAssetRef,
 } from "./studioStore.runtime";
-import { patchWorkspaceRuntime } from "./workspaceRuntime";
+import { patchWorkspaceRuntime, type WorkspacePatch } from "./workspaceRuntime";
+import {
+  captureWorkspaceAction,
+  isWorkspaceActionCurrent,
+  settleWorkspaceAction,
+  type WorkspaceActionToken,
+} from "./workspaceActionTokens.ts";
 import { genId, persistTrimmedHistory, trimHistory } from "./studioStore.shared";
 import {
   setSharedEditAutoAspectLock,
@@ -42,6 +48,31 @@ type StateAdapter = {
   getState: () => StudioState;
   setState: (patch: Partial<StudioState> | ((state: StudioState) => Partial<StudioState>)) => void;
 };
+
+function workspaceIds(state: StudioState): string[] {
+  return state.workspaces.map((workspace) => workspace.id);
+}
+
+function actionIsCurrent(store: StateAdapter, token: WorkspaceActionToken): boolean {
+  const state = store.getState();
+  return !state.isResettingApplication && isWorkspaceActionCurrent(token, workspaceIds(state));
+}
+
+function scopedWorkspacePatch(
+  state: StudioState,
+  workspaceId: string,
+  workspacePatch: WorkspacePatch,
+  activePatch: Partial<StudioState>,
+): Partial<StudioState> {
+  return {
+    workspaces: patchWorkspaceRuntime(state.workspaces, workspaceId, workspacePatch),
+    ...(state.activeWorkspaceId === workspaceId ? activePatch : {}),
+  };
+}
+
+function settleAction(store: StateAdapter, token: WorkspaceActionToken): void {
+  settleWorkspaceAction(token, workspaceIds(store.getState()));
+}
 
 type ImportImageFileOptions = {
   forcePanorama?: boolean;
@@ -126,19 +157,24 @@ export function createImageActions(store: StateAdapter) {
 
   return {
     async selectSourceImage() {
+      const workspaceId = store.getState().activeWorkspaceId;
+      const token = captureWorkspaceAction(workspaceId, "select-source", { supersede: true });
       try {
         const res = await OpenImageDialog();
-        if (!res || !res.path) return;
+        if (!res || !res.path || !actionIsCurrent(store, token)) return;
         const baseName = res.name || res.path.split(/[\\/]/).pop() || res.path;
         const currentState = store.getState();
-        const existing = currentState.sources;
-        const editSourceMode = editSourceModeAfterReferenceUpdate(currentState.editSourceMode);
+        const workspace = currentState.workspaces.find((entry) => entry.id === workspaceId);
+        if (!workspace) return;
+        const existing = workspace.sources;
+        const editSourceMode = editSourceModeAfterReferenceUpdate(workspace.editSourceMode);
         if (existing.some((source) => source.path === res.path)) {
-          store.setState({ mode: "edit", editSourceMode, errorMessage: null, errorRawPath: null });
+          store.setState((state) => scopedWorkspacePatch(state, workspaceId, {
+            mode: "edit", editSourceMode, errorMessage: null, errorRawPath: null,
+          }, { mode: "edit", editSourceMode, errorMessage: null, errorRawPath: null }));
           return;
         }
-        store.setState({
-          sources: [...existing, {
+        const sources = [...existing, {
             path: res.path,
             name: baseName,
             size: res.size,
@@ -147,123 +183,164 @@ export function createImageActions(store: StateAdapter) {
             imageB64: res.imageB64 || undefined,
             imageBlob: res.imageB64 ? base64ToBlob(res.imageB64) : null,
             previewUrl: res.previewUrl,
-          }],
-          mode: "edit",
-          editSourceMode,
-          errorMessage: null,
-          errorRawPath: null,
-        });
-        void syncSharedEditAutoAspect(store);
+          }];
+        store.setState((state) => scopedWorkspacePatch(state, workspaceId, {
+          sources, mode: "edit", editSourceMode, errorMessage: null, errorRawPath: null,
+        }, { sources, mode: "edit", editSourceMode, errorMessage: null, errorRawPath: null }));
+        void syncSharedEditAutoAspect(store, { workspaceId });
       } catch (error: any) {
-        store.setState({ errorMessage: `选择图片失败: ${error?.message ?? error}`, errorRawPath: null });
+        if (!actionIsCurrent(store, token)) return;
+        const errorMessage = `选择图片失败: ${error?.message ?? error}`;
+        store.setState((state) => scopedWorkspacePatch(state, workspaceId, { errorMessage, errorRawPath: null }, { errorMessage, errorRawPath: null }));
+      } finally {
+        settleAction(store, token);
       }
     },
 
     async selectBatchInputDir() {
+      const workspaceId = store.getState().activeWorkspaceId;
+      const token = captureWorkspaceAction(workspaceId, "select-batch-directory", { supersede: true });
       try {
         const result = await ChooseBatchInputDir();
-        if (!result?.directory) return;
-        store.setState((state) => ({
-          mode: "edit",
-          editSourceMode: "batch",
-          batchProcess: {
-            ...state.batchProcess,
+        if (!result?.directory || !actionIsCurrent(store, token)) return;
+        store.setState((state) => {
+          const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
+          if (!workspace) return {};
+          const batchProcess = {
+            ...workspace.batchProcess,
             inputDir: result.directory,
             discoveredSources: (result.images ?? []).map((item) => mapBatchSource(item, false)),
-          },
-          errorMessage: null,
-          errorRawPath: null,
-        }));
-        void syncSharedEditAutoAspect(store);
+          };
+          return scopedWorkspacePatch(state, workspaceId, {
+            mode: "edit", editSourceMode: "batch", batchProcess, errorMessage: null, errorRawPath: null,
+          }, { mode: "edit", editSourceMode: "batch", batchProcess, errorMessage: null, errorRawPath: null });
+        });
+        void syncSharedEditAutoAspect(store, { workspaceId });
       } catch (error: any) {
-        store.setState({ errorMessage: `选择批处理输入目录失败: ${error?.message ?? error}`, errorRawPath: null });
+        if (!actionIsCurrent(store, token)) return;
+        const errorMessage = `选择批处理输入目录失败: ${error?.message ?? error}`;
+        store.setState((state) => scopedWorkspacePatch(state, workspaceId, { errorMessage, errorRawPath: null }, { errorMessage, errorRawPath: null }));
+      } finally {
+        settleAction(store, token);
       }
     },
 
     async selectBatchInputFiles() {
+      const workspaceId = store.getState().activeWorkspaceId;
+      const token = captureWorkspaceAction(workspaceId, "select-batch-files", { supersede: true });
       try {
         const result = await OpenImagesDialog();
         const files = result?.files ?? [];
-        if (files.length === 0) return;
+        if (files.length === 0 || !actionIsCurrent(store, token)) return;
         store.setState((state) => {
-          const existing = new Map(state.batchProcess.discoveredSources.map((item) => [item.path, item]));
+          const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
+          if (!workspace) return {};
+          const existing = new Map(workspace.batchProcess.discoveredSources.map((item) => [item.path, item]));
           for (const file of files) {
             existing.set(file.path, mapBatchSource(file, true));
           }
           const inferredDirectory = commonDirectoryFromPaths(Array.from(existing.keys()));
-          return {
-            mode: "edit",
-            editSourceMode: "batch",
-            batchProcess: {
-              ...state.batchProcess,
-              inputDir: inferredDirectory || state.batchProcess.inputDir,
+          const batchProcess = {
+              ...workspace.batchProcess,
+              inputDir: inferredDirectory || workspace.batchProcess.inputDir,
               discoveredSources: Array.from(existing.values()),
-            },
-            errorMessage: null,
-            errorRawPath: null,
           };
+          return scopedWorkspacePatch(state, workspaceId, {
+            mode: "edit", editSourceMode: "batch", batchProcess, errorMessage: null, errorRawPath: null,
+          }, { mode: "edit", editSourceMode: "batch", batchProcess, errorMessage: null, errorRawPath: null });
         });
-        void syncSharedEditAutoAspect(store);
+        void syncSharedEditAutoAspect(store, { workspaceId });
       } catch (error: any) {
-        store.setState({ errorMessage: `选择批处理图片失败: ${error?.message ?? error}`, errorRawPath: null });
+        if (!actionIsCurrent(store, token)) return;
+        const errorMessage = `选择批处理图片失败: ${error?.message ?? error}`;
+        store.setState((state) => scopedWorkspacePatch(state, workspaceId, { errorMessage, errorRawPath: null }, { errorMessage, errorRawPath: null }));
+      } finally {
+        settleAction(store, token);
       }
     },
 
     async refreshBatchInputDir() {
-      const { batchProcess } = store.getState();
+      const initial = store.getState();
+      const workspaceId = initial.activeWorkspaceId;
+      const batchProcess = initial.workspaces.find((entry) => entry.id === workspaceId)?.batchProcess ?? initial.batchProcess;
       if (!batchProcess.inputDir.trim()) return;
+      const token = captureWorkspaceAction(workspaceId, "refresh-batch-directory", { supersede: true });
       try {
         const result = await ListBatchInputImages(batchProcess.inputDir);
-        store.setState((state) => ({
-          batchProcess: {
-            ...state.batchProcess,
-            inputDir: result.directory || state.batchProcess.inputDir,
+        if (!actionIsCurrent(store, token)) return;
+        store.setState((state) => {
+          const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
+          if (!workspace) return {};
+          const nextBatchProcess = {
+            ...workspace.batchProcess,
+            inputDir: result.directory || workspace.batchProcess.inputDir,
             discoveredSources: (result.images ?? []).map((item) => {
-              const existing = state.batchProcess.discoveredSources.find((source) => source.path === item.path);
+              const existing = workspace.batchProcess.discoveredSources.find((source) => source.path === item.path);
               return mapBatchSource(item, existing?.selected !== false);
             }),
-          },
-          errorMessage: null,
-          errorRawPath: null,
-        }));
-        void syncSharedEditAutoAspect(store);
+          };
+          return scopedWorkspacePatch(state, workspaceId, {
+            batchProcess: nextBatchProcess, errorMessage: null, errorRawPath: null,
+          }, { batchProcess: nextBatchProcess, errorMessage: null, errorRawPath: null });
+        });
+        void syncSharedEditAutoAspect(store, { workspaceId });
       } catch (error: any) {
-        store.setState({ errorMessage: `刷新批处理输入目录失败: ${error?.message ?? error}`, errorRawPath: null });
+        if (!actionIsCurrent(store, token)) return;
+        const errorMessage = `刷新批处理输入目录失败: ${error?.message ?? error}`;
+        store.setState((state) => scopedWorkspacePatch(state, workspaceId, { errorMessage, errorRawPath: null }, { errorMessage, errorRawPath: null }));
+      } finally {
+        settleAction(store, token);
       }
     },
 
     async chooseBatchOutputDir() {
+      const workspaceId = store.getState().activeWorkspaceId;
+      const token = captureWorkspaceAction(workspaceId, "select-batch-output", { supersede: true });
       try {
         const chosen = await ChooseBatchOutputDir();
-        if (!String(chosen || "").trim()) return;
-        store.setState((state) => ({
-          batchProcess: {
-            ...state.batchProcess,
+        if (!String(chosen || "").trim() || !actionIsCurrent(store, token)) return;
+        store.setState((state) => {
+          const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
+          if (!workspace) return {};
+          const batchProcess = {
+            ...workspace.batchProcess,
             outputMode: "custom_dir",
             outputDir: String(chosen).trim(),
-          },
-          errorMessage: null,
-          errorRawPath: null,
-        }));
+          } as const;
+          return scopedWorkspacePatch(state, workspaceId, {
+            batchProcess, errorMessage: null, errorRawPath: null,
+          }, { batchProcess, errorMessage: null, errorRawPath: null });
+        });
       } catch (error: any) {
-        store.setState({ errorMessage: `选择批处理输出目录失败: ${error?.message ?? error}`, errorRawPath: null });
+        if (!actionIsCurrent(store, token)) return;
+        const errorMessage = `选择批处理输出目录失败: ${error?.message ?? error}`;
+        store.setState((state) => scopedWorkspacePatch(state, workspaceId, { errorMessage, errorRawPath: null }, { errorMessage, errorRawPath: null }));
+      } finally {
+        settleAction(store, token);
       }
     },
 
     async importSourceImageFile(file: File, options?: SourceImageImportOptions) {
+      const workspaceId = store.getState().activeWorkspaceId;
+      const token = captureWorkspaceAction(workspaceId, "import-source");
       try {
         if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) {
           store.setState({ errorMessage: `不支持的图片类型: ${file.type || "(未知)"}，请用 PNG/JPG/WebP`, errorRawPath: null });
           return;
         }
         const replaceSourcePath = String(options?.replaceSourcePath || "").trim();
-        if (replaceSourcePath && !store.getState().sources.some((source) => source.path === replaceSourcePath)) {
+        const initialWorkspace = store.getState().workspaces.find((entry) => entry.id === workspaceId);
+        if (!initialWorkspace) return;
+        if (replaceSourcePath && !initialWorkspace.sources.some((source) => source.path === replaceSourcePath)) {
           store.getState().pushToast("目标参考图已变化，未执行替换", "warn", 2800);
           return;
         }
         const b64 = await fileToBase64(file);
+        if (!actionIsCurrent(store, token)) return;
         const result = await ImportImageFromB64(b64, file.name);
+        if (!actionIsCurrent(store, token)) return;
         const ref = await RegisterImportedImageAsset(result.path).catch(() => null);
+        if (!actionIsCurrent(store, token)) return;
         const previewUrl = ref?.previewUrl || result.previewUrl;
         const legacyB64 = previewUrl ? "" : (result.imageB64 || b64);
         const currentState = store.getState();
@@ -277,16 +354,25 @@ export function createImageActions(store: StateAdapter) {
           imageBlob: legacyB64 ? base64ToBlob(legacyB64) : null,
           previewUrl,
         };
-        const update = applySourceImageImport(currentState.sources, imported, replaceSourcePath || undefined);
-        store.setState({
+        const workspace = currentState.workspaces.find((entry) => entry.id === workspaceId);
+        if (!workspace) return;
+        const update = applySourceImageImport(workspace.sources, imported, replaceSourcePath || undefined);
+        const editSourceMode = editSourceModeAfterReferenceUpdate(workspace.editSourceMode);
+        store.setState((state) => scopedWorkspacePatch(state, workspaceId, {
           sources: update.sources,
           mode: "edit",
-          editSourceMode: editSourceModeAfterReferenceUpdate(currentState.editSourceMode),
+          editSourceMode,
           errorMessage: null,
           errorRawPath: null,
-        });
+        }, {
+          sources: update.sources,
+          mode: "edit",
+          editSourceMode,
+          errorMessage: null,
+          errorRawPath: null,
+        }));
         if (update.outcome === "added" || update.outcome === "replaced") {
-          void syncSharedEditAutoAspect(store);
+          void syncSharedEditAutoAspect(store, { workspaceId });
         }
         if (update.outcome === "stale") {
           store.getState().pushToast("目标参考图已变化，未执行替换", "warn", 2800);
@@ -296,14 +382,20 @@ export function createImageActions(store: StateAdapter) {
           store.getState().pushToast(update.outcome === "replaced" ? "已替换参考图" : "已导入参考图", "success", 2200);
         }
       } catch (error: any) {
-        store.setState({ errorMessage: `导入参考图失败: ${error?.message ?? error}`, errorRawPath: null });
+        if (!actionIsCurrent(store, token)) return;
+        const errorMessage = `导入参考图失败: ${error?.message ?? error}`;
+        store.setState((state) => scopedWorkspacePatch(state, workspaceId, { errorMessage, errorRawPath: null }, { errorMessage, errorRawPath: null }));
+      } finally {
+        settleAction(store, token);
       }
     },
 
     async selectReversePromptImage() {
+      const workspaceId = store.getState().activeWorkspaceId;
+      const token = captureWorkspaceAction(workspaceId, "select-reverse-image", { supersede: true });
       try {
         const res = await OpenImageDialog();
-        if (!res || !res.path) return;
+        if (!res || !res.path || !actionIsCurrent(store, token)) return;
         const baseName = res.name || res.path.split(/[\\/]/).pop() || res.path;
         store.setState((state) => {
           const reversePromptImage = {
@@ -318,23 +410,33 @@ export function createImageActions(store: StateAdapter) {
             reversePromptImage,
             errorMessage: null,
             errorRawPath: null,
-            workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, { reversePromptImage }),
+            workspaces: patchWorkspaceRuntime(state.workspaces, workspaceId, { reversePromptImage }),
+            ...(state.activeWorkspaceId !== workspaceId ? { reversePromptImage: state.reversePromptImage } : {}),
           };
         });
       } catch (error: any) {
-        store.setState({ errorMessage: `选择反推图片失败: ${error?.message ?? error}`, errorRawPath: null });
+        if (!actionIsCurrent(store, token)) return;
+        const errorMessage = `选择反推图片失败: ${error?.message ?? error}`;
+        store.setState((state) => scopedWorkspacePatch(state, workspaceId, { errorMessage, errorRawPath: null }, { errorMessage, errorRawPath: null }));
+      } finally {
+        settleAction(store, token);
       }
     },
 
     async importReversePromptImageFile(file: File) {
+      const workspaceId = store.getState().activeWorkspaceId;
+      const token = captureWorkspaceAction(workspaceId, "import-reverse-image");
       try {
         if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) {
           store.setState({ errorMessage: `不支持的图片类型: ${file.type || "(未知)"}，请用 PNG/JPG/WebP`, errorRawPath: null });
           return;
         }
         const b64 = await fileToBase64(file);
+        if (!actionIsCurrent(store, token)) return;
         const result = await ImportImageFromB64(b64, file.name);
+        if (!actionIsCurrent(store, token)) return;
         const ref = await RegisterImportedImageAsset(result.path).catch(() => null);
+        if (!actionIsCurrent(store, token)) return;
         const previewUrl = ref?.previewUrl || result.previewUrl;
         const legacyB64 = previewUrl ? "" : (result.imageB64 || b64);
         store.setState((state) => {
@@ -350,12 +452,17 @@ export function createImageActions(store: StateAdapter) {
             reversePromptImage,
             errorMessage: null,
             errorRawPath: null,
-            workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, { reversePromptImage }),
+            workspaces: patchWorkspaceRuntime(state.workspaces, workspaceId, { reversePromptImage }),
+            ...(state.activeWorkspaceId !== workspaceId ? { reversePromptImage: state.reversePromptImage } : {}),
           };
         });
         store.getState().pushToast("已导入反推图片", "success", 2200);
       } catch (error: any) {
-        store.setState({ errorMessage: `导入反推图片失败: ${error?.message ?? error}`, errorRawPath: null });
+        if (!actionIsCurrent(store, token)) return;
+        const errorMessage = `导入反推图片失败: ${error?.message ?? error}`;
+        store.setState((state) => scopedWorkspacePatch(state, workspaceId, { errorMessage, errorRawPath: null }, { errorMessage, errorRawPath: null }));
+      } finally {
+        settleAction(store, token);
       }
     },
 
@@ -401,48 +508,76 @@ export function createImageActions(store: StateAdapter) {
     },
 
     async reuseAsSource(item: HistoryItem) {
+      const workspaceId = store.getState().activeWorkspaceId;
+      const token = captureWorkspaceAction(workspaceId, "reuse-history-source");
       let localItem = await materializeHistoryItem(item, {
-        setState: (fn) => store.setState((state) => fn(state)),
+        setState: (fn) => store.setState((state) => {
+          const patch = fn(state);
+          return state.activeWorkspaceId === workspaceId
+            ? patch
+            : { ...patch, currentImage: state.currentImage };
+        }),
       }).catch((e: any) => {
-        store.setState({ errorMessage: `源图准备失败: ${e?.message ?? e}`, errorRawPath: null });
+        if (!actionIsCurrent(store, token)) return null;
+        const errorMessage = `源图准备失败: ${e?.message ?? e}`;
+        store.setState((state) => scopedWorkspacePatch(state, workspaceId, { errorMessage, errorRawPath: null }, { errorMessage, errorRawPath: null }));
         return null;
       });
-      if (!localItem?.savedPath) return;
+      if (!localItem?.savedPath || !actionIsCurrent(store, token)) {
+        settleAction(store, token);
+        return;
+      }
       const savedPath = localItem.savedPath;
       if (!localItem.previewUrl && !localItem.previewBlob && !localItem.imageB64) {
         const ref = await RegisterImportedImageAsset(savedPath).catch(() => null);
+        if (!actionIsCurrent(store, token)) {
+          settleAction(store, token);
+          return;
+        }
         if (ref) localItem = withMediaAssetRef(localItem, ref);
       }
       const baseName = savedPath.split(/[\\/]/).pop() ?? "source.png";
-      const existing = store.getState().sources;
+      const workspace = store.getState().workspaces.find((entry) => entry.id === workspaceId);
+      if (!workspace) {
+        settleAction(store, token);
+        return;
+      }
+      const existing = workspace.sources;
       const alreadyIn = existing.some((source) => source.path === savedPath);
+      const sources = alreadyIn
+        ? existing
+        : [...existing, {
+            path: savedPath,
+            name: baseName,
+            size: 0,
+            width: Number.isFinite(Number(localItem.previewWidth)) ? Number(localItem.previewWidth) : undefined,
+            height: Number.isFinite(Number(localItem.previewHeight)) ? Number(localItem.previewHeight) : undefined,
+            imageBlob: localItem.previewUrl ? null : (localItem.previewBlob ?? localItem.imageBlob ?? null),
+            imageB64: localItem.previewUrl ? undefined : localItem.imageB64,
+            previewUrl: localItem.previewUrl,
+            panoramaRoundtrip: localItem.panoramaRoundtrip,
+            panoramaProject: localItem.panoramaProject,
+          }];
+      const currentImage = toPreviewOnlyHistoryItem(localItem);
       store.setState((state) => ({
-        mode: "edit",
-        editSourceMode: editSourceModeAfterReferenceUpdate(state.editSourceMode),
-        currentImage: toPreviewOnlyHistoryItem(localItem),
-        resultGridOpen: false,
-        historyGalleryOpen: false,
-        sources: alreadyIn
-          ? existing
-          : [...existing, {
-              path: savedPath,
-              name: baseName,
-              size: 0,
-              width: Number.isFinite(Number(localItem.previewWidth)) ? Number(localItem.previewWidth) : undefined,
-              height: Number.isFinite(Number(localItem.previewHeight)) ? Number(localItem.previewHeight) : undefined,
-              imageBlob: localItem.previewUrl ? null : (localItem.previewBlob ?? localItem.imageBlob ?? null),
-              imageB64: localItem.previewUrl ? undefined : localItem.imageB64,
-              previewUrl: localItem.previewUrl,
-              panoramaRoundtrip: localItem.panoramaRoundtrip,
-              panoramaProject: localItem.panoramaProject,
-            }],
-        workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, {
+        ...scopedWorkspacePatch(state, workspaceId, {
+          mode: "edit",
+          editSourceMode: editSourceModeAfterReferenceUpdate(workspace.editSourceMode),
+          sources,
           currentImageId: localItem.id,
           resultGridOpen: false,
           historyGalleryOpen: false,
+        }, {
+        mode: "edit",
+        editSourceMode: editSourceModeAfterReferenceUpdate(workspace.editSourceMode),
+        currentImage,
+        resultGridOpen: false,
+        historyGalleryOpen: false,
+        sources,
         }),
       }));
-      void syncSharedEditAutoAspect(store);
+      settleAction(store, token);
+      void syncSharedEditAutoAspect(store, { workspaceId });
     },
 
     applyHistoryParams(item: HistoryItem) {
@@ -466,7 +601,6 @@ export function createImageActions(store: StateAdapter) {
 
     async regenerateFromHistory(item: HistoryItem) {
       this.applyHistoryParams(item);
-      await Promise.resolve();
       await store.getState().submit();
     },
 
@@ -546,6 +680,8 @@ export function createImageActions(store: StateAdapter) {
     },
 
     async importImageFile(file: File) {
+      const workspaceId = store.getState().activeWorkspaceId;
+      const token = captureWorkspaceAction(workspaceId, "import-image");
       try {
         const options = arguments[1] as ImportImageFileOptions | undefined;
         if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) {
@@ -553,8 +689,11 @@ export function createImageActions(store: StateAdapter) {
           return;
         }
         const b64 = await fileToBase64(file);
+        if (!actionIsCurrent(store, token)) return;
         const result = await ImportImageFromB64(b64, file.name);
+        if (!actionIsCurrent(store, token)) return;
         const ref = await RegisterImportedImageAsset(result.path).catch(() => null);
+        if (!actionIsCurrent(store, token)) return;
         const legacyB64 = result.previewUrl || ref?.previewUrl ? "" : (result.imageB64 || b64);
         const legacyBlob = legacyB64 ? base64ToBlob(legacyB64) : null;
         const importedWidth = Number.isFinite(Number(result.previewWidth)) ? Number(result.previewWidth) : undefined;
@@ -583,18 +722,40 @@ export function createImageActions(store: StateAdapter) {
             panoramaProject: buildPanoramaProjectRef(importedItem, "source"),
           };
         }
-        const existingSources = store.getState().sources;
+        const workspace = store.getState().workspaces.find((entry) => entry.id === workspaceId);
+        if (!workspace) return;
+        const existingSources = workspace.sources;
         const alreadyIn = existingSources.some((source) => source.path === result.path);
         store.setState((state) => ({
+          ...scopedWorkspacePatch(state, workspaceId, {
+            currentImageId: importedItem.id,
+            ...(isPanoramaImport ? { batchResultIds: [importedItem.id] } : {}),
+            resultGridOpen: isPanoramaImport,
+            historyGalleryOpen: false,
+            mode: "edit",
+            editSourceMode: editSourceModeAfterReferenceUpdate(workspace.editSourceMode),
+            sources: alreadyIn
+              ? existingSources
+              : [...existingSources, {
+                  path: result.path,
+                  name: file.name,
+                  size: file.size,
+                  width: Number.isFinite(Number(result.previewWidth)) ? Number(result.previewWidth) : undefined,
+                  height: Number.isFinite(Number(result.previewHeight)) ? Number(result.previewHeight) : undefined,
+                  imageBlob: legacyBlob,
+                  imageB64: legacyB64 || undefined,
+                  previewUrl: importedItem.previewUrl,
+                  panoramaProject: importedItem.panoramaProject,
+                }],
+            errorMessage: null,
+            errorRawPath: null,
+          }, {
           currentImage: ref ? { ...importedItem, previewOnly: true } : importedItem,
-          history: isPanoramaImport
-            ? trimHistory([importedItem, ...state.history.filter((entry) => entry.id !== importedItem.id)])
-            : state.history,
           ...(isPanoramaImport ? { batchResults: [importedItem] } : {}),
           resultGridOpen: isPanoramaImport,
           historyGalleryOpen: false,
           mode: "edit",
-          editSourceMode: editSourceModeAfterReferenceUpdate(state.editSourceMode),
+          editSourceMode: editSourceModeAfterReferenceUpdate(workspace.editSourceMode),
           sources: alreadyIn
             ? existingSources
             : [...existingSources, {
@@ -610,20 +771,22 @@ export function createImageActions(store: StateAdapter) {
               }],
           errorMessage: null,
           errorRawPath: null,
-          workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, {
-            currentImageId: importedItem.id,
-            ...(isPanoramaImport ? { batchResultIds: [importedItem.id] } : {}),
-            resultGridOpen: isPanoramaImport,
-            historyGalleryOpen: false,
           }),
+          history: isPanoramaImport
+            ? trimHistory([importedItem, ...state.history.filter((entry) => entry.id !== importedItem.id)])
+            : state.history,
         }));
         if (isPanoramaImport) {
           await persistHistoryItem(importedItem).catch(() => undefined);
           persistTrimmedHistory(store.getState().history);
         }
-        void syncSharedEditAutoAspect(store);
+        void syncSharedEditAutoAspect(store, { workspaceId });
       } catch (e: any) {
-        store.setState({ errorMessage: `导入失败: ${e?.message ?? e}`, errorRawPath: null });
+        if (!actionIsCurrent(store, token)) return;
+        const errorMessage = `导入失败: ${e?.message ?? e}`;
+        store.setState((state) => scopedWorkspacePatch(state, workspaceId, { errorMessage, errorRawPath: null }, { errorMessage, errorRawPath: null }));
+      } finally {
+        settleAction(store, token);
       }
     },
   };

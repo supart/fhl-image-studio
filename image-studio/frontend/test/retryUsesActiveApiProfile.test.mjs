@@ -57,7 +57,10 @@ test("switching API profiles keeps batch previews visible", () => {
   assert.match(setActiveProfileBlock, /activeProfileRuntimePatch\(profile, before\.fhlTransportMode\)/);
   assert.doesNotMatch(setActiveProfileBlock, /resultGridOpen:\s*false/);
   assert.doesNotMatch(setActiveProfileBlock, /selectedBatchTaskId:\s*null/);
-  assert.doesNotMatch(setActiveProfileBlock, /patchWorkspaceRuntime/);
+  assert.match(
+    setActiveProfileBlock,
+    /patchWorkspaceRuntime\(before\.workspaces, workspaceId, \{ activeProfileId: id \}\)/,
+  );
 });
 
 test("header FHL entry opens one group configuration without switching profiles", () => {

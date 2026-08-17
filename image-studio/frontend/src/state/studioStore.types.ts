@@ -6,7 +6,6 @@ import type {
   BatchProcessConfig,
   BatchTaskRecord,
   EditSourceMode,
-  FHLTransportMode,
   HistoryGallerySort,
   HistoryItem,
   JobGroupSnapshot,
@@ -47,10 +46,16 @@ export interface ModeConfig {
 
 export type CompareMode = "curtain" | "sideBySide";
 
-export type { FHLTransportMode, ReversePromptImage } from "../types/domain";
+export type FHLTransportMode = "images" | "responses";
+export type { ReversePromptImage } from "../types/domain";
 
 export interface SourceImageImportOptions {
   replaceSourcePath?: string;
+}
+
+export interface WorkspacePromptOperationState {
+  isOptimizingPrompt: boolean;
+  isReversingPrompt: boolean;
 }
 
 export interface PromptOptimizeRequest {
@@ -328,6 +333,7 @@ export interface StudioState {
   isResettingApplication: boolean;
   isOptimizingPrompt: boolean;
   isReversingPrompt: boolean;
+  workspacePromptOperations: Record<string, WorkspacePromptOperationState>;
   optimizePrompt: (options?: { useGuidance?: boolean }) => Promise<void>;
   reversePromptFromImage: () => Promise<void>;
   upstreamModalOpen: boolean;

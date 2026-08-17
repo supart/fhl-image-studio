@@ -22,10 +22,10 @@ test("reference updates preserve an enabled batch image-to-image mode", () => {
   const reuseAsSource = actionBlock("async reuseAsSource(item: HistoryItem)", "applyHistoryParams(item: HistoryItem)");
   const importImageFile = actionBlock("async importImageFile(file: File)", "\n  };");
 
-  assert.match(selectSourceImage, /editSourceModeAfterReferenceUpdate\(currentState\.editSourceMode\)/);
-  assert.match(importSourceImageFile, /editSourceModeAfterReferenceUpdate\(currentState\.editSourceMode\)/);
-  assert.match(reuseAsSource, /editSourceModeAfterReferenceUpdate\(state\.editSourceMode\)/);
-  assert.match(importImageFile, /editSourceModeAfterReferenceUpdate\(state\.editSourceMode\)/);
+  assert.match(selectSourceImage, /editSourceModeAfterReferenceUpdate\(workspace\.editSourceMode\)/);
+  assert.match(importSourceImageFile, /editSourceModeAfterReferenceUpdate\(workspace\.editSourceMode\)/);
+  assert.match(reuseAsSource, /editSourceModeAfterReferenceUpdate\(workspace\.editSourceMode\)/);
+  assert.match(importImageFile, /editSourceModeAfterReferenceUpdate\(workspace\.editSourceMode\)/);
 });
 
 test("removing the last edit source keeps image-to-image mode active", () => {

@@ -655,12 +655,14 @@ export function CanvasStage() {
   const handleCurrentImageLoadError = useCallback((failedSrc: string) => {
     if (!currentImage?.savedPath || currentImage.imageB64 || currentImage.imageBlob) return;
     const selectedId = currentImage.id;
+    const workspaceId = useStudioStore.getState().activeWorkspaceId;
     const savedPath = currentImage.savedPath;
     const originalFullUrl = currentImage.fullUrl || "";
     const originalImageId = currentImage.imageId || "";
 
     void (async () => {
       const materialized = await useStudioStore.getState().materializeCurrentImage(currentImage).catch(() => null);
+      if (useStudioStore.getState().activeWorkspaceId !== workspaceId) return;
       const latestAfterMaterialize = useStudioStore.getState().currentImage;
       if (latestAfterMaterialize?.id !== selectedId) return;
       if (materialized) {
@@ -677,6 +679,7 @@ export function CanvasStage() {
       }
 
       const imported = await ImportImagePath(savedPath).catch(() => null);
+      if (useStudioStore.getState().activeWorkspaceId !== workspaceId) return;
       if (imported?.path) {
         const latest = useStudioStore.getState().currentImage;
         if (latest?.id !== selectedId) return;
@@ -700,6 +703,7 @@ export function CanvasStage() {
 
       const readablePath = imported?.path || savedPath;
       const imageB64 = await ReadImageAsBase64(readablePath).catch(() => "");
+      if (useStudioStore.getState().activeWorkspaceId !== workspaceId) return;
       if (!imageB64) return;
       const latest = useStudioStore.getState().currentImage;
       if (latest?.id !== selectedId) return;
@@ -749,8 +753,10 @@ export function CanvasStage() {
 
     let cancelled = false;
     const selectedId = currentImage.id;
+    const workspaceId = useStudioStore.getState().activeWorkspaceId;
     void useStudioStore.getState().materializeCurrentImage(currentImage).then((full) => {
       if (cancelled || !full || full.previewOnly) return;
+      if (useStudioStore.getState().activeWorkspaceId !== workspaceId) return;
       if (useStudioStore.getState().currentImage?.id !== selectedId) return;
       setField("currentImage", full);
     }).catch(() => undefined);
@@ -1597,5 +1603,4 @@ export function CanvasStage() {
     </>
   );
 }
-
 

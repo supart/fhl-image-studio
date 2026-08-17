@@ -220,6 +220,14 @@ import { createBrowserTaskLifecycle } from "./studioStore.browserTaskLifecycle";
 import { createWorkspaceActions } from "./studioStore.workspaces";
 import { createImageActions } from "./studioStore.images";
 import {
+  captureWorkspaceAction,
+  invalidateWorkspaceActions,
+  isWorkspaceActionCurrent,
+  resetWorkspaceActions,
+  settleWorkspaceAction,
+  type WorkspaceActionToken,
+} from "./workspaceActionTokens.ts";
+import {
   APPLICATION_SETTINGS_DEFAULTS,
   applyApplicationSettingsRuntime,
   createSettingsActions,
@@ -352,6 +360,47 @@ const AUTO_RETRY_DELAY_MS = 15_000;
 const AUTO_RETRY_MAX_COUNT = 1;
 const TRANSIENT_FAILURE_WINDOW_MS = 2 * 60_000;
 const TEMPORARY_CONCURRENCY_CAP_MS = 10 * 60_000;
+
+function knownWorkspaceIds(state: Pick<StudioState, "workspaces">): string[] {
+  return state.workspaces.map((workspace) => workspace.id);
+}
+
+function workspacePromptOperationPatch(
+  state: StudioState,
+  workspaceId: string,
+  patch: Partial<StudioState["workspacePromptOperations"][string]>,
+): Partial<StudioState> {
+  const current = state.workspacePromptOperations[workspaceId] ?? {
+    isOptimizingPrompt: false,
+    isReversingPrompt: false,
+  };
+  const next = { ...current, ...patch };
+  return {
+    workspacePromptOperations: {
+      ...state.workspacePromptOperations,
+      [workspaceId]: next,
+    },
+    ...(state.activeWorkspaceId === workspaceId ? next : {}),
+  };
+}
+
+function workspacePromptResultPatch(
+  state: StudioState,
+  workspaceId: string,
+  workspacePatch: WorkspacePatch,
+  activePatch: Partial<StudioState>,
+): Partial<StudioState> {
+  return {
+    workspaces: patchWorkspaceRuntime(state.workspaces, workspaceId, workspacePatch),
+    ...(state.activeWorkspaceId === workspaceId ? activePatch : {}),
+  };
+}
+
+function workspaceActionStillCurrent(token: WorkspaceActionToken): boolean {
+  const state = useStudioStore.getState();
+  return !state.isResettingApplication
+    && isWorkspaceActionCurrent(token, knownWorkspaceIds(state));
+}
 
 function persistWorkspaceSessionFromState(state: StudioState) {
   const workspaces = saveActiveWorkspaceSnapshot(state).map((workspace) => ({
@@ -4026,6 +4075,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   isResettingApplication: false,
   isOptimizingPrompt: false,
   isReversingPrompt: false,
+  workspacePromptOperations: {},
   upstreamModalOpen: false,
   upstreamReturnTarget: "app",
   openUpstreamConfig: (returnTarget = "app") => set({
@@ -4067,6 +4117,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       return;
     }
     const workspaceId = state.activeWorkspaceId;
+    invalidateWorkspaceActions(workspaceId);
     const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
     const preservedTaskIds = activeBatchTaskIdsForReset(workspaceId, workspace?.batchTaskIds ?? [], state.batchTasksById);
     const taskPatch = taskRuntimePatchForWorkspace(workspaceId, preservedTaskIds, state.batchTasksById);
@@ -4172,6 +4223,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         throw new Error("当前仍有运行、排队、连接测试或提示词任务，结束后才能恢复默认。");
       }
       applicationStateEpoch.advance();
+      resetWorkspaceActions();
       set({ isResettingApplication: true });
       browserTaskLifecycle.reset();
       desktopJobLifecycleRegistry.reset();
@@ -5168,6 +5220,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         isTestingKey: false,
         isOptimizingPrompt: false,
         isReversingPrompt: false,
+        workspacePromptOperations: {},
         upstreamModalOpen: false,
         upstreamReturnTarget: "app",
         starPromptOpen: false,
@@ -5703,6 +5756,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       activeProfileId: restoredActiveProfile?.id ?? "",
       workspaces: restoredWorkspaces,
       activeWorkspaceId: restoredActiveWorkspace.id,
+      workspacePromptOperations: {},
+      isOptimizingPrompt: false,
+      isReversingPrompt: false,
       // Android WebView restores with a compact hero state to avoid layout jumps.
       settingsOpen: shouldAutoOpenSettings,
       upstreamModalOpen: false,
@@ -6068,27 +6124,37 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const s = get();
     if (s.isOptimizingPrompt || s.isReversingPrompt) return;
     if (s.isResettingApplication) return;
-    const optimizeProfile = await resolvePromptTextProfile(s);
-    if (!optimizeProfile.apiKey) {
-      s.pushToast("请先配置用于 Prompt 优化的 API Key", "warn");
-      return;
-    }
-    if (!optimizeProfile.baseURL) {
-      s.pushToast("Prompt optimization requires a Responses API profile", "warn", 5000);
-      return;
-    }
     if (!s.prompt.trim()) {
       s.pushToast("请先输入 prompt", "warn");
       return;
     }
+    const workspaceId = s.activeWorkspaceId;
+    const token = captureWorkspaceAction(workspaceId, "optimize-prompt", { supersede: true });
     const sourcePaths = s.mode === "edit"
       ? s.sources.map((src) => src.path).filter(Boolean)
       : [];
     if (s.mode === "edit" && sourcePaths.length === 0 && s.currentImage?.savedPath) {
       sourcePaths.push(s.currentImage.savedPath);
     }
-    set({ isOptimizingPrompt: true, errorMessage: null, errorRawPath: null });
+    set((state) => ({
+      ...workspacePromptResultPatch(state, workspaceId, { errorMessage: null, errorRawPath: null }, {
+        errorMessage: null,
+        errorRawPath: null,
+      }),
+      ...workspacePromptOperationPatch(state, workspaceId, { isOptimizingPrompt: true }),
+    }));
+    let optimizeProfile: Awaited<ReturnType<typeof resolvePromptTextProfile>> | null = null;
     try {
+      optimizeProfile = await resolvePromptTextProfile(s);
+      if (!workspaceActionStillCurrent(token)) return;
+      if (!optimizeProfile.apiKey) {
+        get().pushToast("请先配置用于 Prompt 优化的 API Key", "warn");
+        return;
+      }
+      if (!optimizeProfile.baseURL) {
+        get().pushToast("Prompt optimization requires a Responses API profile", "warn", 5000);
+        return;
+      }
       const optimized = await wailsOptimizePrompt({
         apiKey: optimizeProfile.apiKey,
         prompt: s.prompt,
@@ -6105,14 +6171,25 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       if (!trimmed) {
         throw new Error("Prompt optimization returned empty text");
       }
-      set({ prompt: trimmed });
-      s.pushToast("Prompt optimization imported into the editor", "success");
+      if (!workspaceActionStillCurrent(token)) return;
+      set((state) => workspacePromptResultPatch(state, workspaceId, { prompt: trimmed }, { prompt: trimmed }));
+      get().pushToast("Prompt optimization imported into the editor", "success");
     } catch (e: any) {
+      if (!workspaceActionStillCurrent(token)) return;
+      if (!optimizeProfile) return;
       const msg = promptOptimizeFailureMessage(e, optimizeProfile);
-      set({ errorMessage: msg, errorRawPath: null });
-      s.pushToast(msg, "error", 6000);
+      set((state) => workspacePromptResultPatch(state, workspaceId, {
+        errorMessage: msg,
+        errorRawPath: null,
+      }, {
+        errorMessage: msg,
+        errorRawPath: null,
+      }));
+      get().pushToast(msg, "error", 6000);
     } finally {
-      set({ isOptimizingPrompt: false });
+      if (settleWorkspaceAction(token, knownWorkspaceIds(get()))) {
+        set((state) => workspacePromptOperationPatch(state, workspaceId, { isOptimizingPrompt: false }));
+      }
     }
   },
 
@@ -6120,67 +6197,84 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const s = get();
     if (s.isOptimizingPrompt || s.isReversingPrompt) return;
     if (s.isResettingApplication) return;
-    const reverseProfile = await resolvePromptTextProfile(s);
-    if (!reverseProfile.apiKey) {
-      s.pushToast("请先配置用于反推提示词的 API Key", "warn");
-      return;
-    }
-    if (!reverseProfile.baseURL) {
-      s.pushToast("Reverse prompt requires a Responses API profile", "warn", 5000);
-      return;
-    }
+    const workspaceId = s.activeWorkspaceId;
+    const token = captureWorkspaceAction(workspaceId, "reverse-prompt", { supersede: true });
+    set((state) => ({
+      ...workspacePromptResultPatch(state, workspaceId, { errorMessage: null, errorRawPath: null }, {
+        errorMessage: null,
+        errorRawPath: null,
+      }),
+      ...workspacePromptOperationPatch(state, workspaceId, { isReversingPrompt: true }),
+    }));
+    let reverseProfile: Awaited<ReturnType<typeof resolvePromptTextProfile>> | null = null;
 
     const sourcePaths: string[] = [];
     const sourceImages: PromptReverseRequest["sourceImages"] = [];
     let current = s.currentImage;
-    if (current?.previewOnly) {
-      const materialized = await materializeHistoryItem(current).catch(() => null);
-      if (materialized) {
-        if (useStudioStore.getState().currentImage?.id === current.id) {
-          set({ currentImage: materialized });
-        }
-        current = materialized;
-      }
-    }
-    if (s.reversePromptImage?.path) {
-      sourcePaths.push(s.reversePromptImage.path);
-    } else if (current?.savedPath) {
-      sourcePaths.push(current.savedPath);
-    } else if (s.sources[0]?.path) {
-      sourcePaths.push(s.sources[0].path);
-    }
-    if (sourcePaths.length === 0) {
-      if (s.reversePromptImage?.imageB64 || s.reversePromptImage?.imageBlob) {
-        sourceImages.push({
-          path: s.reversePromptImage.path,
-          name: s.reversePromptImage.name,
-          imageB64: s.reversePromptImage.imageB64 || null,
-          imageBlob: s.reversePromptImage.imageBlob || null,
-        });
-      } else if (current?.imageB64 || current?.imageBlob) {
-        sourceImages.push({
-          path: current.savedPath || "",
-          name: "current-image.png",
-          imageB64: current.imageB64 || null,
-          imageBlob: current.imageBlob || null,
-        });
-      } else if (s.sources[0]?.imageB64 || s.sources[0]?.imageBlob) {
-        const first = s.sources[0];
-        sourceImages.push({
-          path: first.path,
-          name: first.name,
-          imageB64: first.imageB64 || null,
-          imageBlob: first.imageBlob || null,
-        });
-      }
-    }
-    if (sourcePaths.length === 0 && sourceImages.length === 0) {
-      s.pushToast("Select an image before applying history params", "warn", 3600);
-      return;
-    }
-
-    set({ isReversingPrompt: true, errorMessage: null, errorRawPath: null });
     try {
+      reverseProfile = await resolvePromptTextProfile(s);
+      if (!workspaceActionStillCurrent(token)) return;
+      if (!reverseProfile.apiKey) {
+        get().pushToast("请先配置用于反推提示词的 API Key", "warn");
+        return;
+      }
+      if (!reverseProfile.baseURL) {
+        get().pushToast("Reverse prompt requires a Responses API profile", "warn", 5000);
+        return;
+      }
+      if (current?.previewOnly) {
+        const materialized = await materializeHistoryItemRuntime(current, {
+          setState: (fn) => set((state) => {
+            const patch = fn(state);
+            return state.activeWorkspaceId === workspaceId
+              ? patch
+              : { ...patch, currentImage: state.currentImage };
+          }),
+        }).catch(() => null);
+        if (!workspaceActionStillCurrent(token)) return;
+        if (materialized) {
+          if (get().activeWorkspaceId === workspaceId && get().currentImage?.id === current.id) {
+            set({ currentImage: materialized });
+          }
+          current = materialized;
+        }
+      }
+      if (s.reversePromptImage?.path) {
+        sourcePaths.push(s.reversePromptImage.path);
+      } else if (current?.savedPath) {
+        sourcePaths.push(current.savedPath);
+      } else if (s.sources[0]?.path) {
+        sourcePaths.push(s.sources[0].path);
+      }
+      if (sourcePaths.length === 0) {
+        if (s.reversePromptImage?.imageB64 || s.reversePromptImage?.imageBlob) {
+          sourceImages.push({
+            path: s.reversePromptImage.path,
+            name: s.reversePromptImage.name,
+            imageB64: s.reversePromptImage.imageB64 || null,
+            imageBlob: s.reversePromptImage.imageBlob || null,
+          });
+        } else if (current?.imageB64 || current?.imageBlob) {
+          sourceImages.push({
+            path: current.savedPath || "",
+            name: "current-image.png",
+            imageB64: current.imageB64 || null,
+            imageBlob: current.imageBlob || null,
+          });
+        } else if (s.sources[0]?.imageB64 || s.sources[0]?.imageBlob) {
+          const first = s.sources[0];
+          sourceImages.push({
+            path: first.path,
+            name: first.name,
+            imageB64: first.imageB64 || null,
+            imageBlob: first.imageBlob || null,
+          });
+        }
+      }
+      if (sourcePaths.length === 0 && sourceImages.length === 0) {
+        get().pushToast("Select an image before applying history params", "warn", 3600);
+        return;
+      }
       const reversed = await wailsReversePrompt({
         apiKey: reverseProfile.apiKey,
         baseURL: reverseProfile.baseURL,
@@ -6195,17 +6289,29 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       if (!trimmed) {
         throw new Error("Reverse prompt returned empty text");
       }
-      set({ prompt: trimmed });
-      s.pushToast("Reverse prompt imported into the editor", "success");
+      if (!workspaceActionStillCurrent(token)) return;
+      set((state) => workspacePromptResultPatch(state, workspaceId, { prompt: trimmed }, { prompt: trimmed }));
+      get().pushToast("Reverse prompt imported into the editor", "success");
     } catch (e: any) {
+      if (!workspaceActionStillCurrent(token)) return;
+      if (!reverseProfile) return;
       const detail = isOfficialFHLProfile({ apiMode: "responses", baseURL: reverseProfile.baseURL })
         ? formatFHLTextAPIError(e)
         : String(e?.message ?? e);
       const msg = `反推提示词失败：${detail}`;
-      set({ errorMessage: msg, errorRawPath: typeof e?.rawPath === "string" && e.rawPath ? e.rawPath : null });
-      s.pushToast(msg, "error", 6000);
+      const errorRawPath = typeof e?.rawPath === "string" && e.rawPath ? e.rawPath : null;
+      set((state) => workspacePromptResultPatch(state, workspaceId, {
+        errorMessage: msg,
+        errorRawPath,
+      }, {
+        errorMessage: msg,
+        errorRawPath,
+      }));
+      get().pushToast(msg, "error", 6000);
     } finally {
-      set({ isReversingPrompt: false });
+      if (settleWorkspaceAction(token, knownWorkspaceIds(get()))) {
+        set((state) => workspacePromptOperationPatch(state, workspaceId, { isReversingPrompt: false }));
+      }
     }
   },
 

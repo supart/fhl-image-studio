@@ -35,15 +35,59 @@ import {
   primaryCompareSourceFromCurrentImage,
 } from "./compareSourceSelection";
 import { sourceContextPatchFromHistoryItem } from "./sourceContextSelection";
-import { patchWorkspaceRuntime } from "./workspaceRuntime";
+import { patchWorkspaceRuntime, type WorkspacePatch } from "./workspaceRuntime";
 import { syncSharedEditAutoAspect } from "./sharedEditAutoAspect";
 import { applicationStateEpoch } from "./applicationStateReset.ts";
 import { recoverPanoramaHistoryMetadata } from "./panoramaRoundtripRecovery.ts";
+import {
+  captureWorkspaceAction,
+  isWorkspaceActionCurrent,
+  settleWorkspaceAction,
+  type WorkspaceActionToken,
+} from "./workspaceActionTokens.ts";
 
 type StateAdapter = {
   getState: () => StudioState;
   setState: (patch: Partial<StudioState> | ((state: StudioState) => Partial<StudioState>)) => void;
 };
+
+function workspaceIds(state: StudioState): string[] {
+  return state.workspaces.map((workspace) => workspace.id);
+}
+
+function actionIsCurrent(store: StateAdapter, token: WorkspaceActionToken): boolean {
+  const state = store.getState();
+  return !state.isResettingApplication && isWorkspaceActionCurrent(token, workspaceIds(state));
+}
+
+function scopedWorkspacePatch(
+  state: StudioState,
+  workspaceId: string,
+  workspacePatch: WorkspacePatch,
+  activePatch: Partial<StudioState>,
+): Partial<StudioState> {
+  return {
+    workspaces: patchWorkspaceRuntime(state.workspaces, workspaceId, workspacePatch),
+    ...(state.activeWorkspaceId === workspaceId ? activePatch : {}),
+  };
+}
+
+function scopedMaterializationSetter(
+  store: StateAdapter,
+  workspaceId: string,
+): (fn: (state: StudioState) => Partial<StudioState>) => void {
+  return (fn) => store.setState((state) => {
+    const patch = fn(state);
+    return state.activeWorkspaceId === workspaceId
+      ? patch
+      : {
+          ...patch,
+          currentImage: state.currentImage,
+          compareB: state.compareB,
+          batchResults: state.batchResults,
+        };
+  });
+}
 
 const TOAST_DEDUPE_MS = 6000;
 const toastLastShownAt = new Map<string, number>();
@@ -136,22 +180,56 @@ async function ensureAllHistoryLoaded(store: StateAdapter): Promise<void> {
 }
 
 export function createMediaActions(store: StateAdapter) {
+  async function transformCurrentImage(
+    transform: (path: string) => Promise<{ path: string; acceleration?: string }>,
+    successMessage: (result: { path: string; acceleration?: string }) => string,
+    failureLabel: string,
+  ): Promise<void> {
+    const initial = store.getState();
+    const workspaceId = initial.activeWorkspaceId;
+    let current = initial.currentImage;
+    if (!current) {
+      initial.pushToast("当前没有图片", "warn");
+      return;
+    }
+    const token = captureWorkspaceAction(workspaceId, "canvas-transform", { supersede: true });
+    try {
+      current = await materializeHistoryItem(current, {
+        setState: scopedMaterializationSetter(store, workspaceId),
+      });
+      if (!current?.savedPath || !actionIsCurrent(store, token)) return;
+      const result = await transform(current.savedPath);
+      if (!actionIsCurrent(store, token)) return;
+      await loadTransformedAsCurrent(store, result.path, workspaceId, token, current);
+      if (actionIsCurrent(store, token)) store.getState().pushToast(successMessage(result), "success");
+    } catch (error: any) {
+      if (actionIsCurrent(store, token)) {
+        store.getState().pushToast(`${failureLabel}:${error?.message ?? error}`, "error");
+      }
+    } finally {
+      settleWorkspaceAction(token, workspaceIds(store.getState()));
+    }
+  }
+
   return {
     async setCompareB(item: HistoryItem | null, mode?: CompareMode) {
       if (!item) {
         store.setState({ compareB: null, compareMode: "curtain", compareSplit: 0.5 });
         return;
       }
+      const workspaceId = store.getState().activeWorkspaceId;
+      const token = captureWorkspaceAction(workspaceId, "select-history-result");
       const full = await ensureFullHistoryItem(item, {
-        setState: (fn) => store.setState((state) => fn(state)),
+        setState: scopedMaterializationSetter(store, workspaceId),
       });
-      if (full) {
+      if (full && actionIsCurrent(store, token) && store.getState().activeWorkspaceId === workspaceId) {
         store.setState((state) => ({
           compareB: full,
           compareMode: mode ?? state.compareMode ?? "curtain",
           compareSplit: 0.5,
         }));
       }
+      settleWorkspaceAction(token, workspaceIds(store.getState()));
     },
 
     setCompareSplit(v: number) {
@@ -196,6 +274,8 @@ export function createMediaActions(store: StateAdapter) {
 
     async openCompareWithPrimarySource(mode: CompareMode = "curtain") {
       const state = store.getState();
+      const workspaceId = state.activeWorkspaceId;
+      const token = captureWorkspaceAction(workspaceId, "select-history-result");
       const workspace = state.workspaces.find((entry) => entry.id === state.activeWorkspaceId);
       const source = primaryCompareSourceFromCurrentImage(state.currentImage, workspace?.sources ?? []);
       if (!state.currentImage || !source) {
@@ -203,11 +283,16 @@ export function createMediaActions(store: StateAdapter) {
         return;
       }
       const compareItem = await materializeCompareSourceAsHistoryItem(source, state.currentImage);
+      if (!actionIsCurrent(store, token) || store.getState().activeWorkspaceId !== workspaceId) {
+        settleWorkspaceAction(token, workspaceIds(store.getState()));
+        return;
+      }
       if (!compareItem) {
         state.pushToast("当前原图暂时无法载入对比", "warn", 2200);
         return;
       }
       store.setState({ compareB: compareItem, compareMode: mode, compareSplit: 0.5 });
+      settleWorkspaceAction(token, workspaceIds(store.getState()));
     },
 
     openResultGrid() {
@@ -277,6 +362,8 @@ export function createMediaActions(store: StateAdapter) {
 
     async selectBatchResult(item: HistoryItem) {
       const state = store.getState();
+      const workspaceId = state.activeWorkspaceId;
+      const token = captureWorkspaceAction(workspaceId, "select-batch-result", { supersede: true });
       const sourceContextPatch = sourceContextPatchFromHistoryItem(state, item, null);
       store.setState({
         ...sourceContextPatch,
@@ -300,13 +387,16 @@ export function createMediaActions(store: StateAdapter) {
         }),
       });
       if ((sourceContextPatch.sources?.length ?? 0) > 0) {
-        void syncSharedEditAutoAspect(store);
+        void syncSharedEditAutoAspect(store, { workspaceId });
       }
       const selectedId = item.id;
       const full = await ensureFullBatchItem(item, {
-        setState: (fn) => store.setState((state) => fn(state)),
+        setState: scopedMaterializationSetter(store, workspaceId),
       });
-      if (store.getState().currentImage?.id !== selectedId) return;
+      if (!actionIsCurrent(store, token) || store.getState().activeWorkspaceId !== workspaceId || store.getState().currentImage?.id !== selectedId) {
+        settleWorkspaceAction(token, workspaceIds(store.getState()));
+        return;
+      }
       const current = store.getState();
       const fullSourceContextPatch = sourceContextPatchFromHistoryItem(current, full, null);
       store.setState({
@@ -323,8 +413,9 @@ export function createMediaActions(store: StateAdapter) {
         }),
       });
       if ((fullSourceContextPatch.sources?.length ?? 0) > 0) {
-        void syncSharedEditAutoAspect(store);
+        void syncSharedEditAutoAspect(store, { workspaceId });
       }
+      settleWorkspaceAction(token, workspaceIds(store.getState()));
     },
 
     async openHistoryGallery() {
@@ -458,6 +549,8 @@ export function createMediaActions(store: StateAdapter) {
 
     async selectHistoryGalleryResult(item: HistoryItem) {
       const state = store.getState();
+      const workspaceId = state.activeWorkspaceId;
+      const token = captureWorkspaceAction(workspaceId, "select-history-result", { supersede: true });
       const sourceContextPatch = sourceContextPatchFromHistoryItem(state, item, null);
       store.setState({
         ...sourceContextPatch,
@@ -481,13 +574,16 @@ export function createMediaActions(store: StateAdapter) {
         }),
       });
       if ((sourceContextPatch.sources?.length ?? 0) > 0) {
-        void syncSharedEditAutoAspect(store);
+        void syncSharedEditAutoAspect(store, { workspaceId });
       }
       const selectedId = item.id;
       const full = await ensureFullHistoryItem(item, {
-        setState: (fn) => store.setState((current) => fn(current)),
+        setState: scopedMaterializationSetter(store, workspaceId),
       });
-      if (store.getState().currentImage?.id !== selectedId) return;
+      if (!actionIsCurrent(store, token) || store.getState().activeWorkspaceId !== workspaceId || store.getState().currentImage?.id !== selectedId) {
+        settleWorkspaceAction(token, workspaceIds(store.getState()));
+        return;
+      }
       const current = store.getState();
       const resolved = full ?? item;
       const fullSourceContextPatch = sourceContextPatchFromHistoryItem(current, resolved, null);
@@ -505,8 +601,9 @@ export function createMediaActions(store: StateAdapter) {
         }),
       });
       if ((fullSourceContextPatch.sources?.length ?? 0) > 0) {
-        void syncSharedEditAutoAspect(store);
+        void syncSharedEditAutoAspect(store, { workspaceId });
       }
+      settleWorkspaceAction(token, workspaceIds(store.getState()));
     },
 
     pushToast(text: string, kind: Toast["kind"] = "info", ttl = 3500, action?: Toast["action"]) {
@@ -568,9 +665,12 @@ export function createMediaActions(store: StateAdapter) {
     },
 
     async materializeCurrentImage(item: HistoryItem) {
+      const workspaceId = store.getState().activeWorkspaceId;
+      const token = captureWorkspaceAction(workspaceId, "select-history-result");
       const full = await ensureFullHistoryItem(item, {
-        setState: (fn) => store.setState((state) => fn(state)),
+        setState: scopedMaterializationSetter(store, workspaceId),
       });
+      settleWorkspaceAction(token, workspaceIds(store.getState()));
       return full ?? item;
     },
 
@@ -690,69 +790,27 @@ export function createMediaActions(store: StateAdapter) {
     },
 
     async rotateCurrent(degrees: number) {
-      let current = store.getState().currentImage;
-      if (!current) {
-        store.getState().pushToast("当前没有图片", "warn");
-        return;
-      }
-      current = await materializeHistoryItem(current, {
-        setState: (fn) => store.setState((state) => fn(state)),
-      }).catch((e: any) => {
-        store.getState().pushToast(`当前图无法落盘:${e?.message ?? e}`, "error");
-        return null;
-      });
-      if (!current?.savedPath) return;
-      try {
-        const result = await RotateImage(current.savedPath, degrees);
-        await loadTransformedAsCurrent(store, result.path);
-        store.getState().pushToast(`已旋转 ${degrees}° · ${result.acceleration ?? "native"}`, "success");
-      } catch (e: any) {
-        store.getState().pushToast(`旋转失败:${e?.message ?? e}`, "error");
-      }
+      await transformCurrentImage(
+        (path) => RotateImage(path, degrees),
+        (result) => `已旋转 ${degrees}° · ${result.acceleration ?? "native"}`,
+        "旋转失败",
+      );
     },
 
     async flipCurrent(horizontal: boolean) {
-      let current = store.getState().currentImage;
-      if (!current) {
-        store.getState().pushToast("当前没有图片", "warn");
-        return;
-      }
-      current = await materializeHistoryItem(current, {
-        setState: (fn) => store.setState((state) => fn(state)),
-      }).catch((e: any) => {
-        store.getState().pushToast(`当前图无法落盘:${e?.message ?? e}`, "error");
-        return null;
-      });
-      if (!current?.savedPath) return;
-      try {
-        const result = await FlipImage(current.savedPath, horizontal);
-        await loadTransformedAsCurrent(store, result.path);
-        store.getState().pushToast(`${horizontal ? "已水平翻转" : "已竖直翻转"} · ${result.acceleration ?? "native"}`, "success");
-      } catch (e: any) {
-        store.getState().pushToast(`翻转失败:${e?.message ?? e}`, "error");
-      }
+      await transformCurrentImage(
+        (path) => FlipImage(path, horizontal),
+        (result) => `${horizontal ? "已水平翻转" : "已竖直翻转"} · ${result.acceleration ?? "native"}`,
+        "翻转失败",
+      );
     },
 
     async cropToRect(x: number, y: number, w: number, h: number) {
-      let current = store.getState().currentImage;
-      if (!current) {
-        store.getState().pushToast("当前没有图片", "warn");
-        return;
-      }
-      current = await materializeHistoryItem(current, {
-        setState: (fn) => store.setState((state) => fn(state)),
-      }).catch((e: any) => {
-        store.getState().pushToast(`当前图无法落盘:${e?.message ?? e}`, "error");
-        return null;
-      });
-      if (!current?.savedPath) return;
-      try {
-        const result = await CropImage(current.savedPath, Math.round(x), Math.round(y), Math.round(w), Math.round(h));
-        await loadTransformedAsCurrent(store, result.path);
-        store.getState().pushToast(`已裁出 ${Math.round(w)}×${Math.round(h)} · ${result.acceleration ?? "native"}`, "success");
-      } catch (e: any) {
-        store.getState().pushToast(`裁剪失败:${e?.message ?? e}`, "error");
-      }
+      await transformCurrentImage(
+        (path) => CropImage(path, Math.round(x), Math.round(y), Math.round(w), Math.round(h)),
+        (result) => `已裁出 ${Math.round(w)}×${Math.round(h)} · ${result.acceleration ?? "native"}`,
+        "裁剪失败",
+      );
     },
 
     savePreset(name: string) {
@@ -860,16 +918,25 @@ export function createMediaActions(store: StateAdapter) {
   };
 }
 
-async function loadTransformedAsCurrent(store: StateAdapter, path: string) {
+async function loadTransformedAsCurrent(
+  store: StateAdapter,
+  path: string,
+  workspaceId: string,
+  token: WorkspaceActionToken,
+  sourceCurrent: HistoryItem,
+) {
   const snapshot = store.getState();
   try {
     const baseName = path.split(/[\\/]/).pop() ?? "transformed.png";
     const ref = await RegisterImportedImageAsset(path).catch(() => null);
+    if (!actionIsCurrent(store, token)) return;
     const fallbackB64 = ref ? "" : await ReadImageAsBase64(path).catch(() => "");
-    const current = snapshot.currentImage;
-    const updated: HistoryItem = current
+    if (!actionIsCurrent(store, token)) return;
+    const workspace = store.getState().workspaces.find((entry) => entry.id === workspaceId);
+    if (!workspace) return;
+    const updated: HistoryItem = sourceCurrent
       ? withMediaAssetRef({
-          ...current,
+          ...sourceCurrent,
           imageB64: fallbackB64 || undefined,
           imageBlob: null,
           previewBlob: null,
@@ -892,12 +959,12 @@ async function loadTransformedAsCurrent(store: StateAdapter, path: string) {
           previewBlob: null,
           prompt: `(变换)${baseName}`,
           mode: "edit",
-          size: snapshot.size,
-          quality: snapshot.quality,
+          size: workspace.size,
+          quality: workspace.quality,
           createdAt: Date.now(),
           savedPath: path,
         };
-    const nextSources = snapshot.sources.length > 0
+    const nextSources = workspace.sources.length > 0
       ? [{
           path,
           name: baseName,
@@ -905,7 +972,7 @@ async function loadTransformedAsCurrent(store: StateAdapter, path: string) {
           previewUrl: updated.previewUrl,
           imageB64: updated.previewUrl ? undefined : updated.imageB64,
           imageBlob: null,
-        }, ...snapshot.sources.slice(1)]
+        }, ...workspace.sources.slice(1)]
       : [{
           path,
           name: baseName,
@@ -914,7 +981,11 @@ async function loadTransformedAsCurrent(store: StateAdapter, path: string) {
           imageB64: updated.previewUrl ? undefined : updated.imageB64,
           imageBlob: null,
         }];
-    store.setState({
+    store.setState((state) => scopedWorkspacePatch(state, workspaceId, {
+      currentImageId: updated.id,
+      sources: nextSources,
+      mode: "edit",
+    }, {
       currentImage: updated,
       sources: nextSources,
       mode: "edit",
@@ -922,8 +993,10 @@ async function loadTransformedAsCurrent(store: StateAdapter, path: string) {
       strokes: [],
       annotations: [],
       canvasViewResetTick: snapshot.canvasViewResetTick + 1,
-    });
+    }));
   } catch (e: any) {
-    store.getState().pushToast(`加载变换结果失败:${e?.message ?? e}`, "error");
+    if (actionIsCurrent(store, token)) {
+      store.getState().pushToast(`加载变换结果失败:${e?.message ?? e}`, "error");
+    }
   }
 }
