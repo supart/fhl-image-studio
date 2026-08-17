@@ -6,7 +6,7 @@
 - 正式基线：标签 `windows-v2.0.3-release`，提交 `814da3e64566cc2e7838378639a3c5e7b6e8b948`。
 - 当前本地分支：`codex/windows-v2.0.4-development`；未推送、未创建 PR、未修改 GitHub Release。
 - 活动版本：界面、Wails、桌面 Go、CLI、E2E、构建与发布链由 `product-version.json` 统一为 `V2.0.4`。
-- 批次 12“Photoshop Bridge 远程任务终态加固”已完成代码、自动化和三档 Codex 浏览器验收；下一批处理精确 CI/发布门禁。
+- 批次 13“精确 CI 与版本漂移前置门禁”已完成代码、自动化和三档 Codex 浏览器验收；下一步只执行整个持续目标的最终审计。
 
 ## 开发边界
 
@@ -28,6 +28,17 @@
 
 详细记录：`docs/changes/2026-08-17-windows-v2.0.4-ps-bridge-remote-terminal-watchdog.md`。
 
+## 批次 13 结果
+
+- 所有前端生产 build 在 TypeScript/Vite 之前统一运行版本漂移检查；真实临时夹具确认成功顺序为 `version -> tsc -> vite`，版本失败时编译和资产输出均不启动。
+- 桌面 CI 收窄为 `go vet . ./backend` 与 `go test . ./backend`，不再扫描 `frontend/node_modules` 内的 Go 源码；Release hygiene 在源码合规扫描前显式验版本。
+- Portable、源码准备和 Release identity 现有前置门禁增加离线顺序合同，未执行打包、上传或发布。
+- 前端 Node `600/600`、UI `64/64`、TypeScript、Lint `0/58` 和 Windows 1,968 modules 构建通过；桌面/CLI Go test+vet、Worker `5/5`、版本、格式和最终 684 文件源码快照合规通过。
+- Codex 浏览器三档真实点击通过，页面宽度等于视口、可见控件越界/截断和控制台 warning/error 均为 0；恢复 `1239x930` 后单一空白工作区、历史 0、API“已配置”和 14 个 Profile 不变。
+- 3 个 UI 审计文件已移入回收站并等待复查未重建；没有私有配置、用户图片、EXE、ZIP、真实 API 调用、GitHub 推送或发布。
+
+详细记录：`docs/changes/2026-08-17-windows-v2.0.4-ci-release-version-gates.md`。
+
 ## 架构治理顺序
 
 1. 设置默认值、持久化策略和设置操作（已完成）。
@@ -37,13 +48,12 @@
 5. 连续池队列控制器（已完成）。
 6. 浏览器任务与原生 Wails 任务事件生命周期（已完成）。
 7. `host.ts` 文件/对话框、媒体、凭据/持久化、任务/Bridge 能力模块（已完成）。
-8. JS/Go 请求合约与 Bridge watchdog（已完成）；精确 CI/发布门禁待完成。
+8. JS/Go 请求合约、Bridge watchdog 与精确 CI/发布门禁（已完成）。
 
 保持 `useStudioStore` 和 `host.ts` 兼容门面，不更换状态框架，不做 Store 大重写；每批只迁移一个可独立验证的领域。
 
-## 下一恢复点：批次 13
+## 下一恢复点：最终目标审计
 
-- 先确认批次 12 提交位于 HEAD 且工作树干净，阅读本文件、最新详细记录和外层 `..\..\项目日志.md`。
-- 本批只精确限定 CI 的 Go test/vet 包范围，并把版本漂移检查设为构建和发布脚本前置门禁；不继续修改 Bridge 状态机。
-- 保持 CLI 命令、Bridge v1、请求 schema v2、序列化和存储兼容；不生成正式 EXE/ZIP、标签或 Release。
-- 发布链改变先补离线脚本行为测试，再执行自动化、Codex 浏览器三档回归、三处记录和独立本地提交。
+- 先建立批次 13 独立本地提交，再复核初始化和 13 个实现批次均有提交与三处记录，当前分支未推送且受跟踪工作树干净。
+- 复核版本清单、稳定/开发 namespace、V2.0.3 迁移标记、无外部浏览器依赖、无私有配置/用户运行数据/发布二进制，以及 Codex 浏览器最终状态。
+- 最终审计不新增功能、不生成 EXE/ZIP、不执行真实 API、不推送、不打标签或发布。只有全部证据通过后才完成持续目标；否则记录失败并从对应批次恢复。

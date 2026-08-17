@@ -86,9 +86,9 @@ jobs:
         working-directory: image-studio
         shell: pwsh
         run: |
-          go vet ./...
+          go vet . ./backend
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          go test ./...
+          go test . ./backend
 
   go-race:
     name: Go race detector
@@ -168,6 +168,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Check product version metadata
+        shell: pwsh
+        run: node .\scripts\sync-version-metadata.mjs --check
       - name: Check source package safety
         shell: pwsh
         run: .\scripts\check-compliance-package.ps1 -Root .

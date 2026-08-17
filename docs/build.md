@@ -93,8 +93,8 @@ scripts\start-desktop-e2e.cmd
 
 ```powershell
 cd .\image-studio
-go test ./...
-go vet ./...
+go test . ./backend
+go vet . ./backend
 
 cd ..\go-cli
 go test ./...

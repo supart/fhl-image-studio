@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { promisify } from "node:util";
 
@@ -20,4 +23,53 @@ test("active product metadata matches the canonical version manifest", async () 
   );
   assert.equal(stderr, "");
   assert.match(stdout, new RegExp(`metadata is synchronized: ${manifest.displayVersion.replaceAll(".", "\\.")}`));
+});
+
+test("every frontend production build gates compilation on version metadata", async () => {
+  const harnessRoot = await mkdtemp(join(tmpdir(), "fhl-version-build-gate-"));
+  const frontendRoot = join(harnessRoot, "image-studio", "frontend");
+  const platformScript = join(frontendRoot, "scripts", "platform-vite.mjs");
+  const logPath = join(harnessRoot, "calls.log");
+  try {
+    await Promise.all([
+      mkdir(join(harnessRoot, "scripts"), { recursive: true }),
+      mkdir(join(frontendRoot, "scripts"), { recursive: true }),
+      mkdir(join(frontendRoot, "node_modules", "typescript", "bin"), { recursive: true }),
+      mkdir(join(frontendRoot, "node_modules", "vite", "bin"), { recursive: true }),
+    ]);
+    await copyFile(
+      fileURLToPath(new URL("image-studio/frontend/scripts/platform-vite.mjs", sourceRoot)),
+      platformScript,
+    );
+    await writeFile(
+      join(harnessRoot, "scripts", "sync-version-metadata.mjs"),
+      'import { appendFileSync } from "node:fs";\n' +
+        'appendFileSync(process.env.GATE_LOG, "version\\n");\n' +
+        'if (process.env.FAIL_VERSION === "1") process.exit(17);\n',
+    );
+    for (const [relativePath, label] of [
+      [join("typescript", "bin", "tsc"), "tsc"],
+      [join("vite", "bin", "vite.js"), "vite"],
+    ]) {
+      await writeFile(
+        join(frontendRoot, "node_modules", relativePath),
+        `const { appendFileSync } = require("node:fs");\nappendFileSync(process.env.GATE_LOG, "${label}\\n");\n`,
+      );
+    }
+
+    const env = { ...process.env, GATE_LOG: logPath };
+    await execFileAsync(process.execPath, [platformScript, "build", "windows"], { env });
+    assert.equal(await readFile(logPath, "utf8"), "version\ntsc\nvite\n");
+
+    await writeFile(logPath, "");
+    await assert.rejects(
+      execFileAsync(process.execPath, [platformScript, "build", "windows"], {
+        env: { ...env, FAIL_VERSION: "1" },
+      }),
+      /sync-version-metadata\.mjs exited with code 17/,
+    );
+    assert.equal(await readFile(logPath, "utf8"), "version\n");
+  } finally {
+    await rm(harnessRoot, { recursive: true, force: true });
+  }
 });

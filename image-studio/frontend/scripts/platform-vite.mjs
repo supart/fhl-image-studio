@@ -47,6 +47,7 @@ const devHost = process.env.IMAGE_STUDIO_DEV_HOST?.trim() || "127.0.0.1";
 const devPort = process.env.IMAGE_STUDIO_DEV_PORT?.trim() || "";
 
 if (command === "build") {
+  await run("../../scripts/sync-version-metadata.mjs", ["--check"], env);
   await run("node_modules/typescript/bin/tsc", ["--noEmit"], env);
   await run("node_modules/vite/bin/vite.js", ["build", "--mode", mode], env);
 } else if (command === "dev") {
