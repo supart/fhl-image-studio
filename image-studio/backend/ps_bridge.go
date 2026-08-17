@@ -32,6 +32,8 @@ const (
 	psBridgeMultipartMemory = 16 << 20
 	psBridgeMaxBodyBytes    = int64(client.MaxInputImageBytes)*(psBridgeMaxImages+1) + (8 << 20)
 	psBridgeAPIVersion      = "1"
+	// Remote providers can legally poll and retry for well over 30 minutes.
+	psBridgeRemoteJobTimeout = 2 * time.Hour
 )
 
 type PSBridgeProfileInput struct {
@@ -182,63 +184,67 @@ type PSBridgeHistoryEvent struct {
 }
 
 type psBridgeJob struct {
-	JobID          string
-	ClientTaskID   string
-	State          string
-	Stage          string
-	Error          string
-	CreatedAt      int64
-	UpdatedAt      int64
-	FinishedAt     int64
-	Mode           string
-	Prompt         string
-	Size           string
-	Quality        string
-	OutputFormat   string
-	Seed           int64
-	NegativePrompt string
-	Aspect         string
-	Resolution     string
-	CanvasWidth    int
-	CanvasHeight   int
-	PreparedBase   bool
-	Profile        PSBridgeProfileInput
-	ProfilePublic  PSBridgeProfilePublic
-	Sources        []PSBridgeSourceMetadata
-	ImagePaths     []string
-	MaskB64        string
-	TempDir        string
-	Result         ResultPayload
-	Executor       string
-	CLICancel      context.CancelFunc
+	JobID            string
+	ClientTaskID     string
+	State            string
+	Stage            string
+	Error            string
+	CreatedAt        int64
+	UpdatedAt        int64
+	FinishedAt       int64
+	Mode             string
+	Prompt           string
+	Size             string
+	Quality          string
+	OutputFormat     string
+	Seed             int64
+	NegativePrompt   string
+	Aspect           string
+	Resolution       string
+	CanvasWidth      int
+	CanvasHeight     int
+	PreparedBase     bool
+	Profile          PSBridgeProfileInput
+	ProfilePublic    PSBridgeProfilePublic
+	Sources          []PSBridgeSourceMetadata
+	ImagePaths       []string
+	MaskB64          string
+	TempDir          string
+	Result           ResultPayload
+	Executor         string
+	CLICancel        context.CancelFunc
+	remoteFinalizing bool
+	remoteWatchdog   *time.Timer
 }
 
 type PSBridge struct {
 	service        *Service
 	optimizePrompt func(PromptOptimizeOptions) (string, error)
 
-	mu           sync.Mutex
-	server       *http.Server
-	listener     net.Listener
-	port         int
-	instanceID   string
-	sessionToken string
-	profile      *PSBridgeProfileInput
-	profileView  *PSBridgeProfilePublic
-	cliRuntime   *psBridgeCLIRuntime
-	runCLI       psBridgeCLIRunFunc
-	jobs         map[string]*psBridgeJob
-	clientJobs   map[string]string
-	jobOrder     []string
+	mu               sync.Mutex
+	server           *http.Server
+	listener         net.Listener
+	port             int
+	instanceID       string
+	sessionToken     string
+	profile          *PSBridgeProfileInput
+	profileView      *PSBridgeProfilePublic
+	cliRuntime       *psBridgeCLIRuntime
+	runCLI           psBridgeCLIRunFunc
+	jobs             map[string]*psBridgeJob
+	clientJobs       map[string]string
+	jobOrder         []string
+	remoteJobTimeout time.Duration
 }
 
 func NewPSBridge(service *Service) *PSBridge {
 	return &PSBridge{
-		service:        service,
-		optimizePrompt: service.OptimizePrompt,
-		runCLI:         runPSBridgeCLI,
-		jobs:           map[string]*psBridgeJob{},
-		clientJobs:     map[string]string{},
+		service:          service,
+		optimizePrompt:   service.OptimizePrompt,
+		runCLI:           runPSBridgeCLI,
+		jobs:             map[string]*psBridgeJob{},
+		clientJobs:       map[string]string{},
+		remoteJobTimeout: psBridgeRemoteJobTimeout,
 	}
 }
 
@@ -521,34 +527,41 @@ func (b *PSBridge) ObserveServiceEvent(eventName string, args ...any) {
 }
 
 func (b *PSBridge) CompleteRemote(input PSBridgeRemoteCompletion) error {
-	job := b.jobForRemoteCompletion(input.JobID)
-	if job == nil {
-		return errors.New("Photoshop bridge job is not active")
+	job, claimed, err := b.claimRemoteFinalization(input.JobID)
+	if err != nil || !claimed {
+		return err
 	}
 	result, err := b.saveRemoteResult(job, input)
 	if err != nil {
-		b.failJob(job.JobID, err.Error())
+		b.finishRemoteJob(job.JobID, "failed", err.Error(), nil)
 		return err
 	}
-	b.completeJob(job.JobID, result)
-	b.settleJob(job.JobID)
+	b.finishRemoteJob(job.JobID, "succeeded", "", &result)
 	return nil
 }
 
 func (b *PSBridge) FailRemote(input PSBridgeRemoteFailure) error {
-	if b.jobForRemoteCompletion(input.JobID) == nil {
-		return errors.New("Photoshop bridge job is not active")
+	job, claimed, err := b.claimRemoteFinalization(input.JobID)
+	if err != nil || !claimed {
+		return err
 	}
-	b.failJob(input.JobID, strings.TrimSpace(input.Message))
-	b.settleJob(input.JobID)
+	b.finishRemoteJob(job.JobID, "failed", strings.TrimSpace(input.Message), nil)
 	return nil
 }
 
 func (b *PSBridge) UpdateRemote(input PSBridgeRemoteProgress) error {
-	if b.jobForRemoteCompletion(input.JobID) == nil {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	job := b.jobs[strings.TrimSpace(input.JobID)]
+	if !remotePSBridgeJob(job) {
 		return errors.New("Photoshop bridge job is not active")
 	}
-	b.updateProgress(input.JobID, input.Stage)
+	if terminalPSBridgeState(job.State) || job.remoteFinalizing {
+		return nil
+	}
+	job.State = "running"
+	job.Stage = strings.TrimSpace(input.Stage)
+	job.UpdatedAt = time.Now().UnixMilli()
 	return nil
 }
 
@@ -899,6 +912,7 @@ func (b *PSBridge) dispatchJob(job *psBridgeJob) error {
 			OutputFormat: job.OutputFormat, Seed: job.Seed, NegativePrompt: job.NegativePrompt,
 			ImagePaths: append([]string(nil), job.ImagePaths...), PreparedBase: job.PreparedBase, MaskB64: job.MaskB64,
 		})
+		b.armRemoteWatchdog(job.JobID)
 		return nil
 	}
 	apiKey, err := b.service.GetStoredAPIKey(job.Profile.CredentialUser)
@@ -996,6 +1010,7 @@ func (b *PSBridge) completeJob(jobID string, result ResultPayload) {
 		b.mu.Unlock()
 		return
 	}
+	b.stopRemoteWatchdogLocked(job)
 	now := time.Now().UnixMilli()
 	job.State = "succeeded"
 	job.Stage = "生成完成"
@@ -1014,6 +1029,7 @@ func (b *PSBridge) failJob(jobID, message string) {
 		b.mu.Unlock()
 		return
 	}
+	b.stopRemoteWatchdogLocked(job)
 	now := time.Now().UnixMilli()
 	job.State = "failed"
 	job.Stage = "任务失败"
@@ -1038,6 +1054,11 @@ func (b *PSBridge) settleJob(jobID string) {
 		b.mu.Unlock()
 		return
 	}
+	if remotePSBridgeJob(job) && job.remoteFinalizing && !terminalPSBridgeState(job.State) {
+		b.mu.Unlock()
+		return
+	}
+	b.stopRemoteWatchdogLocked(job)
 	if job.State == "running" || job.State == "submitting" {
 		job.State = "cancelled"
 		job.Stage = "任务已取消"
@@ -1159,16 +1180,96 @@ func (b *PSBridge) jobByClientTask(clientTaskID string) *PSBridgeJobSnapshot {
 	return snapshotPSBridgeJob(job)
 }
 
-func (b *PSBridge) jobForRemoteCompletion(jobID string) *psBridgeJob {
+func remotePSBridgeJob(job *psBridgeJob) bool {
+	return job != nil && job.Executor == psBridgeDesktopExecutor &&
+		(job.Profile.APIMode == "apimart" || job.Profile.APIMode == "runninghub")
+}
+
+func (b *PSBridge) claimRemoteFinalization(jobID string) (*psBridgeJob, bool, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	job := b.jobs[strings.TrimSpace(jobID)]
-	if job == nil || terminalPSBridgeState(job.State) || (job.Profile.APIMode != "apimart" && job.Profile.APIMode != "runninghub") {
-		return nil
+	if !remotePSBridgeJob(job) {
+		return nil, false, errors.New("Photoshop bridge job is not active")
 	}
+	if terminalPSBridgeState(job.State) || job.remoteFinalizing {
+		return nil, false, nil
+	}
+	job.remoteFinalizing = true
+	b.stopRemoteWatchdogLocked(job)
 	copyJob := *job
 	copyJob.ImagePaths = append([]string(nil), job.ImagePaths...)
-	return &copyJob
+	copyJob.remoteWatchdog = nil
+	return &copyJob, true, nil
+}
+
+func (b *PSBridge) finishRemoteJob(jobID, state, message string, result *ResultPayload) {
+	var history *PSBridgeHistoryEvent
+	b.mu.Lock()
+	job := b.jobs[jobID]
+	if !remotePSBridgeJob(job) || terminalPSBridgeState(job.State) || !job.remoteFinalizing {
+		b.mu.Unlock()
+		return
+	}
+	now := time.Now().UnixMilli()
+	job.State = state
+	job.UpdatedAt = now
+	job.FinishedAt = now
+	job.Error = ""
+	if state == "succeeded" && result != nil {
+		job.Stage = "生成完成"
+		job.Result = *result
+		event := historyEventForPSBridgeJob(job)
+		history = &event
+	} else {
+		job.State = "failed"
+		job.Stage = "任务失败"
+		job.Error = strings.TrimSpace(message)
+		if job.Error == "" {
+			job.Error = "任务失败"
+		}
+	}
+	tempDir := job.TempDir
+	job.TempDir = ""
+	b.stopRemoteWatchdogLocked(job)
+	b.mu.Unlock()
+	if tempDir != "" {
+		_ = os.RemoveAll(tempDir)
+	}
+	if history != nil {
+		b.service.emit("ps-bridge:history", *history)
+	}
+}
+
+func (b *PSBridge) armRemoteWatchdog(jobID string) {
+	b.mu.Lock()
+	job := b.jobs[jobID]
+	if !remotePSBridgeJob(job) || terminalPSBridgeState(job.State) || job.remoteFinalizing || b.remoteJobTimeout <= 0 {
+		b.mu.Unlock()
+		return
+	}
+	b.stopRemoteWatchdogLocked(job)
+	job.remoteWatchdog = time.AfterFunc(b.remoteJobTimeout, func() {
+		b.expireRemoteJob(jobID)
+	})
+	b.mu.Unlock()
+}
+
+func (b *PSBridge) stopRemoteWatchdogLocked(job *psBridgeJob) {
+	if job == nil || job.remoteWatchdog == nil {
+		return
+	}
+	job.remoteWatchdog.Stop()
+	job.remoteWatchdog = nil
+}
+
+func (b *PSBridge) expireRemoteJob(jobID string) {
+	job, claimed, err := b.claimRemoteFinalization(jobID)
+	if err != nil || !claimed {
+		return
+	}
+	b.finishRemoteJob(job.JobID, "failed", "桌面远程任务长时间无响应，已自动结束", nil)
+	b.service.emit("ps-bridge:remote-cancel", map[string]string{"jobId": job.JobID})
 }
 
 func (b *PSBridge) activeJobsLocked() []*psBridgeJob {
@@ -1192,13 +1293,29 @@ func (b *PSBridge) cancelByID(jobID string) bool {
 		b.mu.Unlock()
 		return true
 	}
+	if remotePSBridgeJob(job) && job.remoteFinalizing {
+		b.mu.Unlock()
+		return true
+	}
+	if remotePSBridgeJob(job) {
+		job.remoteFinalizing = true
+	}
+	b.stopRemoteWatchdogLocked(job)
 	now := time.Now().UnixMilli()
 	job.State = "cancelled"
 	job.Stage = "任务已取消"
 	job.UpdatedAt = now
 	job.FinishedAt = now
+	cancelJob := job
+	if remotePSBridgeJob(job) {
+		copyJob := *job
+		copyJob.ImagePaths = append([]string(nil), job.ImagePaths...)
+		copyJob.remoteWatchdog = nil
+		job.TempDir = ""
+		cancelJob = &copyJob
+	}
 	b.mu.Unlock()
-	b.cancelJob(job)
+	b.cancelJob(cancelJob)
 	return true
 }
 

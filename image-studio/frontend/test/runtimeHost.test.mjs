@@ -230,7 +230,8 @@ test("runtimeHost remote mode emits job lifecycle events", async () => {
     const runtimeHost = await loadRuntimeHost();
     runtimeHost.setKernelRuntimeMode("remote");
 
-    const seen = { progress: [], result: [], error: [] };
+    const seen = { progress: [], result: [], error: [], settled: [] };
+    const terminalOrder = [];
     const started = await runtimeHost.Generate({
       apiKey: "key",
       mode: "generate",
@@ -256,20 +257,68 @@ test("runtimeHost remote mode emits job lifecycle events", async () => {
     });
     const offResult = runtimeHost.EventsOn(`result:${started.jobId}`, (payload) => {
       seen.result.push(payload);
+      terminalOrder.push("result");
     });
     const offError = runtimeHost.EventsOn(`error:${started.jobId}`, (payload) => {
       seen.error.push(payload);
+      terminalOrder.push("error");
+    });
+    const offSettled = runtimeHost.EventsOn(`settled:${started.jobId}`, (payload) => {
+      seen.settled.push(payload);
+      terminalOrder.push("settled");
     });
 
     await new Promise((resolve) => setImmediate(resolve));
     offProgress();
     offResult();
     offError();
+    offSettled();
 
     assert.equal(seen.error.length, 0);
     assert.ok(seen.result.length >= 1);
     assert.equal(seen.result[0].imageB64, "YWJj");
     assert.equal(seen.result[0].revisedPrompt, "rev");
+    assert.equal(seen.settled.length, 1);
+    assert.deepEqual(terminalOrder, ["result", "settled"]);
+  });
+});
+
+test("runtimeHost remote failure emits error before exactly one settled event", async () => {
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async () => new Response("upstream unavailable", { status: 503 });
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    runtimeHost.setKernelRuntimeMode("remote");
+    const jobId = "runtime-remote-failure";
+    const terminalOrder = [];
+    const offError = runtimeHost.EventsOn(`error:${jobId}`, () => terminalOrder.push("error"));
+    const offSettled = runtimeHost.EventsOn(`settled:${jobId}`, () => terminalOrder.push("settled"));
+
+    const started = await runtimeHost.Generate({
+      requestedJobId: jobId,
+      apiKey: "key",
+      mode: "generate",
+      prompt: "cat",
+      size: "1024x1024",
+      quality: "low",
+      outputFormat: "png",
+      imagePaths: [],
+      imagePath: "",
+      maskB64: "",
+      seed: 0,
+      negativePrompt: "",
+      baseURL: "https://upstream.example",
+      textModelID: "gpt-5.5",
+      imageModelID: "gpt-image-2",
+      apiMode: "responses",
+      noPromptRevision: false,
+      concurrencyLimit: 0,
+    });
+    assert.equal(started.jobId, jobId);
+    await new Promise((resolve) => setImmediate(resolve));
+    offError();
+    offSettled();
+    assert.deepEqual(terminalOrder, ["error", "settled"]);
   });
 });
 
@@ -1253,9 +1302,17 @@ test("runtimeHost remote cancel aborts pending remote jobs", async () => {
       concurrencyLimit: 0,
     });
 
+    const terminalOrder = [];
+    const offResult = runtimeHost.EventsOn(`result:${started.jobId}`, () => terminalOrder.push("result"));
+    const offError = runtimeHost.EventsOn(`error:${started.jobId}`, () => terminalOrder.push("error"));
+    const offSettled = runtimeHost.EventsOn(`settled:${started.jobId}`, () => terminalOrder.push("settled"));
     await runtimeHost.Cancel(started.jobId);
     await new Promise((resolve) => setImmediate(resolve));
+    offResult();
+    offError();
+    offSettled();
     assert.equal(typeof started.jobId, "string");
+    assert.deepEqual(terminalOrder, ["settled"]);
   });
 });
 

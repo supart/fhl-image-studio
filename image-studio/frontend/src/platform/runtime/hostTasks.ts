@@ -111,6 +111,7 @@ async function startRemoteJob(options: GenerateOptionsLike): Promise<JobStartedL
       });
     } finally {
       remoteJobControllers.delete(jobId);
+      emitLocalEvent(`settled:${jobId}`, undefined);
     }
   })();
   return { jobId };

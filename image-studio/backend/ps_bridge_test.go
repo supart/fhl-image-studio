@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/yuanhua/image-gptcodex/pkg/client"
 )
@@ -70,6 +71,7 @@ func newPSBridgeHandlerTest(t *testing.T) (*Service, *PSBridge, *psBridgeCapture
 	service.SetEventSink(captured.sink)
 	bridge := service.psBridge
 	bridge.mu.Lock()
+	bridge.remoteJobTimeout = 0
 	bridge.sessionToken = psBridgeTestToken
 	bridge.instanceID = "test-instance"
 	bridge.port = psBridgePortFirst
@@ -354,6 +356,31 @@ func decodePSBridgeJob(t *testing.T, recorder *httptest.ResponseRecorder) PSBrid
 		t.Fatalf("decode job response %q: %v", recorder.Body.String(), err)
 	}
 	return snapshot
+}
+
+func waitForPSBridgeState(t *testing.T, bridge *PSBridge, jobID, state string) *PSBridgeJobSnapshot {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if snapshot := bridge.jobSnapshot(jobID); snapshot != nil && snapshot.State == state {
+			return snapshot
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("Photoshop bridge job %s did not reach %s: %+v", jobID, state, bridge.jobSnapshot(jobID))
+	return nil
+}
+
+func waitForPSBridgeEventCount(t *testing.T, captured *psBridgeCapturedEvents, eventName string, count int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if captured.count(eventName) == count {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("Photoshop bridge event %s count = %d, want %d", eventName, captured.count(eventName), count)
 }
 
 func TestPSBridgeSelectsAnotherPortWhenCandidateIsOccupied(t *testing.T) {
@@ -943,6 +970,7 @@ func TestPSBridgeSubmissionIsIdempotentAndSingleTask(t *testing.T) {
 func TestPSBridgeRemoteDispatchAndResultContainNoCredential(t *testing.T) {
 	service, bridge, captured := newPSBridgeHandlerTest(t)
 	service.outputDir = t.TempDir()
+	bridge.remoteJobTimeout = 50 * time.Millisecond
 	syncPSBridgeRemoteProfile(t, bridge, "apimart")
 
 	recorder := servePSBridgeRequest(bridge, newPSBridgeJobRequest(t, "remote-result-task", "generate", "1:1@1k", 0, 0))
@@ -963,16 +991,30 @@ func TestPSBridgeRemoteDispatchAndResultContainNoCredential(t *testing.T) {
 	}
 
 	imageBytes := tinyPSBridgePNG(t)
-	if err := bridge.CompleteRemote(PSBridgeRemoteCompletion{
+	completion := PSBridgeRemoteCompletion{
 		JobID:         job.JobID,
 		ImageB64:      base64.StdEncoding.EncodeToString(imageBytes),
 		RevisedPrompt: "test result",
 		SourceEvent:   "test.completed",
-	}); err != nil {
+	}
+	if err := bridge.CompleteRemote(completion); err != nil {
 		t.Fatalf("complete remote job: %v", err)
+	}
+	if err := bridge.CompleteRemote(completion); err != nil {
+		t.Fatalf("repeat remote completion must be idempotent: %v", err)
+	}
+	if err := bridge.FailRemote(PSBridgeRemoteFailure{JobID: job.JobID, Message: "late failure"}); err != nil {
+		t.Fatalf("late remote failure must be idempotent: %v", err)
+	}
+	if err := bridge.UpdateRemote(PSBridgeRemoteProgress{JobID: job.JobID, Stage: "late progress"}); err != nil {
+		t.Fatalf("late remote progress must be idempotent: %v", err)
 	}
 	if captured.count("ps-bridge:history") != 1 {
 		t.Fatalf("history event count = %d, want 1", captured.count("ps-bridge:history"))
+	}
+	time.Sleep(75 * time.Millisecond)
+	if captured.count("ps-bridge:remote-cancel") != 0 {
+		t.Fatalf("completed remote job received %d watchdog cancels", captured.count("ps-bridge:remote-cancel"))
 	}
 
 	imageRequest := newAuthorizedPSBridgeRequest(http.MethodGet, "/fhl-ps/v1/jobs/"+job.JobID+"/image", nil)
@@ -985,8 +1027,89 @@ func TestPSBridgeRemoteDispatchAndResultContainNoCredential(t *testing.T) {
 	}
 }
 
+func TestPSBridgeRemoteWatchdogReleasesLostTask(t *testing.T) {
+	_, bridge, captured := newPSBridgeHandlerTest(t)
+	bridge.remoteJobTimeout = 20 * time.Millisecond
+	syncPSBridgeRemoteProfile(t, bridge, "runninghub")
+
+	recorder := servePSBridgeRequest(bridge, newPSBridgeJobRequest(t, "watchdog-task", "generate", "1:1@1k", 0, 0))
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("remote submission status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	job := decodePSBridgeJob(t, recorder)
+	bridge.mu.Lock()
+	tempDir := bridge.jobs[job.JobID].TempDir
+	bridge.mu.Unlock()
+
+	snapshot := waitForPSBridgeState(t, bridge, job.JobID, "failed")
+	if snapshot.FinishedAt == 0 || !strings.Contains(snapshot.Error, "长时间无响应") {
+		t.Fatalf("watchdog snapshot = %+v", snapshot)
+	}
+	waitForPSBridgeEventCount(t, captured, "ps-bridge:remote-cancel", 1)
+	if captured.count("ps-bridge:remote-cancel") != 1 {
+		t.Fatalf("remote cancel count = %d, want 1", captured.count("ps-bridge:remote-cancel"))
+	}
+	if _, err := os.Stat(tempDir); !os.IsNotExist(err) {
+		t.Fatalf("watchdog temp directory still exists: %s err=%v", tempDir, err)
+	}
+
+	next := servePSBridgeRequest(bridge, newPSBridgeJobRequest(t, "watchdog-next-task", "generate", "1:1@1k", 0, 0))
+	if next.Code != http.StatusAccepted {
+		t.Fatalf("task after watchdog status = %d: %s", next.Code, next.Body.String())
+	}
+	nextJob := decodePSBridgeJob(t, next)
+	if !bridge.cancelByID(nextJob.JobID) {
+		t.Fatal("cleanup cancel for task after watchdog failed")
+	}
+}
+
+func TestPSBridgeRemoteFinalizationClaimIsAtomic(t *testing.T) {
+	_, bridge, _ := newPSBridgeHandlerTest(t)
+	syncPSBridgeRemoteProfile(t, bridge, "runninghub")
+	recorder := servePSBridgeRequest(bridge, newPSBridgeJobRequest(t, "atomic-terminal-task", "generate", "1:1@1k", 0, 0))
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("remote submission status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	job := decodePSBridgeJob(t, recorder)
+
+	claims := make(chan bool, 16)
+	errorsSeen := make(chan error, 16)
+	var wait sync.WaitGroup
+	for index := 0; index < cap(claims); index++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			_, claimed, err := bridge.claimRemoteFinalization(job.JobID)
+			claims <- claimed
+			errorsSeen <- err
+		}()
+	}
+	wait.Wait()
+	close(claims)
+	close(errorsSeen)
+	claimCount := 0
+	for claimed := range claims {
+		if claimed {
+			claimCount++
+		}
+	}
+	for err := range errorsSeen {
+		if err != nil {
+			t.Fatalf("concurrent terminal claim returned error: %v", err)
+		}
+	}
+	if claimCount != 1 {
+		t.Fatalf("remote terminal claim count = %d, want 1", claimCount)
+	}
+	bridge.finishRemoteJob(job.JobID, "failed", "test cleanup", nil)
+	if snapshot := bridge.jobSnapshot(job.JobID); snapshot == nil || snapshot.State != "failed" {
+		t.Fatalf("finalized job snapshot = %+v", snapshot)
+	}
+}
+
 func TestPSBridgeClearProfileCancelsTaskAndRotatesSession(t *testing.T) {
 	_, bridge, captured := newPSBridgeHandlerTest(t)
+	bridge.remoteJobTimeout = 20 * time.Millisecond
 	syncPSBridgeRemoteProfile(t, bridge, "runninghub")
 	recorder := servePSBridgeRequest(bridge, newPSBridgeJobRequest(t, "clear-profile-task", "generate", "1:1@1k", 0, 0))
 	if recorder.Code != http.StatusAccepted {
@@ -997,6 +1120,10 @@ func TestPSBridgeClearProfileCancelsTaskAndRotatesSession(t *testing.T) {
 	bridge.ClearProfile()
 	if captured.count("ps-bridge:remote-cancel") != 1 {
 		t.Fatalf("remote cancel count = %d, want 1", captured.count("ps-bridge:remote-cancel"))
+	}
+	time.Sleep(40 * time.Millisecond)
+	if captured.count("ps-bridge:remote-cancel") != 1 {
+		t.Fatalf("cancelled job received a late watchdog cancel: %d", captured.count("ps-bridge:remote-cancel"))
 	}
 	if snapshot := bridge.jobSnapshot(job.JobID); snapshot == nil || snapshot.State != "cancelled" {
 		t.Fatalf("cleared job snapshot = %+v", snapshot)
