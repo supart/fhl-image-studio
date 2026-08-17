@@ -38,6 +38,7 @@ import {
   settleWorkspaceAction,
   type WorkspaceActionToken,
 } from "./workspaceActionTokens.ts";
+import { mapWorkspaceCanvasHistoryItems } from "./workspaceCanvasRuntime.ts";
 import { genId, persistTrimmedHistory, trimHistory } from "./studioStore.shared";
 import {
   setSharedEditAutoAspectLock,
@@ -614,6 +615,12 @@ export function createImageActions(store: StateAdapter) {
       if (nextBatch.length <= 1) patch.resultGridOpen = false;
       store.setState((state) => ({
         history: state.history.filter((entry) => entry.id !== id),
+        compareB: state.compareB?.id === id ? null : state.compareB,
+        sourcePreviewReturnImage: state.sourcePreviewReturnImage?.id === id ? null : state.sourcePreviewReturnImage,
+        workspaceCanvasRuntime: mapWorkspaceCanvasHistoryItems(
+          state.workspaceCanvasRuntime,
+          (item) => item?.id === id ? null : item,
+        ),
         resultDetail: state.resultDetail?.id === id ? null : state.resultDetail,
         panoramaViewerItem: state.panoramaViewerItem?.id === id ? null : state.panoramaViewerItem,
         panoramaAlignTarget: state.panoramaAlignTarget?.id === id ? null : state.panoramaAlignTarget,
@@ -623,10 +630,19 @@ export function createImageActions(store: StateAdapter) {
           return next;
         })(),
         ...(patch as any),
-        workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, {
-          currentImageId: wasCurrent ? null : currentBefore?.id ?? null,
-          batchResultIds: nextBatch.map((entry) => entry.id),
-          resultGridOpen: nextBatch.length > 1 && (patch.resultGridOpen ?? state.resultGridOpen),
+        workspaces: state.workspaces.map((workspace) => {
+          const batchResultIds = workspace.id === state.activeWorkspaceId
+            ? nextBatch.map((entry) => entry.id)
+            : (workspace.batchResultIds ?? []).filter((resultId) => resultId !== id);
+          const currentImageId = workspace.id === state.activeWorkspaceId
+            ? (wasCurrent ? null : currentBefore?.id ?? workspace.currentImageId)
+            : (workspace.currentImageId === id ? null : workspace.currentImageId);
+          return {
+            ...workspace,
+            currentImageId,
+            batchResultIds,
+            resultGridOpen: batchResultIds.length > 1 && workspace.resultGridOpen,
+          };
         }),
       }));
     },

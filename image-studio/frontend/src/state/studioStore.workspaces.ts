@@ -5,6 +5,9 @@ import { defaultBatchProcessConfig, historyItemsByIds } from "./workspaceRuntime
 import { createDefaultWorkspace } from "./workspaceDefaults.ts";
 import { activeProfileRuntimePatch } from "./studioStore.profiles.ts";
 import { invalidateWorkspaceActions } from "./workspaceActionTokens.ts";
+import { workspaceCanvasSelectionPatch } from "./workspaceCanvasRuntime.ts";
+
+export type WorkspaceTabStatus = "idle" | "queued" | "running" | "prompting" | "failed";
 
 type StateAdapter = {
   getState: () => StudioState;
@@ -17,6 +20,34 @@ type WorkspaceActionRuntime = {
   syncTaskSubscriptions: () => void;
   saveActiveSnapshot: (state: StudioState) => Workspace[];
 };
+
+function workspaceTasks(state: StudioState, workspaceId: string) {
+  return Object.values(state.batchTasksById).filter((task) => task.workspaceId === workspaceId);
+}
+
+export function workspaceTabStatus(state: StudioState, workspaceId: string): WorkspaceTabStatus {
+  const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
+  const tasks = workspaceTasks(state, workspaceId);
+  const groups = state.jobGroupsByWorkspace[workspaceId] ?? [];
+  if (
+    (workspace?.runningJobIds.length ?? 0) > 0
+    || tasks.some((task) => task.status === "running" || task.launchState === "submitting")
+    || groups.some((group) => group.slots.some((slot) => slot.status === "running"))
+  ) return "running";
+  const prompt = state.workspacePromptOperations[workspaceId];
+  if (prompt?.isOptimizingPrompt || prompt?.isReversingPrompt) return "prompting";
+  if (
+    tasks.some((task) => task.status === "queued")
+    || groups.some((group) => group.slots.some((slot) => slot.status === "queued"))
+  ) return "queued";
+  if (workspace?.errorMessage || tasks.some((task) => task.status === "failed")) return "failed";
+  return "idle";
+}
+
+export function workspaceHasActiveWork(state: StudioState, workspaceId: string): boolean {
+  const status = workspaceTabStatus(state, workspaceId);
+  return status === "running" || status === "queued" || status === "prompting";
+}
 
 export function workspaceSelectionPatch(
   state: StudioState,
@@ -38,6 +69,7 @@ export function workspaceSelectionPatch(
   const promptOperations = state.workspacePromptOperations[target.id];
 
   return {
+    ...workspaceCanvasSelectionPatch(state, target.id),
     workspaces,
     activeWorkspaceId: target.id,
     activeProfileId,
@@ -64,16 +96,12 @@ export function workspaceSelectionPatch(
     sources: target.sources,
     reversePromptImage: target.reversePromptImage ?? null,
     currentImage,
-    sourcePreviewReturnImage: null,
     batchResults,
     selectedBatchTaskId: target.selectedBatchTaskId ?? null,
     resultGridOpen: !!target.resultGridOpen,
     historyGalleryOpen: target.historyGalleryOpen === true,
     historyGallerySinglePreviewId: target.historyGallerySinglePreviewId ?? null,
     historyGallerySort: target.historyGallerySort ?? "newest",
-    annotations: [],
-    strokes: [],
-    maskDataURL: null,
     runningJobs,
     jobsTotal: target.jobsTotal ?? 0,
     jobsCompleted: target.jobsCompleted ?? 0,
@@ -89,6 +117,84 @@ export function workspaceSelectionPatch(
   };
 }
 export function createWorkspaceActions(store: StateAdapter, runtime: WorkspaceActionRuntime) {
+  function performCloseWorkspace(id: string) {
+    const state = store.getState();
+    const closingWorkspace = state.workspaces.find((workspace) => workspace.id === id);
+    if (!closingWorkspace) {
+      store.setState({ workspaceCloseRequest: null });
+      return;
+    }
+    invalidateWorkspaceActions(id);
+    const now = Date.now();
+    const batchTasksById = { ...state.batchTasksById };
+    const closingJobIds = new Set(closingWorkspace.runningJobIds ?? []);
+    for (const [taskId, task] of Object.entries(batchTasksById)) {
+      if (task.workspaceId !== id) continue;
+      if (task.status !== "queued" && task.status !== "running" && task.launchState !== "submitting") continue;
+      if (task.jobId) closingJobIds.add(task.jobId);
+      batchTasksById[taskId] = {
+        ...task,
+        status: "cancelled",
+        launchState: undefined,
+        queuedReason: undefined,
+        queuePriority: undefined,
+        updatedAt: now,
+      };
+    }
+    for (const [jobId, meta] of Object.entries(state.runningJobMeta)) {
+      if (meta.workspaceId === id) closingJobIds.add(jobId);
+    }
+    for (const group of state.jobGroupsByWorkspace[id] ?? []) {
+      for (const slot of group.slots) {
+        if (slot.status === "queued" || slot.status === "running") closingJobIds.add(slot.jobId);
+      }
+    }
+    for (const jobId of closingJobIds) {
+      try { void runtime.cancelJob(jobId); } catch {}
+      runtime.detachJobEvents(jobId);
+    }
+    const runningJobMeta = { ...state.runningJobMeta };
+    for (const [jobId, meta] of Object.entries(runningJobMeta)) {
+      if (meta.workspaceId === id) delete runningJobMeta[jobId];
+    }
+    const jobGroupsByWorkspace = { ...state.jobGroupsByWorkspace };
+    delete jobGroupsByWorkspace[id];
+    const remaining = state.workspaces.filter((workspace) => workspace.id !== id);
+    const workspacePromptOperations = { ...state.workspacePromptOperations };
+    delete workspacePromptOperations[id];
+    if (state.activeWorkspaceId === id) {
+      const nextActive = remaining[0];
+      const selectionPatch = workspaceSelectionPatch(state, nextActive, remaining);
+      const workspaceCanvasRuntime = { ...selectionPatch.workspaceCanvasRuntime };
+      delete workspaceCanvasRuntime[id];
+      store.setState({
+        ...selectionPatch,
+        workspaceCanvasRuntime,
+        workspaceCloseRequest: null,
+        batchTasksById,
+        runningJobMeta,
+        jobGroupsByWorkspace,
+        workspacePromptOperations,
+      });
+      if (nextActive.activeProfileId && nextActive.activeProfileId !== state.activeProfileId) {
+        void store.getState().setActiveProfile(nextActive.activeProfileId);
+      }
+    } else {
+      const workspaceCanvasRuntime = { ...state.workspaceCanvasRuntime };
+      delete workspaceCanvasRuntime[id];
+      store.setState({
+        workspaces: remaining,
+        workspaceCanvasRuntime,
+        workspaceCloseRequest: null,
+        batchTasksById,
+        runningJobMeta,
+        jobGroupsByWorkspace,
+        workspacePromptOperations,
+      });
+    }
+    runtime.syncTaskSubscriptions();
+  }
+
   return {
     newWorkspace(name?: string) {
       const state = store.getState();
@@ -124,34 +230,23 @@ export function createWorkspaceActions(store: StateAdapter, runtime: WorkspaceAc
         state.pushToast("至少保留一个标签页", "warn");
         return;
       }
-      invalidateWorkspaceActions(id);
-      const closingJobIds = state.workspaces.find((workspace) => workspace.id === id)?.runningJobIds ?? [];
-      for (const jobId of closingJobIds) {
-        try { void runtime.cancelJob(jobId); } catch {}
-        runtime.detachJobEvents(jobId);
+      const workspace = state.workspaces.find((entry) => entry.id === id);
+      if (!workspace) return;
+      if (workspaceHasActiveWork(state, id)) {
+        store.setState({ workspaceCloseRequest: { workspaceId: id, workspaceName: workspace.name } });
+        return;
       }
-      const nextMeta = { ...state.runningJobMeta };
-      for (const jobId of closingJobIds) delete nextMeta[jobId];
-      const jobGroupsByWorkspace = { ...state.jobGroupsByWorkspace };
-      delete jobGroupsByWorkspace[id];
-      const remaining = state.workspaces.filter((workspace) => workspace.id !== id);
-      const workspacePromptOperations = { ...state.workspacePromptOperations };
-      delete workspacePromptOperations[id];
-      if (state.activeWorkspaceId === id) {
-        const nextActive = remaining[0];
-        store.setState({
-          ...workspaceSelectionPatch(state, nextActive, remaining),
-          runningJobMeta: nextMeta,
-          jobGroupsByWorkspace,
-          workspacePromptOperations,
-        });
-        if (nextActive.activeProfileId && nextActive.activeProfileId !== state.activeProfileId) {
-          void store.getState().setActiveProfile(nextActive.activeProfileId);
-        }
-      } else {
-        store.setState({ workspaces: remaining, runningJobMeta: nextMeta, jobGroupsByWorkspace, workspacePromptOperations });
-      }
-      runtime.syncTaskSubscriptions();
+      performCloseWorkspace(id);
+    },
+
+    cancelWorkspaceClose() {
+      store.setState({ workspaceCloseRequest: null });
+    },
+
+    confirmWorkspaceClose() {
+      const request = store.getState().workspaceCloseRequest;
+      if (!request) return;
+      performCloseWorkspace(request.workspaceId);
     },
 
     renameWorkspace(id: string, name: string) {

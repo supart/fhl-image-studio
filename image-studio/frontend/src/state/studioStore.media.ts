@@ -45,6 +45,7 @@ import {
   settleWorkspaceAction,
   type WorkspaceActionToken,
 } from "./workspaceActionTokens.ts";
+import { mapWorkspaceCanvasHistoryItems } from "./workspaceCanvasRuntime.ts";
 
 type StateAdapter = {
   getState: () => StudioState;
@@ -159,6 +160,10 @@ async function backfillHistoryPreviewRefs(
     batchResults: state.batchResults.map((item) => changedById.get(item.id) ?? item),
     currentImage: mergeHistoryMediaRef(state.currentImage, changedById),
     compareB: mergeHistoryMediaRef(state.compareB, changedById),
+    workspaceCanvasRuntime: mapWorkspaceCanvasHistoryItems(
+      state.workspaceCanvasRuntime,
+      (item) => mergeHistoryMediaRef(item, changedById),
+    ),
     resultDetail: mergeHistoryMediaRef(state.resultDetail, changedById),
   }));
   await persistHistoryItems(changed).catch(() => undefined);
@@ -777,6 +782,13 @@ export function createMediaActions(store: StateAdapter) {
         history: kept,
         currentImage: state.currentImage && keepIds.has(state.currentImage.id) ? state.currentImage : null,
         compareB: state.compareB && keepIds.has(state.compareB.id) ? state.compareB : null,
+        sourcePreviewReturnImage: state.sourcePreviewReturnImage && keepIds.has(state.sourcePreviewReturnImage.id)
+          ? state.sourcePreviewReturnImage
+          : null,
+        workspaceCanvasRuntime: mapWorkspaceCanvasHistoryItems(
+          state.workspaceCanvasRuntime,
+          (item) => item && keepIds.has(item.id) ? item : null,
+        ),
         resultDetail: state.resultDetail && keepIds.has(state.resultDetail.id) ? state.resultDetail : null,
         panoramaViewerItem: state.panoramaViewerItem && keepIds.has(state.panoramaViewerItem.id) ? state.panoramaViewerItem : null,
         panoramaAlignTarget: state.panoramaAlignTarget && keepIds.has(state.panoramaAlignTarget.id) ? state.panoramaAlignTarget : null,

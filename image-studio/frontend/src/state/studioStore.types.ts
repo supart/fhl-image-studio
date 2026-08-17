@@ -99,6 +99,38 @@ export interface UndoEntry {
   redo: (s: StudioState) => Partial<StudioState>;
 }
 
+export interface CanvasView {
+  scale: number;
+  x: number;
+  y: number;
+}
+
+export interface WorkspaceCanvasRuntime {
+  sourcePreviewReturnImage: HistoryItem | null;
+  tool: StudioState["tool"];
+  brushSize: number;
+  brushMode: StudioState["brushMode"];
+  annotationKind: StudioState["annotationKind"];
+  annotationColor: string;
+  selectedAnnotationId: string | null;
+  maskDataURL: string | null;
+  strokes: Stroke[];
+  annotations: Annotation[];
+  undoStack: UndoEntry[];
+  redoStack: UndoEntry[];
+  compareB: HistoryItem | null;
+  compareMode: CompareMode;
+  compareSplit: number;
+  canvasView: CanvasView | null;
+  viewZoom: number;
+  canvasViewResetTick: number;
+}
+
+export interface WorkspaceCloseRequest {
+  workspaceId: string;
+  workspaceName: string;
+}
+
 export type FHLTextAPITestStatus = "unconfigured" | "saved" | "testing" | "success" | "error";
 
 export interface StudioState {
@@ -176,6 +208,7 @@ export interface StudioState {
   compareSplit: number;
   toasts: Toast[];
   recentDurations: number[];
+  canvasView: CanvasView | null;
   viewZoom: number;
   canvasViewResetTick: number;
   fullscreen: boolean;
@@ -192,6 +225,8 @@ export interface StudioState {
   fontScale: number;
   workspaces: Workspace[];
   activeWorkspaceId: string;
+  workspaceCanvasRuntime: Record<string, WorkspaceCanvasRuntime>;
+  workspaceCloseRequest: WorkspaceCloseRequest | null;
   styleTag: string;
   undoStack: UndoEntry[];
   redoStack: UndoEntry[];
@@ -256,6 +291,7 @@ export interface StudioState {
   shareHistoryItem: (item: HistoryItem) => Promise<void>;
   bootstrap: () => Promise<void>;
   setMaskDataURL: (v: string | null) => void;
+  setCanvasView: (view: CanvasView | null) => void;
   pushStroke: (s: Stroke) => void;
   resetMask: () => void;
   addAnnotation: (a: Annotation) => void;
@@ -350,6 +386,8 @@ export interface StudioState {
   newWorkspace: (name?: string) => void;
   switchWorkspace: (id: string) => void;
   closeWorkspace: (id: string) => void;
+  cancelWorkspaceClose: () => void;
+  confirmWorkspaceClose: () => void;
   renameWorkspace: (id: string, name: string) => void;
   rotateCurrent: (degrees: number) => Promise<void>;
   flipCurrent: (horizontal: boolean) => Promise<void>;

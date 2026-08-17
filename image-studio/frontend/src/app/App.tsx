@@ -17,6 +17,7 @@ import { useGlobalImageImport } from "./hooks/useGlobalImageImport";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useInteractionAudit } from "./hooks/useInteractionAudit";
 import { useStudioBootstrap } from "./hooks/useStudioBootstrap";
+import { WorkspaceCloseConfirmGate } from "./gates/WorkspaceCloseConfirmGate";
 
 export default function App() {
   const fullscreen = useStudioStore((state) => state.fullscreen);
@@ -53,6 +54,7 @@ export default function App() {
       <MaterialManagerModal />
       <ResultDetailGate />
       <StarPromptGate />
+      <WorkspaceCloseConfirmGate />
     </div>
   );
 }

@@ -20,6 +20,18 @@ import type {
 } from "../types/domain";
 import type { StudioState } from "./studioStore.types";
 import { currentImageIdForWorkspaceSnapshot } from "./studioStore.streamPreview";
+import { mapWorkspaceCanvasHistoryItems } from "./workspaceCanvasRuntime.ts";
+
+function replaceWorkspaceCanvasHistoryItem(
+  state: StudioState,
+  itemId: string,
+  next: HistoryItem,
+) {
+  return mapWorkspaceCanvasHistoryItems(
+    state.workspaceCanvasRuntime,
+    (item) => item?.id === itemId ? next : item,
+  );
+}
 
 export function withMediaAssetRef(
   item: HistoryItem,
@@ -133,6 +145,7 @@ export async function ensureFullHistoryItem(
         deps?.setState((state) => ({
           currentImage: state.currentImage?.id === item.id ? next : state.currentImage,
           compareB: state.compareB?.id === item.id ? next : state.compareB,
+          workspaceCanvasRuntime: replaceWorkspaceCanvasHistoryItem(state, item.id, next),
           resultDetail: state.resultDetail?.id === item.id ? next : state.resultDetail,
           panoramaViewerItem: state.panoramaViewerItem?.id === item.id ? next : state.panoramaViewerItem,
           panoramaAlignTarget: state.panoramaAlignTarget?.id === item.id ? next : state.panoramaAlignTarget,
@@ -147,6 +160,7 @@ export async function ensureFullHistoryItem(
         deps?.setState((state) => ({
           currentImage: state.currentImage?.id === item.id ? next : state.currentImage,
           compareB: state.compareB?.id === item.id ? next : state.compareB,
+          workspaceCanvasRuntime: replaceWorkspaceCanvasHistoryItem(state, item.id, next),
           resultDetail: state.resultDetail?.id === item.id ? next : state.resultDetail,
           panoramaViewerItem: state.panoramaViewerItem?.id === item.id ? next : state.panoramaViewerItem,
           panoramaAlignTarget: state.panoramaAlignTarget?.id === item.id ? next : state.panoramaAlignTarget,
@@ -167,6 +181,7 @@ export async function ensureFullHistoryItem(
     deps?.setState((state) => ({
       currentImage: state.currentImage?.id === item.id ? next : state.currentImage,
       compareB: state.compareB?.id === item.id ? next : state.compareB,
+      workspaceCanvasRuntime: replaceWorkspaceCanvasHistoryItem(state, item.id, next),
       resultDetail: state.resultDetail?.id === item.id ? next : state.resultDetail,
       panoramaViewerItem: state.panoramaViewerItem?.id === item.id ? next : state.panoramaViewerItem,
       panoramaAlignTarget: state.panoramaAlignTarget?.id === item.id ? next : state.panoramaAlignTarget,
@@ -188,6 +203,7 @@ export async function ensureFullHistoryItem(
     deps?.setState((state) => ({
       currentImage: state.currentImage?.id === item.id ? next : state.currentImage,
       compareB: state.compareB?.id === item.id ? next : state.compareB,
+      workspaceCanvasRuntime: replaceWorkspaceCanvasHistoryItem(state, item.id, next),
     }));
     return next;
   } catch {

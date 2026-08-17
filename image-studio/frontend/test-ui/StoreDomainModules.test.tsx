@@ -14,6 +14,8 @@ import { activeWorkspaceEditAutoAspectUserLocked } from "../src/state/sharedEdit
 import { useStudioStore } from "../src/state/studioStore.ts";
 import { loadWorkspaceSession, persistWorkspaceSession } from "../src/state/studioStore.shared.ts";
 import { createWorkspaceActions, workspaceSelectionPatch } from "../src/state/studioStore.workspaces.ts";
+import { createApplicationResetPatch } from "../src/state/applicationStateReset.ts";
+import { mapWorkspaceCanvasHistoryItems } from "../src/state/workspaceCanvasRuntime.ts";
 import { createDefaultWorkspace, WORKSPACE_DEFAULT_FIELD_KEYS } from "../src/state/workspaceDefaults.ts";
 import { storageKey } from "../src/lib/storageNamespace.ts";
 import type { HistoryItem } from "../src/types/domain.ts";
@@ -43,6 +45,9 @@ describe("workspace, material, and history domain modules", () => {
       materialGroups: [],
       isResettingApplication: false,
       batchTasksById: {},
+      workspaceCanvasRuntime: {},
+      workspaceCloseRequest: null,
+      canvasView: null,
     });
   });
 
@@ -236,18 +241,126 @@ describe("workspace, material, and history domain modules", () => {
     expect(useStudioStore.getState().editAutoAspectUserLocked).toBe(true);
   });
 
-  it("unbinds every native job event when a workspace closes", () => {
+  it("restores independent runtime canvas state when switching workspaces", () => {
+    const first = createDefaultWorkspace("workspace-1", "png", "Workspace 1");
+    const second = createDefaultWorkspace("workspace-2", "png", "Workspace 2");
+    const compareA = historyItem("compare-a", 1);
+    const compareB = historyItem("compare-b", 2);
+    const strokeA = { points: [1, 2], size: 4 };
+    const strokeB = { points: [5, 6], size: 2 };
+    const undoA = { label: "a", undo: () => ({ strokes: [] }), redo: () => ({ strokes: [strokeA] }) };
+    const undoB = { label: "b", undo: () => ({ strokes: [] }), redo: () => ({ strokes: [strokeB] }) };
+    useStudioStore.setState({
+      workspaces: [first, second],
+      activeWorkspaceId: first.id,
+      workspaceCanvasRuntime: {},
+      tool: "mask",
+      brushSize: 42,
+      maskDataURL: "mask-a",
+      strokes: [strokeA],
+      annotations: [{ id: "annotation-a", kind: "rect", x: 1, y: 2, w: 3, h: 4, color: "#f00" }],
+      compareB: compareA,
+      compareMode: "sideBySide",
+      compareSplit: 0.3,
+      canvasView: { scale: 1.5, x: 10, y: 20 },
+      viewZoom: 1.5,
+      undoStack: [undoA],
+      redoStack: [],
+    });
+
+    useStudioStore.getState().switchWorkspace(second.id);
+    expect(useStudioStore.getState()).toMatchObject({
+      tool: "pan",
+      maskDataURL: null,
+      annotations: [],
+      compareB: null,
+      canvasView: null,
+      undoStack: [],
+    });
+    useStudioStore.setState({
+      tool: "annotate",
+      brushSize: 18,
+      maskDataURL: "mask-b",
+      strokes: [strokeB],
+      annotations: [{ id: "annotation-b", kind: "arrow", x: 5, y: 6, w: 7, h: 8, color: "#0f0" }],
+      compareB,
+      compareMode: "curtain",
+      compareSplit: 0.7,
+      canvasView: { scale: 0.75, x: -4, y: 8 },
+      viewZoom: 0.75,
+      undoStack: [undoB],
+      redoStack: [undoA],
+    });
+
+    useStudioStore.getState().switchWorkspace(first.id);
+    expect(useStudioStore.getState()).toMatchObject({
+      tool: "mask",
+      brushSize: 42,
+      maskDataURL: "mask-a",
+      compareB: compareA,
+      compareMode: "sideBySide",
+      compareSplit: 0.3,
+      canvasView: { scale: 1.5, x: 10, y: 20 },
+      viewZoom: 1.5,
+      undoStack: [undoA],
+      redoStack: [],
+    });
+    expect(useStudioStore.getState().annotations.map((item) => item.id)).toEqual(["annotation-a"]);
+    useStudioStore.getState().undo();
+    expect(useStudioStore.getState().strokes).toEqual([]);
+
+    useStudioStore.getState().switchWorkspace(second.id);
+    expect(useStudioStore.getState()).toMatchObject({
+      tool: "annotate",
+      brushSize: 18,
+      maskDataURL: "mask-b",
+      compareB,
+      canvasView: { scale: 0.75, x: -4, y: 8 },
+      undoStack: [undoB],
+      redoStack: [undoA],
+    });
+    expect(useStudioStore.getState().annotations.map((item) => item.id)).toEqual(["annotation-b"]);
+    expect(useStudioStore.getState().strokes).toEqual([strokeB]);
+
+    useStudioStore.getState().switchWorkspace(first.id);
+    useStudioStore.getState().redo();
+    expect(useStudioStore.getState().strokes).toEqual([strokeA]);
+
+    const refreshedCompareA = { ...compareA, previewUrl: "/media/compare-a.avif" };
+    const mappedRuntime = mapWorkspaceCanvasHistoryItems(
+      useStudioStore.getState().workspaceCanvasRuntime,
+      (item) => item?.id === compareA.id ? refreshedCompareA : item,
+    );
+    expect(mappedRuntime[first.id].compareB).toEqual(refreshedCompareA);
+    expect(mappedRuntime[second.id].compareB).toEqual(compareB);
+
+    const resetPatch = createApplicationResetPatch(first);
+    expect(resetPatch.workspaceCanvasRuntime).toEqual({});
+    expect(resetPatch.canvasView).toBeNull();
+  });
+
+  it("requires confirmation and cancels only the target workspace when it closes", () => {
     const first = {
       ...createDefaultWorkspace("workspace-1", "png", "Workspace 1"),
       runningJobIds: ["job-1"],
     };
-    const second = createDefaultWorkspace("workspace-2", "png", "Workspace 2");
+    const second = {
+      ...createDefaultWorkspace("workspace-2", "png", "Workspace 2"),
+      runningJobIds: ["job-2"],
+    };
     let state = {
       ...useStudioStore.getState(),
       workspaces: [first, second],
       activeWorkspaceId: first.id,
-      runningJobMeta: { "job-1": { workspaceId: first.id } },
-      jobGroupsByWorkspace: { [first.id]: [] },
+      workspaceCanvasRuntime: {
+        [first.id]: { ...useStudioStore.getState().workspaceCanvasRuntime[first.id] },
+        [second.id]: { ...useStudioStore.getState().workspaceCanvasRuntime[second.id] },
+      },
+      runningJobMeta: {
+        "job-1": { workspaceId: first.id },
+        "job-2": { workspaceId: second.id },
+      },
+      jobGroupsByWorkspace: { [first.id]: [], [second.id]: [] },
     };
     const cancelJob = vi.fn();
     const detachJobEvents = vi.fn();
@@ -266,12 +379,48 @@ describe("workspace, material, and history domain modules", () => {
 
     actions.closeWorkspace(first.id);
 
+    expect(state.workspaceCloseRequest).toEqual({ workspaceId: first.id, workspaceName: first.name });
+    expect(cancelJob).not.toHaveBeenCalled();
+    expect(state.workspaces).toHaveLength(2);
+
+    actions.cancelWorkspaceClose();
+    expect(state.workspaceCloseRequest).toBeNull();
+    expect(state.workspaces).toHaveLength(2);
+
+    actions.closeWorkspace(first.id);
+    actions.confirmWorkspaceClose();
+
     expect(cancelJob).toHaveBeenCalledWith("job-1");
+    expect(cancelJob).not.toHaveBeenCalledWith("job-2");
     expect(detachJobEvents).toHaveBeenCalledExactlyOnceWith("job-1");
     expect(syncTaskSubscriptions).toHaveBeenCalledTimes(1);
     expect(state.workspaces.map((workspace) => workspace.id)).toEqual([second.id]);
-    expect(state.runningJobMeta).toEqual({});
-    expect(state.jobGroupsByWorkspace).toEqual({});
+    expect(state.runningJobMeta).toEqual({ "job-2": { workspaceId: second.id } });
+    expect(state.jobGroupsByWorkspace).toEqual({ [second.id]: [] });
+    expect(state.workspaceCanvasRuntime[first.id]).toBeUndefined();
+  });
+
+  it("closes an inactive prompting workspace without changing the active workspace", () => {
+    const first = createDefaultWorkspace("workspace-1", "png", "Workspace 1");
+    const second = createDefaultWorkspace("workspace-2", "png", "Workspace 2");
+    useStudioStore.setState({
+      workspaces: [first, second],
+      activeWorkspaceId: second.id,
+      prompt: second.prompt,
+      workspaceCanvasRuntime: {},
+      workspacePromptOperations: {
+        [first.id]: { isOptimizingPrompt: true, isReversingPrompt: false },
+      },
+      workspaceCloseRequest: null,
+    });
+
+    useStudioStore.getState().closeWorkspace(first.id);
+    expect(useStudioStore.getState().workspaceCloseRequest?.workspaceId).toBe(first.id);
+    useStudioStore.getState().confirmWorkspaceClose();
+
+    expect(useStudioStore.getState().activeWorkspaceId).toBe(second.id);
+    expect(useStudioStore.getState().workspaces.map((workspace) => workspace.id)).toEqual([second.id]);
+    expect(useStudioStore.getState().workspacePromptOperations[first.id]).toBeUndefined();
   });
 
   it("persists material group mutations and deduplicates history refs", () => {

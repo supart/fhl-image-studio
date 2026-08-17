@@ -4055,6 +4055,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
   toasts: [],
   recentDurations: [],
+  canvasView: null,
   viewZoom: 1,
   canvasViewResetTick: 0,
   fullscreen: false,
@@ -4315,6 +4316,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
   workspaces: [],
   activeWorkspaceId: "",
+  workspaceCanvasRuntime: {},
+  workspaceCloseRequest: null,
   styleTag: "",
 
   setField: (key, value) => {
@@ -5202,6 +5205,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         compareSplit: 0.5,
         toasts: [],
         recentDurations: preview.history.map((item) => item.elapsedSec ?? 0).filter((value) => value > 0),
+        canvasView: null,
         viewZoom: 1,
         canvasViewResetTick: 0,
         fullscreen: false,
@@ -5212,6 +5216,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         presets: [],
         workspaces: [preview.workspace],
         activeWorkspaceId: workspaceId,
+        workspaceCanvasRuntime: {},
+        workspaceCloseRequest: null,
         styleTag: preview.currentImage.styleTag ?? "",
         undoStack: [],
         redoStack: [],
@@ -5698,9 +5704,24 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       currentImage: restoredCurrentImage,
       compareB: null,
       compareMode: "curtain",
+      compareSplit: 0.5,
+      sourcePreviewReturnImage: null,
+      tool: "pan",
+      brushSize: 30,
+      brushMode: "paint",
+      annotationKind: "rect",
+      annotationColor: "#ff4d4d",
+      selectedAnnotationId: null,
       annotations: [],
       strokes: [],
       maskDataURL: null,
+      undoStack: [],
+      redoStack: [],
+      canvasView: null,
+      viewZoom: 1,
+      canvasViewResetTick: 0,
+      workspaceCanvasRuntime: {},
+      workspaceCloseRequest: null,
       runningJobMeta: isBackgroundTaskProxyMode() ? buildRunningJobMetaFromBrowserGroups(jobGroupsByWorkspace) : {},
       jobGroupsByWorkspace,
       batchTasksById: restoredBatchTasksById,
@@ -5780,6 +5801,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   setMaskDataURL: (v) => set({ maskDataURL: v }),
+  setCanvasView: (canvasView) => set({ canvasView, viewZoom: canvasView?.scale ?? 1 }),
 
   pushStroke: (stroke) => {
     const before = get().strokes;
@@ -6318,6 +6340,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   newWorkspace: (name) => workspaceActions.newWorkspace(name),
   switchWorkspace: (id) => workspaceActions.switchWorkspace(id),
   closeWorkspace: (id) => workspaceActions.closeWorkspace(id),
+  cancelWorkspaceClose: () => workspaceActions.cancelWorkspaceClose(),
+  confirmWorkspaceClose: () => workspaceActions.confirmWorkspaceClose(),
   renameWorkspace: (id, name) => workspaceActions.renameWorkspace(id, name),
 
   importHistory: async () => mediaActions.importHistory(),

@@ -3,11 +3,16 @@ import { Plus } from "lucide-react";
 import { useStudioStore } from "../../state/studioStore";
 import { usePlatform } from "../../platform/context";
 import { WorkspaceTabItem } from "./WorkspaceTabItem";
+import { workspaceTabStatus } from "../../state/studioStore.workspaces";
 
 // Browser-tab style strip. 每个 tab = 独立 workspace,历史栏共享。
 // 单 workspace 时不显示。
 export function WorkspaceBar() {
-  const { workspaces, activeWorkspaceId, newWorkspace, switchWorkspace, closeWorkspace, renameWorkspace, openResultGrid, fullscreen } = useStudioStore();
+  const store = useStudioStore();
+  const {
+    workspaces, activeWorkspaceId, newWorkspace, switchWorkspace, closeWorkspace,
+    renameWorkspace, openResultGrid, fullscreen,
+  } = store;
   const { isAndroidPhone, isMac, isWindows, usesFluentUI, usesAppleUI } = usePlatform();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
@@ -38,6 +43,7 @@ export function WorkspaceBar() {
             workspace={w}
             active={active}
             canClose={canClose}
+            status={workspaceTabStatus(store, w.id)}
             editingName={editingName}
             isEditing={isEditing}
             onChangeEditingName={setEditingName}

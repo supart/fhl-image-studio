@@ -1,11 +1,28 @@
 import type { Workspace } from "../../types/domain";
 import { usePlatform } from "../../platform/context";
 import { X } from "lucide-react";
+import type { WorkspaceTabStatus } from "../../state/studioStore.workspaces";
+
+const STATUS_LABEL: Record<WorkspaceTabStatus, string> = {
+  idle: "空闲",
+  queued: "排队中",
+  running: "运行中",
+  prompting: "提示词处理中",
+  failed: "失败",
+};
+
+const STATUS_CLASS: Record<Exclude<WorkspaceTabStatus, "idle">, string> = {
+  queued: "bg-amber-500",
+  running: "bg-[var(--accent)] shadow-[0_0_6px_rgb(0_122_255_/_0.55)]",
+  prompting: "bg-cyan-500",
+  failed: "bg-red-500",
+};
 
 export function WorkspaceTabItem({
   workspace,
   active,
   canClose,
+  status,
   editingName,
   isEditing,
   onChangeEditingName,
@@ -18,6 +35,7 @@ export function WorkspaceTabItem({
   workspace: Workspace;
   active: boolean;
   canClose: boolean;
+  status: WorkspaceTabStatus;
   editingName: string;
   isEditing: boolean;
   onChangeEditingName: (value: string) => void;
@@ -31,6 +49,10 @@ export function WorkspaceTabItem({
 
   return (
     <div
+      role="tab"
+      aria-selected={active}
+      aria-label={`${workspace.name}，${STATUS_LABEL[status]}`}
+      data-workspace-status={status}
       onClick={() => !isEditing && onSelect()}
       onDoubleClick={onStartRename}
       title="双击重命名"
@@ -56,10 +78,11 @@ export function WorkspaceTabItem({
       ) : (
         <>
           <span className="max-w-[132px] truncate">{workspace.name}</span>
-          {workspace.runningJobIds.length > 0 ? (
+          {status !== "idle" ? (
             <span
-              title={`运行中 ${workspace.runningJobIds.length}`}
-              className="h-1.5 w-1.5 rounded-full bg-[var(--accent)] shadow-[0_0_6px_rgb(0_122_255_/_0.55)]"
+              title={STATUS_LABEL[status]}
+              aria-label={STATUS_LABEL[status]}
+              className={`h-1.5 w-1.5 rounded-full ${STATUS_CLASS[status]}`}
             />
           ) : null}
         </>

@@ -211,6 +211,8 @@ export function CanvasStage() {
     workspaces,
     activeWorkspaceId,
     canvasViewResetTick,
+    canvasView,
+    setCanvasView,
     apiMode,
     activeProfileId,
   } = useStudioStore(useShallow((state) => ({
@@ -287,6 +289,8 @@ export function CanvasStage() {
     workspaces: state.workspaces,
     activeWorkspaceId: state.activeWorkspaceId,
     canvasViewResetTick: state.canvasViewResetTick,
+    canvasView: state.canvasView,
+    setCanvasView: state.setCanvasView,
     apiMode: state.apiMode,
     activeProfileId: state.activeProfileId,
   })));
@@ -820,8 +824,9 @@ export function CanvasStage() {
   // `userView` only holds explicit user manipulation (pan / wheel zoom).
   // The effective view is `userView ?? fit`, so the displayed image is always
   // centered by default. userView is reset whenever currentImage.id changes.
-  const [userView, setUserView] = useState<{ scale: number; x: number; y: number } | null>(null);
+  const userView = canvasView;
   const view = userView ?? { scale: fit.scale, x: fit.x, y: fit.y };
+  const canvasIdentityRef = useRef({ workspaceId: activeWorkspaceId, imageId: currentImage?.id ?? null });
   const streamPreviewImageBounds = isCurrentStreamPreview && image
     ? {
         left: view.x,
@@ -940,9 +945,9 @@ export function CanvasStage() {
       // Currently fit (or not at 100%) 鈫?snap to 100% centred on image.
       const cx = (hostSize.w - image.width) / 2;
       const cy = (hostSize.h - image.height) / 2;
-      setUserView({ scale: 1, x: cx, y: cy });
+      setCanvasView({ scale: 1, x: cx, y: cy });
     } else {
-      setUserView(null); // back to fit
+      setCanvasView(null); // back to fit
     }
   }
 
@@ -982,20 +987,24 @@ export function CanvasStage() {
     pushToast,
   });
 
-  // When the displayed image identity changes, clear the user's manual view
-  // and per-image canvas state. This guarantees the new image starts at fit.
-  // canvasViewResetTick covers in-place edits such as rotate, flip, and crop.
+  // Same-workspace image changes start at fit. Workspace switches restore the
+  // target tab's runtime canvas instead of clearing it as a new image.
   useEffect(() => {
-    setUserView(null);
-    setMaskDataURL(null);
+    const previous = canvasIdentityRef.current;
+    const workspaceChanged = previous.workspaceId !== activeWorkspaceId;
+    if (!workspaceChanged) {
+      setCanvasView(null);
+      setMaskDataURL(null);
+    }
+    canvasIdentityRef.current = { workspaceId: activeWorkspaceId, imageId: currentImage?.id ?? null };
     drawingRef.current = { active: false, current: null };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentImage?.id, canvasViewResetTick]);
+  }, [activeWorkspaceId, currentImage?.id, canvasViewResetTick]);
 
   // setView is the only writer of userView. Treat any explicit pan/zoom as a
   // user override; auto-recenter happens by resetting to null elsewhere.
   function setView(v: { scale: number; x: number; y: number }) {
-    setUserView(v);
+    setCanvasView(v);
   }
 
   // Mouse wheel zoom around cursor.
@@ -1177,9 +1186,9 @@ export function CanvasStage() {
     setMaskDataURL(hasWhite ? "__PENDING_MASK__" : null);
   }, [strokes, image, setMaskDataURL]);
 
-  function resetView() {
-    setUserView(null);
-  }
+  const resetView = useCallback(() => {
+    setCanvasView(null);
+  }, [setCanvasView]);
 
   const navigateSinglePreview = useCallback((direction: -1 | 1) => {
     if (!showSinglePreviewNav) return;
@@ -1203,7 +1212,7 @@ export function CanvasStage() {
     return () => {
       delete (window as any).__canvasResetView;
     };
-  }, [fit.scale, fit.x, fit.y]);
+  }, [fit.scale, fit.x, fit.y, resetView]);
 
   useCanvasShortcuts({
     brushSize,
@@ -1603,4 +1612,3 @@ export function CanvasStage() {
     </>
   );
 }
-
