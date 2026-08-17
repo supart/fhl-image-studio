@@ -4,6 +4,7 @@ import type {
   BatchProcessConfig,
   BatchProcessSourceImage,
   EditSourceMode,
+  HistoryItem,
   ProgressInfo,
   StreamPreview,
   StreamPreviewMap,
@@ -22,6 +23,12 @@ export interface RunningJobMeta {
 export interface WorkspacePatch extends Partial<Workspace> {
   runningJobs?: string[];
   runningJobIds?: string[];
+}
+
+export function historyItemsByIds(history: HistoryItem[], ids: string[]): HistoryItem[] {
+  if (ids.length === 0) return [];
+  const byID = new Map(history.map((item) => [item.id, item]));
+  return ids.map((id) => byID.get(id)).filter((item): item is HistoryItem => !!item);
 }
 
 export interface WorkspaceRuntimeState {

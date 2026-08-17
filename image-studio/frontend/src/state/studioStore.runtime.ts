@@ -21,12 +21,6 @@ import type {
 import type { StudioState } from "./studioStore.types";
 import { currentImageIdForWorkspaceSnapshot } from "./studioStore.streamPreview";
 
-export function historyItemsByIds(history: HistoryItem[], ids: string[]): HistoryItem[] {
-  if (ids.length === 0) return [];
-  const byID = new Map(history.map((item) => [item.id, item]));
-  return ids.map((id) => byID.get(id)).filter((item): item is HistoryItem => !!item);
-}
-
 export function withMediaAssetRef(
   item: HistoryItem,
   ref: {

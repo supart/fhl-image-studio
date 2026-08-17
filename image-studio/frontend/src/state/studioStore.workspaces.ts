@@ -1,127 +1,96 @@
-import {
-  Cancel as wailsCancel,
-  EventsOff,
-} from "../platform/runtime/host";
-import type { StudioState } from "./studioStore.types";
-import { historyItemsByIds, saveActiveWorkspaceSnapshot } from "./studioStore.runtime";
-import { streamPreviewItemFromWorkspace } from "./studioStore.streamPreview";
-import { defaultBatchProcessConfig } from "./workspaceRuntime";
-import { createDefaultWorkspace } from "./workspaceDefaults";
+import type { Workspace } from "../types/domain.ts";
+import type { StudioState } from "./studioStore.types.ts";
+import { streamPreviewItemFromWorkspace } from "./studioStore.streamPreview.ts";
+import { defaultBatchProcessConfig, historyItemsByIds } from "./workspaceRuntime.ts";
+import { createDefaultWorkspace } from "./workspaceDefaults.ts";
 
 type StateAdapter = {
   getState: () => StudioState;
   setState: (patch: Partial<StudioState> | ((state: StudioState) => Partial<StudioState>)) => void;
 };
 
-export function createWorkspaceActions(store: StateAdapter) {
+type WorkspaceActionRuntime = {
+  cancelJob: (jobId: string) => unknown;
+  offEvents: (...eventNames: string[]) => void;
+  saveActiveSnapshot: (state: StudioState) => Workspace[];
+};
+
+export function workspaceSelectionPatch(
+  state: StudioState,
+  target: Workspace,
+  workspaces: Workspace[],
+): Partial<StudioState> {
+  const persistedCurrent = target.currentImageId
+    ? state.history.find((item) => item.id === target.currentImageId) ?? null
+    : null;
+  const currentImage = streamPreviewItemFromWorkspace(target, persistedCurrent) ?? persistedCurrent;
+  const batchResults = historyItemsByIds(state.history, target.batchResultIds ?? []);
+  const runningJobs = target.runningJobIds ?? [];
+
+  return {
+    workspaces,
+    activeWorkspaceId: target.id,
+    promptPrefix: target.promptPrefix ?? "",
+    prompt: target.prompt,
+    optimizationGuidance: target.optimizationGuidance,
+    negativePrompt: target.negativePrompt,
+    mode: target.mode,
+    size: target.size,
+    quality: target.quality,
+    outputFormat: target.outputFormat ?? state.outputFormat,
+    seed: target.seed,
+    batchCount: target.batchCount,
+    continuousGenerateTest: target.continuousGenerateTest === true,
+    editSourceMode: target.editSourceMode ?? "manual",
+    batchProcess: target.batchProcess ?? defaultBatchProcessConfig(),
+    styleTag: target.styleTag ?? "",
+    sources: target.sources,
+    currentImage,
+    sourcePreviewReturnImage: null,
+    batchResults,
+    selectedBatchTaskId: target.selectedBatchTaskId ?? null,
+    resultGridOpen: !!target.resultGridOpen,
+    historyGalleryOpen: target.historyGalleryOpen === true,
+    historyGallerySinglePreviewId: target.historyGallerySinglePreviewId ?? null,
+    historyGallerySort: target.historyGallerySort ?? "newest",
+    annotations: [],
+    strokes: [],
+    maskDataURL: null,
+    runningJobs,
+    jobsTotal: target.jobsTotal ?? 0,
+    jobsCompleted: target.jobsCompleted ?? 0,
+    jobsFailed: target.jobsFailed ?? 0,
+    progress: target.progress ?? null,
+    streamPreview: target.streamPreview ?? null,
+    streamPreviews: target.streamPreviews ?? {},
+    lastLogLine: target.lastLogLine ?? "",
+    errorMessage: target.errorMessage ?? null,
+    errorRawPath: target.errorRawPath ?? null,
+    isRunning: runningJobs.length > 0,
+    lastPayload: target.lastPayload ?? null,
+  };
+}
+export function createWorkspaceActions(store: StateAdapter, runtime: WorkspaceActionRuntime) {
   return {
     newWorkspace(name?: string) {
       const state = store.getState();
-      const persisted = saveActiveWorkspaceSnapshot(state);
+      const persisted = runtime.saveActiveSnapshot(state);
       const id = `ws-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-      const newWorkspace = createDefaultWorkspace(
+      const workspace = createDefaultWorkspace(
         id,
         state.outputFormat,
         name ?? `图片 ${persisted.length + 1}`,
       );
-      store.setState({
-        workspaces: [...persisted, newWorkspace],
-        activeWorkspaceId: id,
-        promptPrefix: newWorkspace.promptPrefix,
-        prompt: newWorkspace.prompt,
-        optimizationGuidance: newWorkspace.optimizationGuidance,
-        negativePrompt: newWorkspace.negativePrompt,
-        mode: newWorkspace.mode,
-        size: newWorkspace.size,
-        quality: newWorkspace.quality,
-        outputFormat: newWorkspace.outputFormat,
-        seed: newWorkspace.seed,
-        batchCount: newWorkspace.batchCount,
-        continuousGenerateTest: newWorkspace.continuousGenerateTest,
-        editSourceMode: newWorkspace.editSourceMode,
-        batchProcess: newWorkspace.batchProcess,
-        styleTag: newWorkspace.styleTag,
-        sources: newWorkspace.sources,
-        currentImage: null,
-        sourcePreviewReturnImage: null,
-        batchResults: [],
-        selectedBatchTaskId: null,
-        resultGridOpen: false,
-        historyGalleryOpen: false,
-        historyGallerySinglePreviewId: null,
-        historyGallerySort: newWorkspace.historyGallerySort,
-        annotations: [],
-        strokes: [],
-        maskDataURL: null,
-        runningJobs: [],
-        jobsTotal: 0,
-        jobsCompleted: 0,
-        jobsFailed: 0,
-        progress: null,
-        streamPreview: null,
-        streamPreviews: {},
-        lastLogLine: "",
-        errorMessage: null,
-        errorRawPath: null,
-        isRunning: false,
-        lastPayload: null,
-      });
+      store.setState(workspaceSelectionPatch(state, workspace, [...persisted, workspace]));
     },
 
     switchWorkspace(id: string) {
       const state = store.getState();
       if (state.activeWorkspaceId === id) return;
-      const persisted = saveActiveWorkspaceSnapshot(state);
+      const persisted = runtime.saveActiveSnapshot(state);
       const target = persisted.find((workspace) => workspace.id === id);
       if (!target) return;
-      const persistedCurrent = target.currentImageId
-        ? state.history.find((item) => item.id === target.currentImageId) ?? null
-        : null;
-      const newCurrent = streamPreviewItemFromWorkspace(target, persistedCurrent) ?? persistedCurrent;
-      const batchResults = historyItemsByIds(state.history, target.batchResultIds ?? []);
-      const runningJobs = target.runningJobIds ?? [];
-      store.setState({
-        workspaces: persisted,
-        activeWorkspaceId: id,
-        promptPrefix: target.promptPrefix ?? "",
-        prompt: target.prompt,
-        optimizationGuidance: target.optimizationGuidance,
-        negativePrompt: target.negativePrompt,
-        mode: target.mode,
-        size: target.size,
-        quality: target.quality,
-        outputFormat: target.outputFormat ?? store.getState().outputFormat,
-        seed: target.seed,
-        batchCount: target.batchCount,
-        continuousGenerateTest: target.continuousGenerateTest === true,
-        editSourceMode: target.editSourceMode ?? "manual",
-        batchProcess: target.batchProcess ?? defaultBatchProcessConfig(),
-        styleTag: target.styleTag ?? "",
-        sources: target.sources,
-        currentImage: newCurrent,
-        sourcePreviewReturnImage: null,
-        batchResults,
-        selectedBatchTaskId: target.selectedBatchTaskId ?? null,
-        resultGridOpen: !!target.resultGridOpen,
-        historyGalleryOpen: target.historyGalleryOpen === true,
-        historyGallerySinglePreviewId: target.historyGallerySinglePreviewId ?? null,
-        historyGallerySort: target.historyGallerySort ?? "newest",
-        annotations: [],
-        strokes: [],
-        maskDataURL: null,
-        runningJobs,
-        jobsTotal: target.jobsTotal ?? 0,
-        jobsCompleted: target.jobsCompleted ?? 0,
-        jobsFailed: target.jobsFailed ?? 0,
-        progress: target.progress ?? null,
-        streamPreview: target.streamPreview ?? null,
-        streamPreviews: target.streamPreviews ?? {},
-        lastLogLine: target.lastLogLine ?? "",
-        errorMessage: target.errorMessage ?? null,
-        errorRawPath: target.errorRawPath ?? null,
-        isRunning: runningJobs.length > 0,
-        lastPayload: target.lastPayload ?? null,
-      });
+      store.setState(workspaceSelectionPatch(state, target, persisted));
     },
 
     closeWorkspace(id: string) {
@@ -132,62 +101,16 @@ export function createWorkspaceActions(store: StateAdapter) {
       }
       const closingJobIds = state.workspaces.find((workspace) => workspace.id === id)?.runningJobIds ?? [];
       for (const jobId of closingJobIds) {
-        try { void wailsCancel(jobId); } catch {}
-        EventsOff(`progress:${jobId}`, `log:${jobId}`, `preview:${jobId}`, `result:${jobId}`, `error:${jobId}`);
+        try { void runtime.cancelJob(jobId); } catch {}
+        runtime.offEvents(`progress:${jobId}`, `log:${jobId}`, `preview:${jobId}`, `result:${jobId}`, `error:${jobId}`);
       }
       const nextMeta = { ...state.runningJobMeta };
       for (const jobId of closingJobIds) delete nextMeta[jobId];
       const remaining = state.workspaces.filter((workspace) => workspace.id !== id);
       if (state.activeWorkspaceId === id) {
-        const next = remaining[0];
-        const persistedCurrent = next.currentImageId
-          ? state.history.find((item) => item.id === next.currentImageId) ?? null
-          : null;
-        const newCurrent = streamPreviewItemFromWorkspace(next, persistedCurrent) ?? persistedCurrent;
-        const batchResults = historyItemsByIds(state.history, next.batchResultIds ?? []);
-        const runningJobs = next.runningJobIds ?? [];
         store.setState({
-          workspaces: remaining,
+          ...workspaceSelectionPatch(state, remaining[0], remaining),
           runningJobMeta: nextMeta,
-          activeWorkspaceId: next.id,
-          promptPrefix: next.promptPrefix ?? "",
-          prompt: next.prompt,
-          optimizationGuidance: next.optimizationGuidance,
-          negativePrompt: next.negativePrompt,
-          mode: next.mode,
-          size: next.size,
-          quality: next.quality,
-          outputFormat: next.outputFormat ?? store.getState().outputFormat,
-          seed: next.seed,
-          batchCount: next.batchCount,
-          continuousGenerateTest: next.continuousGenerateTest === true,
-          editSourceMode: next.editSourceMode ?? "manual",
-          batchProcess: next.batchProcess ?? defaultBatchProcessConfig(),
-          styleTag: next.styleTag ?? "",
-          sources: next.sources,
-          currentImage: newCurrent,
-          sourcePreviewReturnImage: null,
-          batchResults,
-          selectedBatchTaskId: next.selectedBatchTaskId ?? null,
-          resultGridOpen: !!next.resultGridOpen,
-          historyGalleryOpen: next.historyGalleryOpen === true,
-          historyGallerySinglePreviewId: next.historyGallerySinglePreviewId ?? null,
-          historyGallerySort: next.historyGallerySort ?? "newest",
-          annotations: [],
-          strokes: [],
-          maskDataURL: null,
-          runningJobs,
-          jobsTotal: next.jobsTotal ?? 0,
-          jobsCompleted: next.jobsCompleted ?? 0,
-          jobsFailed: next.jobsFailed ?? 0,
-          progress: next.progress ?? null,
-          streamPreview: next.streamPreview ?? null,
-          streamPreviews: next.streamPreviews ?? {},
-          lastLogLine: next.lastLogLine ?? "",
-          errorMessage: next.errorMessage ?? null,
-          errorRawPath: next.errorRawPath ?? null,
-          isRunning: runningJobs.length > 0,
-          lastPayload: next.lastPayload ?? null,
         });
       } else {
         store.setState({ workspaces: remaining, runningJobMeta: nextMeta });

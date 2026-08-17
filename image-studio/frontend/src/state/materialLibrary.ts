@@ -119,12 +119,13 @@ export function normalizeMaterialGroups(value: unknown, historyIds?: Set<string>
   return groups;
 }
 
-export function loadMaterialGroups(history: HistoryItem[] = []): MaterialGroup[] {
+export function loadMaterialGroups(history?: HistoryItem[]): MaterialGroup[] {
   if (typeof localStorage === "undefined") return [];
   try {
     const raw = localStorage.getItem(MATERIAL_LIBRARY_KEY);
     if (!raw) return [];
-    return normalizeMaterialGroups(JSON.parse(raw), new Set(history.map((item) => item.id)));
+    const historyIds = history ? new Set(history.map((item) => item.id)) : undefined;
+    return normalizeMaterialGroups(JSON.parse(raw), historyIds);
   } catch {
     return [];
   }

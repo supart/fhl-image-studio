@@ -5,7 +5,19 @@
 ## 文件职责
 
 - `studioStore.ts`
-  - 主业务状态、动作、工作区镜像、提交流程编排。
+  - `useStudioStore` 兼容入口、跨领域编排和仍待迁移的任务生命周期。
+
+- `studioStore.workspaces.ts`
+  - 工作区新建、切换、关闭和重命名动作。
+  - 宿主取消、事件解绑和活动快照通过运行时依赖注入。
+
+- `studioStore.media.ts`
+  - 历史分页、预览水合、画布媒体动作和历史导入导出。
+  - 分页使用实时状态合并，并受应用重置 epoch 隔离。
+
+- `studioStore.materials.ts`
+  - 素材组增删改、参考图组应用和 output 同步。
+  - 继续复用 `materialLibrary.ts` 的原存储键与规范化策略。
 
 - `workspaceRuntime.ts`
   - 工作区运行态的纯辅助逻辑。

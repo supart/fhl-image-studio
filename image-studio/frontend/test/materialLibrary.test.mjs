@@ -105,6 +105,33 @@ test("material group names get numbered when duplicated within same kind", () =>
   assert.equal(lib.uniqueMaterialGroupName([folder], "folder", "新项目"), "新项目");
 });
 
+test("loading material groups preserves history refs unless a history filter is explicit", () => {
+  const stored = [lib.createMaterialGroupInput("folder", "saved", [
+    { kind: "history", historyId: "history-1" },
+  ], 1)];
+  const previousLocalStorage = globalThis.localStorage;
+  globalThis.localStorage = {
+    getItem: (key) => key === lib.MATERIAL_LIBRARY_KEY ? JSON.stringify(stored) : null,
+    setItem() {},
+    removeItem() {},
+    clear() {},
+    key() { return null; },
+    length: 1,
+  };
+  try {
+    assert.deepEqual(lib.loadMaterialGroups()[0].items, [
+      { kind: "history", historyId: "history-1" },
+    ]);
+    assert.deepEqual(lib.loadMaterialGroups([])[0].items, []);
+    assert.deepEqual(lib.loadMaterialGroups([historyItem("history-1", "saved")])[0].items, [
+      { kind: "history", historyId: "history-1" },
+    ]);
+  } finally {
+    if (previousLocalStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = previousLocalStorage;
+  }
+});
+
 test("dropping into a sidebar folder collects assets without switching the center view", () => {
   const dropBlock = managerSource.match(/function dropHistoryIntoGroup\(groupId: string, event: React\.DragEvent\) \{[\s\S]+?\n  \}/)?.[0] ?? "";
   assert.match(dropBlock, /moveHistoryIdsToGroup\(groupId, ids\)/);

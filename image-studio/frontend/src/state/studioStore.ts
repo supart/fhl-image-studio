@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   BuildBatchOutputPath,
+  EventsOff,
   EventsOn,
   Generate as wailsGenerate,
   Edit as wailsEdit,
@@ -18,9 +19,7 @@ import {
   RegisterMediaAsset,
   ReadTextFile,
   SaveImagePathToDir,
-  SyncMaterialGroupToOutput,
   detectHostKind,
-  OpenMaterialSyncDir,
   probeCurrentUpstream,
   setKernelRuntimeMode,
 } from "../platform/runtime/host";
@@ -55,9 +54,6 @@ import {
   type EditSourceMode,
   HistoryItem,
   JobGroupSnapshot,
-  MaterialGroup,
-  MaterialGroupKind,
-  MaterialRef,
   Mode,
   OutputFormatValue,
   PanoramaPastebackAlignment,
@@ -69,7 +65,6 @@ import {
   SizeValue,
   SourceImage,
   StreamPreviewMap,
-  Toast,
   UpstreamProfile,
   Workspace,
 } from "../types/domain";
@@ -197,20 +192,24 @@ import {
   trimHistory,
 } from "./studioStore.shared";
 import type { ModeConfig, PromptOptimizeRequest, PromptReverseRequest, Stroke, StudioState, UndoEntry } from "./studioStore.types";
-import type { MaterialOutputSyncItemLike } from "../platform/runtime/hostTypes";
 import {
-  historyItemsByIds,
   cryptoIDFallback,
   ensureFullHistoryItem as ensureFullHistoryItemRuntime,
   fileToBase64,
-  materializeMediaRefForHistoryItem,
   materializeHistoryItem as materializeHistoryItemRuntime,
   saveActiveWorkspaceSnapshot,
   STYLE_SUFFIXES,
   tryNotify,
   withMediaAssetRef,
 } from "./studioStore.runtime";
-import { createMediaActions } from "./studioStore.media";
+import { historyItemsByIds } from "./workspaceRuntime";
+import {
+  createMediaActions,
+  getPendingHistoryLoad,
+  hydrateHistoryPreviewRefs,
+  INITIAL_HISTORY_LOAD,
+} from "./studioStore.media";
+import { createMaterialActions } from "./studioStore.materials";
 import { activeProfileRuntimePatch, createProfileActions } from "./studioStore.profiles";
 import { createWorkspaceActions } from "./studioStore.workspaces";
 import { createImageActions } from "./studioStore.images";
@@ -278,16 +277,7 @@ import {
   resolvePanoramaRoundtripRef,
   resolvePanoramaProjectRef,
 } from "../panorama/core";
-import {
-  createMaterialGroupInput,
-  loadMaterialGroups,
-  materialRefKey,
-  mergeSources,
-  persistMaterialGroups,
-  refsFromSources,
-  uniqueMaterialGroupName,
-  uniqueMaterialRefs,
-} from "./materialLibrary";
+import { loadMaterialGroups } from "./materialLibrary";
 import { sourceImagesForHistory, sourceImagesFromPaths } from "./historySourceImages";
 import {
   panoramaHistoryIdsForMetadataRecovery,
@@ -326,28 +316,6 @@ const STAR_PROMPTED_KEY = storageKey("gptcodex.starPrompted");
 const PROMPT_HISTORY_KEY = storageKey("gptcodex.promptHistory");
 const PRESETS_KEY = storageKey("gptcodex.presets");
 const CONCURRENCY_DEFAULT_V4_MIGRATION_KEY = storageKey("gptcodex.profileConcurrencyDefaultV4Migrated");
-const INITIAL_HISTORY_LOAD = 48;
-const HISTORY_MEDIA_HYDRATE_CONCURRENCY = 4;
-
-async function sourceFromHistoryForMaterial(item: HistoryItem): Promise<SourceImage | null> {
-  const full = await materializeHistoryItem(item).catch(() => null);
-  if (!full?.savedPath) return null;
-  let previewItem = full;
-  if (!previewItem.previewUrl && !previewItem.previewBlob && !previewItem.imageB64) {
-    const ref = await materializeMediaRefForHistoryItem(full).catch(() => null);
-    if (ref) previewItem = withMediaAssetRef(previewItem, ref);
-  }
-  return {
-    path: full.savedPath,
-    name: full.savedPath.split(/[\\/]/).pop() ?? "source.png",
-    size: 0,
-    imageBlob: previewItem.previewUrl ? null : (previewItem.previewBlob ?? previewItem.imageBlob ?? null),
-    imageB64: previewItem.previewUrl ? undefined : previewItem.imageB64,
-    previewUrl: previewItem.previewUrl,
-  };
-}
-
-let deferredHistoryLoadPromise: Promise<void> | null = null;
 const startingContinuousTaskIds = new Set<string>();
 const unavailableContinuousPoolProfileIds = new Set<string>();
 let continuousPoolRoundRobinCursor = 0;
@@ -395,67 +363,6 @@ function scheduleWorkspaceSessionPersistence(state: StudioState, immediate = fal
   }
   if (workspaceSessionPersistTimer) clearTimeout(workspaceSessionPersistTimer);
   workspaceSessionPersistTimer = setTimeout(flushWorkspaceSessionPersistence, 500);
-}
-
-function needsHistoryPreviewHydration(item: HistoryItem): boolean {
-  return !!item.savedPath
-    && !item.savedPath.startsWith("memory://")
-    && !item.previewBlob
-    && !item.imageB64
-    && !item.previewUrl;
-}
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  task: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  if (items.length === 0) return [];
-  const results = new Array<R>(items.length);
-  let cursor = 0;
-  const worker = async () => {
-    while (cursor < items.length) {
-      const index = cursor;
-      cursor += 1;
-      results[index] = await task(items[index], index);
-    }
-  };
-  const workerCount = Math.min(Math.max(1, concurrency), items.length);
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
-  return results;
-}
-
-function mergeHistoryMediaRef(current: HistoryItem | null, nextById: Map<string, HistoryItem>): HistoryItem | null {
-  if (!current) return current;
-  const next = nextById.get(current.id);
-  return next ? withMediaAssetRef(current, next) : current;
-}
-
-async function hydrateHistoryPreviewRefs(items: HistoryItem[]): Promise<HistoryItem[]> {
-  return mapWithConcurrency(items, HISTORY_MEDIA_HYDRATE_CONCURRENCY, async (item) => {
-    if (!needsHistoryPreviewHydration(item)) return item;
-    try {
-      const ref = await materializeMediaRefForHistoryItem(item);
-      return withMediaAssetRef(item, ref);
-    } catch {
-      return item;
-    }
-  });
-}
-
-async function backfillHistoryPreviewRefs(items: HistoryItem[]): Promise<void> {
-  const hydrated = await hydrateHistoryPreviewRefs(items);
-  const changed = hydrated.filter((item, index) => item !== items[index]);
-  if (changed.length === 0) return;
-  const changedById = new Map(changed.map((item) => [item.id, item]));
-  useStudioStore.setState((state) => ({
-    history: state.history.map((item) => changedById.get(item.id) ?? item),
-    batchResults: state.batchResults.map((item) => changedById.get(item.id) ?? item),
-    currentImage: mergeHistoryMediaRef(state.currentImage, changedById),
-    compareB: mergeHistoryMediaRef(state.compareB, changedById),
-    resultDetail: mergeHistoryMediaRef(state.resultDetail, changedById),
-  }));
-  await persistHistoryItems(changed).catch(() => undefined);
 }
 
 async function writeBase64ToTempFile(b64: string, _name: string): Promise<string> {
@@ -1384,40 +1291,6 @@ function batchReferenceOrderAutoAspectSource(
     return { source: batchSource, label: "\u7b2c1\u683c\u6279\u91cf\u6e90\u56fe" };
   }
   return { source: firstFixedSource, label: "\u7b2c1\u683c\u53c2\u8003\u56fe" };
-}
-
-function materialSyncItemsForGroup(
-  group: MaterialGroup,
-  historyById: Map<string, HistoryItem>,
-): MaterialOutputSyncItemLike[] {
-  return group.items.map((ref, index) => {
-    if (ref.kind === "source") {
-      const savedPath = ref.source.path?.trim() ?? "";
-      const suggestedName = ref.source.name?.trim() || pathLeaf(savedPath);
-      return {
-        historyId: savedPath ? `source:${savedPath}` : `source:${group.id}:${index}`,
-        savedPath,
-        suggestedName,
-        missingReason: savedPath ? undefined : "Missing source path",
-      };
-    }
-    const item = historyById.get(ref.historyId);
-    if (!item) {
-      return {
-        historyId: ref.historyId,
-        savedPath: "",
-        suggestedName: `${ref.historyId}.png`,
-        missingReason: "History item not found",
-      };
-    }
-    const savedPath = item.savedPath?.trim() ?? "";
-    return {
-      historyId: item.id,
-      savedPath,
-      suggestedName: savedPath ? pathLeaf(savedPath) : `${item.imageId || item.id}.png`,
-      missingReason: savedPath ? undefined : "History item has no saved path",
-    };
-  });
 }
 
 function imageMimeFromName(name: string): string {
@@ -4094,6 +3967,17 @@ const mediaActions = createMediaActions({
   },
 });
 
+const materialActions = createMaterialActions({
+  getState: () => useStudioStore.getState(),
+  setState: (patch) => {
+    if (typeof patch === "function") {
+      useStudioStore.setState((state) => patch(state));
+      return;
+    }
+    useStudioStore.setState(patch);
+  },
+});
+
 const profileActions = createProfileActions({
   getState: () => useStudioStore.getState(),
   setState: (patch) => {
@@ -4114,6 +3998,10 @@ const workspaceActions = createWorkspaceActions({
     }
     useStudioStore.setState(patch);
   },
+}, {
+  cancelJob: wailsCancel,
+  offEvents: EventsOff,
+  saveActiveSnapshot: saveActiveWorkspaceSnapshot,
 });
 
 const imageActions = createImageActions({
@@ -4409,7 +4297,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       transientFailureWindowsByProfile.clear();
       recordedTransientFailureSignatures.clear();
 
-      if (deferredHistoryLoadPromise) await deferredHistoryLoadPromise.catch(() => undefined);
+      const pendingHistoryLoad = getPendingHistoryLoad();
+      if (pendingHistoryLoad) await pendingHistoryLoad;
       const current = get();
       if (hasActiveAPIWork(current) || pendingHistorySynchronizationCount > 0) {
         throw new Error("当前仍有运行、排队、连接测试或提示词任务，结束后才能恢复默认。");
@@ -6359,164 +6248,22 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   setHistoryGallerySort: (value) => mediaActions.setHistoryGallerySort(value),
   selectHistoryGalleryGridItem: (item) => mediaActions.selectHistoryGalleryGridItem(item),
   selectHistoryGalleryResult: async (item) => mediaActions.selectHistoryGalleryResult(item),
-  openMaterialManager: () => set({ materialManagerOpen: true }),
-  closeMaterialManager: () => set({ materialManagerOpen: false }),
-  createMaterialGroup: (kind: MaterialGroupKind, name: string, items: MaterialRef[] = [], description = "") => {
-    const resolvedName = uniqueMaterialGroupName(get().materialGroups, kind, name)
-      || (kind === "referenceSet" ? "Reference Set" : "Folder");
-    const nextGroup = createMaterialGroupInput(kind, resolvedName, items, Date.now(), description);
-    set((state) => {
-      const next = [...state.materialGroups, nextGroup];
-      persistMaterialGroups(next);
-      return { materialGroups: next };
-    });
-    return nextGroup.id;
-  },
-  renameMaterialGroup: (id, name) => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    set((state) => {
-      const next = state.materialGroups.map((group) => (
-        group.id === id ? { ...group, name: trimmed, updatedAt: Date.now() } : group
-      ));
-      persistMaterialGroups(next);
-      return { materialGroups: next };
-    });
-  },
-  deleteMaterialGroup: (id) => {
-    set((state) => {
-      const next = state.materialGroups.filter((group) => group.id !== id);
-      persistMaterialGroups(next);
-      return { materialGroups: next };
-    });
-  },
-  moveHistoryItemsToMaterialGroup: (groupId, historyIds) => {
-    const refs = historyIds
-      .filter((historyId) => get().history.some((item) => item.id === historyId))
-      .map((historyId) => ({ kind: "history", historyId }) satisfies MaterialRef);
-    if (refs.length === 0) return;
-    set((state) => {
-      const next = state.materialGroups.map((group) => (
-        group.id === groupId
-          ? { ...group, items: uniqueMaterialRefs([...group.items, ...refs]), updatedAt: Date.now() }
-          : group
-      ));
-      persistMaterialGroups(next);
-      return { materialGroups: next };
-    });
-  },
-  removeMaterialItem: (groupId, itemRef) => {
-    const targetKey = materialRefKey(itemRef);
-    set((state) => {
-      const next = state.materialGroups.map((group) => (
-        group.id === groupId
-          ? { ...group, items: group.items.filter((item) => materialRefKey(item) !== targetKey), updatedAt: Date.now() }
-          : group
-      ));
-      persistMaterialGroups(next);
-      return { materialGroups: next };
-    });
-  },
-  createReferenceSetFromCurrentSources: (name) => {
-    const refs = refsFromSources(get().sources);
-    if (refs.length === 0) {
-      get().pushToast("Current sources are empty; nothing to save as a reference set", "warn", 2400);
-      return null;
-    }
-    const groupId = get().createMaterialGroup("referenceSet", name || "Reference Set", refs);
-    get().pushToast(`Created a reference set with ${refs.length} items`, "success", 2200);
-    return groupId;
-  },
-  applyMaterialReferenceSet: async (groupId, mode) => {
-    const group = get().materialGroups.find((item) => item.id === groupId && item.kind === "referenceSet");
-    if (!group) return;
-    const historyById = new Map(get().history.map((item) => [item.id, item]));
-    const sources: SourceImage[] = [];
-    for (const ref of group.items) {
-      if (ref.kind === "source") {
-        sources.push(ref.source);
-        continue;
-      }
-      const item = historyById.get(ref.historyId);
-      if (!item) continue;
-      const source = await sourceFromHistoryForMaterial(item);
-      if (source) sources.push(source);
-    }
-    if (sources.length === 0) {
-      get().pushToast("Reference set does not contain any usable source images", "warn", 2400);
-      return;
-    }
-    const nextSources = mergeSources(get().sources, sources, mode);
-    set((state) => ({
-      sources: nextSources,
-      mode: "edit",
-      materialManagerOpen: false,
-      workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, {
-        sources: nextSources,
-        mode: "edit",
-      }),
-    }));
-    get().pushToast(mode === "replace" ? `Replaced sources with ${nextSources.length} reference images` : `Added ${sources.length} reference images`, "success", 2200);
-  },
-  syncMaterialGroupToOutput: async (groupId) => {
-    const group = get().materialGroups.find((item) => item.id === groupId);
-    if (!group) {
-      get().pushToast("Material group was not found for output sync", "warn", 2600);
-      return null;
-    }
-    const historyById = new Map(get().history.map((item) => [item.id, item]));
-    const items = materialSyncItemsForGroup(group, historyById);
-    try {
-      const result = await SyncMaterialGroupToOutput(group.kind, group.name, items);
-      if (result.synced > 0 && result.missing > 0) {
-        get().pushToast(`Synced ${result.synced} items to output; ${result.missing} were missing`, "warn", 3600);
-      } else if (result.synced > 0) {
-        get().pushToast(`已同步 ${result.synced} 项到 output`, "success", 2600);
-      } else if (result.missing > 0) {
-        get().pushToast(`Skipped ${result.missing} missing items during output sync`, "warn", 3600);
-      } else {
-        get().pushToast("Material group synced to output", "success", 2200);
-      }
-      return result;
-    } catch (error: any) {
-      get().pushToast(`同步到 output 失败：${error?.message ?? error}`, "error", 4200);
-      return null;
-    }
-  },
-  syncAllMaterialGroupsToOutput: async () => {
-    const groups = get().materialGroups.filter((group) => group.kind === "folder" || group.kind === "referenceSet");
-    if (groups.length === 0) {
-      get().pushToast("No folders or reference sets are available for output sync", "warn", 2600);
-      return;
-    }
-    const historyById = new Map(get().history.map((item) => [item.id, item]));
-    let synced = 0;
-    let missing = 0;
-    let failed = 0;
-    for (const group of groups) {
-      try {
-        const result = await SyncMaterialGroupToOutput(group.kind, group.name, materialSyncItemsForGroup(group, historyById));
-        synced += result.synced;
-        missing += result.missing;
-      } catch {
-        failed += 1;
-      }
-    }
-    if (failed > 0) {
-      get().pushToast(`Synced ${synced} items; ${missing} missing; ${failed} groups failed`, "warn", 4600);
-    } else if (missing > 0) {
-      get().pushToast(`Synced ${synced} items to output; ${missing} were missing`, "warn", 4200);
-    } else {
-      get().pushToast(`Synced ${synced} items to output`, "success", 3200);
-    }
-  },
-  openMaterialSyncDir: async (path) => {
-    try {
-      await OpenMaterialSyncDir(path ?? "");
-    } catch (error: any) {
-      get().pushToast(`打开同步目录失败：${error?.message ?? error}`, "error", 3600);
-    }
-  },
+  openMaterialManager: () => materialActions.openMaterialManager(),
+  closeMaterialManager: () => materialActions.closeMaterialManager(),
+  createMaterialGroup: (kind, name, items = [], description = "") => (
+    materialActions.createMaterialGroup(kind, name, items, description)
+  ),
+  renameMaterialGroup: (id, name) => materialActions.renameMaterialGroup(id, name),
+  deleteMaterialGroup: (id) => materialActions.deleteMaterialGroup(id),
+  moveHistoryItemsToMaterialGroup: (groupId, historyIds) => (
+    materialActions.moveHistoryItemsToMaterialGroup(groupId, historyIds)
+  ),
+  removeMaterialItem: (groupId, itemRef) => materialActions.removeMaterialItem(groupId, itemRef),
+  createReferenceSetFromCurrentSources: (name) => materialActions.createReferenceSetFromCurrentSources(name),
+  applyMaterialReferenceSet: async (groupId, mode) => materialActions.applyMaterialReferenceSet(groupId, mode),
+  syncMaterialGroupToOutput: async (groupId) => materialActions.syncMaterialGroupToOutput(groupId),
+  syncAllMaterialGroupsToOutput: async () => materialActions.syncAllMaterialGroupsToOutput(),
+  openMaterialSyncDir: async (path) => materialActions.openMaterialSyncDir(path),
   pushToast: (text, kind = "info", ttl = 3500, action) => mediaActions.pushToast(text, kind, ttl, action),
   dismissToast: (id) => mediaActions.dismissToast(id),
   resultDetail: null,
@@ -6529,52 +6276,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   }),
   closePanoramaPastebackAligner: () => set({ panoramaAlignTarget: null }),
   materializeCurrentImage: async (item) => mediaActions.materializeCurrentImage(item),
-  loadMoreHistory: async () => {
-    if (get().isResettingApplication) return;
-    if (deferredHistoryLoadPromise) return deferredHistoryLoadPromise;
-    if (!get().historyHasMore || get().historyLoading) return;
-    set({ historyLoading: true });
-    deferredHistoryLoadPromise = (async () => {
-      try {
-        const currentHistory = get().history;
-        const state = get();
-        const direction = state.historyGalleryOpen && state.historyGallerySort === "oldest"
-          ? "oldest"
-          : "newest";
-        const cursor = state.historyCursor?.direction === direction ? state.historyCursor : null;
-        const nextPage = await loadHistoryPage({
-          cursor,
-          limit: INITIAL_HISTORY_LOAD,
-          direction,
-        });
-        if (get().isResettingApplication) return;
-        const existing = new Set(currentHistory.map((item) => item.id));
-        const incoming = nextPage.items.filter((item) => !existing.has(item.id));
-        const recoveredPanoramaHistory = recoverPanoramaHistoryMetadata(
-          trimHistory([...currentHistory, ...incoming].sort((a, b) => b.createdAt - a.createdAt)),
-          state.batchTasksById,
-        );
-        const merged = recoveredPanoramaHistory.items;
-        set({
-          history: merged,
-          historyHasMore: !!nextPage.nextCursor,
-          historyCursor: nextPage.nextCursor,
-        });
-        await Promise.all([
-          recoveredPanoramaHistory.repaired.length > 0
-            ? persistHistoryItems(recoveredPanoramaHistory.repaired)
-            : Promise.resolve(),
-          backfillHistoryPreviewRefs(incoming),
-        ]);
-      } catch (error) {
-        if (typeof console !== "undefined") console.warn("load more history failed", error);
-      } finally {
-        deferredHistoryLoadPromise = null;
-        set({ historyLoading: false });
-      }
-    })();
-    return deferredHistoryLoadPromise;
-  },
+  loadMoreHistory: async () => mediaActions.loadMoreHistory(),
   setHistoryRailCollapsed: (collapsed) => mediaActions.setHistoryRailCollapsed(collapsed),
   openHistoryTimeline: () => mediaActions.openHistoryTimeline(),
   closeHistoryTimeline: () => mediaActions.closeHistoryTimeline(),

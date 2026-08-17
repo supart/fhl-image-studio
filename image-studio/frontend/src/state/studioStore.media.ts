@@ -12,8 +12,7 @@ import {
   sanitizeHistoryForExport,
   sanitizeImportedHistoryItem,
 } from "../lib/security";
-import { base64ToBlob } from "../lib/images";
-import { persistHistoryItems, pruneHistoryStorage } from "../lib/storage";
+import { loadHistoryPage, persistHistoryItems, pruneHistoryStorage } from "../lib/storage";
 import { storageKey } from "../lib/storageNamespace.ts";
 import type { HistoryGallerySort, HistoryItem, Preset, Toast } from "../types/domain";
 import type { CompareMode, StudioState } from "./studioStore.types";
@@ -38,6 +37,8 @@ import {
 import { sourceContextPatchFromHistoryItem } from "./sourceContextSelection";
 import { patchWorkspaceRuntime } from "./workspaceRuntime";
 import { syncSharedEditAutoAspect } from "./sharedEditAutoAspect";
+import { applicationStateEpoch } from "./applicationStateReset.ts";
+import { recoverPanoramaHistoryMetadata } from "./panoramaRoundtripRecovery.ts";
 
 type StateAdapter = {
   getState: () => StudioState;
@@ -46,6 +47,86 @@ type StateAdapter = {
 
 const TOAST_DEDUPE_MS = 6000;
 const toastLastShownAt = new Map<string, number>();
+export const INITIAL_HISTORY_LOAD = 48;
+const HISTORY_MEDIA_HYDRATE_CONCURRENCY = 4;
+let deferredHistoryLoadPromise: Promise<void> | null = null;
+
+function needsHistoryPreviewHydration(item: HistoryItem): boolean {
+  return !!item.savedPath
+    && !item.savedPath.startsWith("memory://")
+    && !item.previewBlob
+    && !item.imageB64
+    && !item.previewUrl;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  task: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await task(items[index], index);
+    }
+  };
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
+function mergeHistoryMediaRef(current: HistoryItem | null, nextById: Map<string, HistoryItem>): HistoryItem | null {
+  if (!current) return current;
+  const next = nextById.get(current.id);
+  return next ? withMediaAssetRef(current, next) : current;
+}
+
+export async function hydrateHistoryPreviewRefs(items: HistoryItem[]): Promise<HistoryItem[]> {
+  return mapWithConcurrency(items, HISTORY_MEDIA_HYDRATE_CONCURRENCY, async (item) => {
+    if (!needsHistoryPreviewHydration(item)) return item;
+    try {
+      const ref = await materializeMediaRefForHistoryItem(item);
+      return withMediaAssetRef(item, ref);
+    } catch {
+      return item;
+    }
+  });
+}
+
+async function backfillHistoryPreviewRefs(
+  store: StateAdapter,
+  items: HistoryItem[],
+  requestEpoch: number,
+): Promise<void> {
+  const hydrated = await hydrateHistoryPreviewRefs(items);
+  const changed = hydrated.filter((item, index) => item !== items[index]);
+  if (
+    changed.length === 0
+    || !applicationStateEpoch.isCurrent(requestEpoch)
+    || store.getState().isResettingApplication
+  ) return;
+  const changedById = new Map(changed.map((item) => [item.id, item]));
+  store.setState((state) => ({
+    history: state.history.map((item) => changedById.get(item.id) ?? item),
+    batchResults: state.batchResults.map((item) => changedById.get(item.id) ?? item),
+    currentImage: mergeHistoryMediaRef(state.currentImage, changedById),
+    compareB: mergeHistoryMediaRef(state.compareB, changedById),
+    resultDetail: mergeHistoryMediaRef(state.resultDetail, changedById),
+  }));
+  await persistHistoryItems(changed).catch(() => undefined);
+}
+
+function historyLoadDirection(state: StudioState): "oldest" | "newest" {
+  return state.historyGalleryOpen && state.historyGallerySort === "oldest" ? "oldest" : "newest";
+}
+
+export function getPendingHistoryLoad(): Promise<void> | null {
+  return deferredHistoryLoadPromise?.catch(() => undefined) ?? null;
+}
 
 async function ensureAllHistoryLoaded(store: StateAdapter): Promise<void> {
   for (let guard = 0; guard < 20 && store.getState().historyHasMore; guard += 1) {
@@ -491,6 +572,77 @@ export function createMediaActions(store: StateAdapter) {
         setState: (fn) => store.setState((state) => fn(state)),
       });
       return full ?? item;
+    },
+
+    async loadMoreHistory() {
+      const initial = store.getState();
+      if (initial.isResettingApplication) return;
+      if (deferredHistoryLoadPromise) return deferredHistoryLoadPromise;
+      if (!initial.historyHasMore || initial.historyLoading) return;
+
+      const requestEpoch = applicationStateEpoch.capture();
+      const direction = historyLoadDirection(initial);
+      const cursor = initial.historyCursor?.direction === direction ? initial.historyCursor : null;
+      store.setState({ historyLoading: true });
+      deferredHistoryLoadPromise = (async () => {
+        try {
+          const nextPage = await loadHistoryPage({
+            cursor,
+            limit: INITIAL_HISTORY_LOAD,
+            direction,
+          });
+          if (
+            !applicationStateEpoch.isCurrent(requestEpoch)
+            || store.getState().isResettingApplication
+          ) return;
+
+          let accepted = false;
+          let incoming: HistoryItem[] = [];
+          let repaired: HistoryItem[] = [];
+          store.setState((live) => {
+            if (
+              live.isResettingApplication
+              || historyLoadDirection(live) !== direction
+              || !applicationStateEpoch.isCurrent(requestEpoch)
+            ) return {};
+            const existing = new Set(live.history.map((item) => item.id));
+            incoming = nextPage.items.filter((item) => !existing.has(item.id));
+            const recovered = recoverPanoramaHistoryMetadata(
+              trimHistory([...live.history, ...incoming].sort((a, b) => b.createdAt - a.createdAt)),
+              live.batchTasksById,
+            );
+            accepted = true;
+            repaired = recovered.repaired;
+            return {
+              history: recovered.items,
+              historyHasMore: !!nextPage.nextCursor,
+              historyCursor: nextPage.nextCursor,
+            };
+          });
+          if (!accepted) return;
+          await Promise.all([
+            repaired.length > 0 ? persistHistoryItems(repaired) : Promise.resolve(),
+            backfillHistoryPreviewRefs(store, incoming, requestEpoch),
+          ]);
+        } catch (error) {
+          if (typeof console !== "undefined") console.warn("load more history failed", error);
+        } finally {
+          deferredHistoryLoadPromise = null;
+          const current = store.getState();
+          if (applicationStateEpoch.isCurrent(requestEpoch)) {
+            store.setState({ historyLoading: false });
+          }
+          if (
+            applicationStateEpoch.isCurrent(requestEpoch)
+            && !current.isResettingApplication
+            && current.historyHasMore
+            && historyLoadDirection(current) !== direction
+          ) {
+            queueMicrotask(() => void store.getState().loadMoreHistory());
+          }
+        }
+      })();
+      return deferredHistoryLoadPromise;
     },
 
     setHistoryRailCollapsed(collapsed: boolean) {
