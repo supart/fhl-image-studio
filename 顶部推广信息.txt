@@ -1,0 +1,5 @@
+# 删除某一行或等号后的内容，即可隐藏对应项目
+群公告=FHL官方QQ交流群:207550870 进群免费获取GPT image2生图福利！
+群号=207550870
+注册文案=注册FHL 方汤圆邀请码:LPUH6EEHGK3R
+注册链接=https://www.fhl.mom/register?aff=LPUH6EEHGK3R

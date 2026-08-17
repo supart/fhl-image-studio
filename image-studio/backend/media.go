@@ -251,6 +251,10 @@ func (s *Service) mediaAssetSnapshot(id string) (mediaAsset, bool) {
 
 func (s *Service) MediaHandler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == headerPromotionPath {
+			serveHeaderPromotion(w, r)
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/media/") {
 			s.serveMedia(w, r)
 			return

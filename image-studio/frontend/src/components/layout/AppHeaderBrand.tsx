@@ -1,5 +1,5 @@
-import { type MouseEvent, useState } from "react";
-import { Check, Clipboard, ExternalLink, KeyRound } from "lucide-react";
+import { type MouseEvent, useEffect, useState } from "react";
+import { Check, KeyRound } from "lucide-react";
 import { usePlatform } from "../../platform/context";
 import { useStudioStore } from "../../state/studioStore";
 import { hasUsableFHLConfiguration } from "../../lib/profiles";
@@ -7,46 +7,17 @@ import { FHLQuickConfigModal } from "../panel/FHLQuickConfigModal";
 import { FHLAPIChoiceModal } from "../panel/FHLAPIChoiceModal";
 import { HitokotoStrip } from "./HitokotoStrip";
 import { FHLTransportToggle } from "./FHLTransportToggle";
-import { FHL_INVITE_CODE, FHL_REGISTER_URL } from "../../lib/fhlAPI";
-import { openExternalURLForPlatform } from "../../platform/android/bridge";
-import { OpenExternalURL } from "../../platform/runtime/host";
 import { appVersion } from "../../lib/version";
+import {
+  EMPTY_HEADER_PROMOTION_CONFIG,
+  loadHeaderPromotionConfig,
+  type HeaderPromotionConfig,
+} from "../../lib/headerPromotion";
+import { WindowsHeaderPromotion } from "./WindowsHeaderPromotion";
 
 const BRAND_TITLE = "FHL Image Studio 方汤圆版";
 const BRAND_VERSION = `V${appVersion}`;
 const HEADER_LOGO_SRC = "favicon.png";
-const FHL_QQ_GROUP = "207550870";
-const FHL_QQ_PROMO = `FHL官方QQ交流群:${FHL_QQ_GROUP} 进群免费获取GPT image2生图福利！`;
-async function copyText(text: string) {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return;
-    } catch {
-      // Fall back to the legacy path below in restricted browser shells.
-    }
-  }
-
-  const input = document.createElement("textarea");
-  input.value = text;
-  input.setAttribute("readonly", "");
-  input.style.position = "fixed";
-  input.style.left = "-9999px";
-  input.style.top = "0";
-  document.body.appendChild(input);
-  input.focus();
-  input.select();
-  let copied = false;
-  try {
-    copied = document.execCommand("copy");
-  } finally {
-    input.remove();
-  }
-
-  if (!copied) {
-    throw new Error("Copy command was blocked");
-  }
-}
 
 export function AppHeaderBrand() {
   const { isAndroidPhone, isAndroidPad, usesFluentUI, isMac, isWindows, usesAndroidUI } = usePlatform();
@@ -56,8 +27,7 @@ export function AppHeaderBrand() {
   const baseURL = useStudioStore((state) => state.baseURL);
   const fhlTransportMode = useStudioStore((state) => state.fhlTransportMode);
   const setFHLTransportMode = useStudioStore((state) => state.setFHLTransportMode);
-  const [copiedGroup, setCopiedGroup] = useState(false);
-  const [copiedRegisterURL, setCopiedRegisterURL] = useState(false);
+  const [headerPromotion, setHeaderPromotion] = useState<HeaderPromotionConfig>(EMPTY_HEADER_PROMOTION_CONFIG);
   const [fhlChoiceOpen, setFHLChoiceOpen] = useState(false);
   const [fhlQuickConfigOpen, setFHLQuickConfigOpen] = useState(false);
   const hasFHLConfiguration = hasUsableFHLConfiguration({
@@ -68,49 +38,17 @@ export function AppHeaderBrand() {
   });
   const shouldPulseConfigButton = !hasFHLConfiguration;
 
-  const copyQQGroup = async (event: MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setCopiedGroup(true);
-    window.setTimeout(() => setCopiedGroup(false), 1400);
-    try {
-      await copyText(FHL_QQ_GROUP);
-    } catch {
-      // Some embedded browsers block clipboard access.
+  useEffect(() => {
+    let active = true;
+    if (!isWindows) {
+      setHeaderPromotion(EMPTY_HEADER_PROMOTION_CONFIG);
+      return () => { active = false; };
     }
-  };
-
-  const copyAndOpenRegister = async (event: MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    let opened = false;
-    try {
-      await openExternalURLForPlatform(FHL_REGISTER_URL, OpenExternalURL);
-      opened = true;
-    } catch {
-      opened = false;
-    }
-    setCopiedRegisterURL(true);
-    window.setTimeout(() => setCopiedRegisterURL(false), 1400);
-    try {
-      await copyText(FHL_REGISTER_URL);
-      useStudioStore.getState().pushToast(
-        opened
-          ? "注册链接已复制，已尝试打开注册页"
-          : "注册链接已复制；如果没有自动打开，请粘贴到浏览器地址栏",
-        opened ? "success" : "warn",
-        5200,
-      );
-    } catch {
-      useStudioStore.getState().pushToast(
-        opened
-          ? "已尝试打开注册页，但当前环境拒绝复制链接"
-          : "浏览器未自动打开，当前环境也拒绝复制链接",
-        opened ? "warn" : "error",
-        6000,
-      );
-    }
-  };
+    void loadHeaderPromotionConfig().then((config) => {
+      if (active) setHeaderPromotion(config);
+    });
+    return () => { active = false; };
+  }, [isWindows]);
 
   const openFHLAPIConfig = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -182,40 +120,7 @@ export function AppHeaderBrand() {
               >
                 {BRAND_VERSION}
               </span>
-              <div
-                className="windows-header-promo min-w-0 truncate text-[11px] font-[500] tracking-[0] text-[var(--accent)]"
-                title={FHL_QQ_PROMO}
-              >
-                {FHL_QQ_PROMO}
-              </div>
-              <button
-                type="button"
-                data-audit-id="copy-qq"
-                className="no-drag inline-flex h-6 shrink-0 items-center justify-center gap-1 rounded-[6px] border border-red-500/45 bg-red-500/10 px-1.5 text-[11px] font-semibold tracking-[0] text-red-500 transition-colors hover:border-red-500 hover:bg-red-500/15 dark:border-red-400/40 dark:bg-red-400/10 dark:text-red-400 dark:hover:bg-red-400/15"
-                title={copiedGroup ? "已复制群号" : `复制QQ群号 ${FHL_QQ_GROUP}`}
-                aria-label={copiedGroup ? "已复制QQ群号" : `复制QQ群号 ${FHL_QQ_GROUP}`}
-                onPointerDown={(event) => event.stopPropagation()}
-                onMouseDown={(event) => event.stopPropagation()}
-                onClick={copyQQGroup}
-              >
-                {copiedGroup ? <Check className="h-3 w-3" /> : <Clipboard className="h-3 w-3" />}
-                <span className="whitespace-nowrap">{copiedGroup ? "已复制" : "复制群号"}</span>
-              </button>
-              <button
-                type="button"
-                data-audit-id="register-fhl"
-                className="no-drag inline-flex h-6 shrink-0 items-center justify-center gap-1 rounded-[6px] border border-sky-500/45 bg-sky-500/10 px-1.5 text-[11px] font-semibold tracking-[0] text-sky-600 transition-colors hover:border-sky-500 hover:bg-sky-500/15 dark:border-sky-400/40 dark:bg-sky-400/10 dark:text-sky-300 dark:hover:bg-sky-400/15"
-                title={copiedRegisterURL ? "已复制完整注册链接，可粘贴到浏览器打开" : `复制完整注册链接并打开 ${FHL_REGISTER_URL}`}
-                aria-label={copiedRegisterURL ? "已复制注册链接，可粘贴到浏览器打开" : "复制注册链接并打开注册页"}
-                onPointerDown={(event) => event.stopPropagation()}
-                onMouseDown={(event) => event.stopPropagation()}
-                onClick={copyAndOpenRegister}
-              >
-                {copiedRegisterURL ? <Check className="h-3 w-3" /> : <ExternalLink className="h-3 w-3" />}
-                <span className="whitespace-nowrap">
-                  {copiedRegisterURL ? "已复制，可粘贴" : `注册FHL 方汤圆邀请码:${FHL_INVITE_CODE}`}
-                </span>
-              </button>
+              <WindowsHeaderPromotion config={headerPromotion} />
             </div>
             <div className="windows-header-secondary-row flex min-w-0 items-center gap-2 text-[10px] text-zinc-500 dark:text-zinc-400">
               <button

@@ -202,6 +202,7 @@ Copy-IfExists (Join-Path $Root $ReleaseNotesName) (Join-Path $PackageRoot $Relea
 Copy-IfExists (Join-Path $Root "config\cli.env.example") (Join-Path $PackageRoot "config\cli.env.example")
 Copy-IfExists (Join-Path $Root "image-cli.cmd") (Join-Path $PackageRoot "image-cli.cmd")
 Copy-IfExists (Join-Path $Root "AGENTS.md") (Join-Path $PackageRoot "AGENTS.md")
+Copy-IfExists (Join-Path $Root "顶部推广信息.txt") (Join-Path $PackageRoot "顶部推广信息.txt")
 Copy-IfExists (Join-Path $Root "runtime\cli\gptcodex-image.exe") (Join-Path $PackageRoot "runtime\cli\gptcodex-image.exe")
 
 $Guide = @"
@@ -225,6 +226,10 @@ $Guide = @"
 ## API Key
 
 发布包不内置任何 API Key。首次使用请在应用顶部打开上游 API 配置，选择 FHL、APIMart 或 RH，并填入你自己的 Key 或桥接地址。
+
+## 顶部推广信息
+
+包根目录的 `顶部推广信息.txt` 控制 Windows 顶栏公告、复制群号和注册链接。删除对应行或清空文件后，重启软件即可隐藏相应内容；文件缺失时软件不会补回默认文字。
 
 ## 命令行工具
 

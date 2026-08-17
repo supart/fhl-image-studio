@@ -6,7 +6,17 @@
 - 正式基线：标签 `windows-v2.0.3-release`，提交 `814da3e64566cc2e7838378639a3c5e7b6e8b948`。
 - 当前本地分支：`codex/windows-v2.0.4-development`；未推送、未创建 PR、未修改 GitHub Release。
 - 活动版本：界面、Wails、桌面 Go、CLI、E2E、构建与发布链由 `product-version.json` 统一为 `V2.0.4`。
-- 初始化、Codex 浏览器入口和 14 个后续批次均已完成；批次 14 修复了浏览器开发启动链缺少本地 CLI 任务代理的问题。
+- 初始化、Codex 浏览器入口和 15 个后续批次均已完成；批次 15 将 Windows 顶栏推广区改为根目录 TXT 配置。
+
+## 批次 15 结果
+
+- 新增源码根目录/Portable EXE 同级 `顶部推广信息.txt`；公告、群号、注册文案和 HTTP(S) 注册链接按固定键独立控制，缺失、空白、超限或读取失败时安全隐藏，不使用硬编码回退。
+- Vite 与 Wails 只暴露固定 `GET/HEAD /__image-studio-files/header-promotion`，最大读取 16 KiB，不接受路径参数；Portable 和 release-source 脚本只在源文件存在时复制。
+- 解析、加载、UI、Vite 文件合同、Go 路由和打包合同均有回归；Node `609/609`、UI `67/67`、TypeScript、Lint `0/58`、Windows 1,970 modules、桌面/CLI Go test+vet、Worker `5/5`、版本、格式和 696 文件源码合规快照通过。
+- Codex 浏览器在 `1920x1080`、`1440x900`、`1024x768` 验证默认、仅注释和恢复三种状态；无横向溢出、控件重叠或控制台 warning/error，最终恢复默认 TXT、文生图和原始 `1239x930`。用户现有 14 项历史、2 个失败入口及 14 个 API Profile 未改变。
+- 未点击注册链接、生成、重试、初始化、连接测试或提示词 API；未生成 EXE/ZIP、Portable、标签、Release 或 GitHub 推送。
+
+详细记录：`docs/changes/2026-08-17-windows-v2.0.4-header-promotion-txt.md`。
 
 ## 批次 14 结果
 

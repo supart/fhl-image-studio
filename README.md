@@ -44,7 +44,8 @@ FHL Image Studio 方汤圆修改版是基于 Image-Studio 的独立修改发行�
 ├── LICENSE                # AGPLv3
 ├── NOTICE.md              # 来源与致谢
 ├── COMPLIANCE.md          # 合规说明
-└── CHANGELOG.md           # 版本更新记录
+├── CHANGELOG.md           # 版本更新记录
+└── 顶部推广信息.txt       # Windows 顶栏可选推广文字
 ```
 
 Photoshop UXP 插件是与桌面版、安卓版并列的独立销售项目。它只通过本机 Bridge v1 接口调用桌面端，不参与桌面编译和打包。插件源码、CCX、安装工具和销售交付物不进入本桌面版 GitHub、源码归档或 Portable ZIP。桌面仓库只维护 Bridge 实现、合同测试和兼容记录，详见 [Photoshop 插件兼容说明](./docs/photoshop-plugin-compatibility.md)。
@@ -77,6 +78,10 @@ Windows 预览：
 ```powershell
 .\start-ui.cmd
 ```
+
+### Windows 顶栏推广信息
+
+源码根目录的 `顶部推广信息.txt` 控制 Windows 顶栏的群公告、复制群号和注册链接。编辑后刷新开发页面或重启桌面软件生效；删除某个字段会隐藏对应项目，清空或删除整个文件会完整隐藏推广区。Portable 中该文件与 EXE 同级，软件不会在文件缺失时补回默认文案。
 
 ### 桌面 E2E 测试模式
 

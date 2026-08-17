@@ -38,6 +38,18 @@ test("Windows packaging uses explicit tools and exact current-build artifacts", 
   assert.doesNotMatch(script, /Get-WailsCommand|knownCandidates/);
 });
 
+test("portable and source packages preserve the optional editable header promotion TXT", async () => {
+  const [portable, sourcePackage] = await Promise.all([
+    readFile(new URL("scripts/package-windows-portable.ps1", sourceRoot), "utf8"),
+    readFile(new URL("scripts/prepare-release-source.ps1", sourceRoot), "utf8"),
+  ]);
+
+  assert.match(portable, /Copy-IfExists \(Join-Path \$Root "顶部推广信息\.txt"\) \(Join-Path \$PackageRoot "顶部推广信息\.txt"\)/);
+  assert.match(sourcePackage, /"顶部推广信息\.txt"/);
+  assert.doesNotMatch(portable, /Set-Content[^\n]+顶部推广信息\.txt/);
+  assert.doesNotMatch(sourcePackage, /Set-Content[^\n]+顶部推广信息\.txt/);
+});
+
 test("release workflow publishes the portable zip without an installer toolchain", async () => {
   const [workflow, manifest] = await Promise.all([
     readFile(new URL(".github/workflows/release.yml", sourceRoot), "utf8"),

@@ -11,6 +11,10 @@ import pkg from "./package.json";
 import { createBrowserJobProxyPlugin } from "./dev/browserJobProxy";
 import { localFHLConfigFromCLIEnv } from "./dev/localFHLConfigFallback";
 import { createUIAuditProxyPlugin } from "./dev/uiAuditProxy";
+import {
+  HEADER_PROMOTION_ROUTE,
+  resolveHeaderPromotionFileResponse,
+} from "./dev/headerPromotionFile";
 
 const targetPlatform = (process.env.VITE_TARGET_PLATFORM ?? "").trim().toLowerCase();
 const isAndroidWebViewTarget = targetPlatform === "android" || targetPlatform === "android-pad";
@@ -561,6 +565,15 @@ function projectFilesPlugin(): Plugin {
       server.middlewares.use(projectFilesPrefix, async (req, res, next) => {
         try {
           const url = new URL(req.url || "/", "http://localhost");
+          if (url.pathname === HEADER_PROMOTION_ROUTE) {
+            const response = await resolveHeaderPromotionFileResponse(publicRoot, req.method);
+            res.statusCode = response.status;
+            res.setHeader("Content-Type", "text/plain; charset=utf-8");
+            res.setHeader("Cache-Control", "no-store");
+            res.setHeader("X-Content-Type-Options", "nosniff");
+            res.end(response.body);
+            return;
+          }
           const mediaMatch = url.pathname.match(/^\/media\/(thumb|full)\/([a-f0-9]{32})$/);
           if ((req.method === "GET" || req.method === "HEAD") && mediaMatch) {
             const asset = localMediaAssets.get(mediaMatch[2]);
@@ -951,4 +964,3 @@ export default defineConfig({
     tailwindcss(),
   ],
 });
-

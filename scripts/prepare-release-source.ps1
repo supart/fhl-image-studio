@@ -100,6 +100,7 @@ foreach ($file in @(
   "V2.0.3_ACCEPTANCE_REPORT.md",
   $CurrentAcceptanceReport,
   "start-ui.cmd",
+  "顶部推广信息.txt",
   "一键启动FHL Studio.cmd"
 )) {
   Copy-IfExists (Join-Path $Root $file) (Join-Path $StageRoot $file)
