@@ -1,9 +1,15 @@
 import { X } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 import { useStudioStore } from "../../state/studioStore";
 import { usePlatform } from "../../platform/context";
 
 export function SettingsPresetsRow() {
-  const { presets, savePreset, applyPreset, deletePreset } = useStudioStore();
+  const { presets, savePreset, applyPreset, deletePreset } = useStudioStore(useShallow((state) => ({
+    presets: state.presets,
+    savePreset: state.savePreset,
+    applyPreset: state.applyPreset,
+    deletePreset: state.deletePreset,
+  })));
   const { usesFluentUI } = usePlatform();
 
   function onSave() {

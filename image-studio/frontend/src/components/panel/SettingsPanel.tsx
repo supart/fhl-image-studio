@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   Download, Folder, FolderEdit, Github, Info, KeyRound,
   MessageSquare, Monitor, Moon, Network, RotateCw, Sparkles, Sun, Trash2, Upload,
@@ -36,7 +37,7 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
     proxyMode, proxyURL,
     theme, fontScale,
     setField, setAPIKey, setProxyConfig,
-    history,
+    historyCount,
     exportHistory, importHistory,
     pruneHistoryOlderThanDays,
     setTheme, setFontScale,
@@ -44,7 +45,32 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
     apiKey, baseURL, apiMode,
     profiles, activeProfileId, setActiveProfile,
     openUpstreamConfig, testAPIKey, isTestingKey,
-  } = useStudioStore();
+  } = useStudioStore(useShallow((state) => ({
+    kernelRuntimeMode: state.kernelRuntimeMode,
+    proxyMode: state.proxyMode,
+    proxyURL: state.proxyURL,
+    theme: state.theme,
+    fontScale: state.fontScale,
+    setField: state.setField,
+    setAPIKey: state.setAPIKey,
+    setProxyConfig: state.setProxyConfig,
+    historyCount: state.history.length,
+    exportHistory: state.exportHistory,
+    importHistory: state.importHistory,
+    pruneHistoryOlderThanDays: state.pruneHistoryOlderThanDays,
+    setTheme: state.setTheme,
+    setFontScale: state.setFontScale,
+    pushToast: state.pushToast,
+    apiKey: state.apiKey,
+    baseURL: state.baseURL,
+    apiMode: state.apiMode,
+    profiles: state.profiles,
+    activeProfileId: state.activeProfileId,
+    setActiveProfile: state.setActiveProfile,
+    openUpstreamConfig: state.openUpstreamConfig,
+    testAPIKey: state.testAPIKey,
+    isTestingKey: state.isTestingKey,
+  })));
 
   const [outputDir, setOutputDir] = useState("");
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -103,8 +129,9 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
   }
 
   async function clearHistory() {
-    if (!confirm(`确定清除 ${history.length} 条历史记录吗?(本地数据库也会删除)`)) return;
-    for (const h of history) {
+    const currentHistory = useStudioStore.getState().history;
+    if (!confirm(`确定清除 ${currentHistory.length} 条历史记录吗?(本地数据库也会删除)`)) return;
+    for (const h of currentHistory) {
       await useStudioStore.getState().deleteHistoryItem(h.id);
     }
   }
@@ -148,7 +175,7 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
       clearHistory={() => void clearHistory()}
       exportHistory={() => void exportHistory()}
       fontScale={fontScale}
-      historyCount={history.length}
+      historyCount={historyCount}
       importHistory={() => void importHistory()}
       isTestingKey={isTestingKey}
       kernelRuntimeMode={kernelRuntimeMode}

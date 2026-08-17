@@ -9,9 +9,11 @@ export function SettingsPanelGate({
   open: boolean;
   onClose: () => void;
 }) {
+  if (!open) return null;
+
   return (
     <Suspense fallback={null}>
-      <SettingsPanel open={open} onClose={onClose} />
+      <SettingsPanel open onClose={onClose} />
     </Suspense>
   );
 }
