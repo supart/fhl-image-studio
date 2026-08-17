@@ -10,6 +10,7 @@ vi.mock("../src/lib/storage", async (importOriginal) => ({
 }));
 
 import { MATERIAL_LIBRARY_KEY } from "../src/state/materialLibrary.ts";
+import { activeWorkspaceEditAutoAspectUserLocked } from "../src/state/sharedEditAutoAspect.ts";
 import { useStudioStore } from "../src/state/studioStore.ts";
 import { createDefaultWorkspace } from "../src/state/workspaceDefaults.ts";
 import type { HistoryItem } from "../src/types/domain.ts";
@@ -71,8 +72,43 @@ describe("workspace, material, and history domain modules", () => {
     expect(state.batchResults.map((item) => item.id)).toEqual(["history-2"]);
     expect(state.runningJobs).toEqual(["job-2"]);
     expect(state.isRunning).toBe(true);
-    expect(state.editAutoAspectUserLocked).toBe(true);
+    expect(state.editAutoAspectUserLocked).toBe(false);
     expect(state.workspaces.find((workspace) => workspace.id === first.id)?.prompt).toBe("first draft");
+  });
+
+  it("keeps the active auto-aspect lock mirror aligned with its workspace", () => {
+    const first = {
+      ...createDefaultWorkspace("workspace-1", "png", "Workspace 1"),
+      mode: "edit" as const,
+      editSourceMode: "manual" as const,
+      batchProcess: {
+        ...createDefaultWorkspace("workspace-defaults", "png").batchProcess,
+        autoAspectResolution: "1k" as const,
+      },
+    };
+    const second = createDefaultWorkspace("workspace-2", "png", "Workspace 2");
+    useStudioStore.setState({
+      workspaces: [first, second],
+      activeWorkspaceId: first.id,
+      mode: first.mode,
+      editSourceMode: first.editSourceMode,
+      batchProcess: first.batchProcess,
+      editAutoAspectUserLocked: false,
+    });
+
+    useStudioStore.getState().setField("size", "1536x1024");
+
+    expect(useStudioStore.getState().editAutoAspectUserLocked).toBe(true);
+    expect(useStudioStore.getState().workspaces[0].editAutoAspectUserLocked).toBe(true);
+
+    useStudioStore.setState({ editAutoAspectUserLocked: false });
+    expect(activeWorkspaceEditAutoAspectUserLocked(useStudioStore.getState())).toBe(true);
+
+    useStudioStore.getState().switchWorkspace(second.id);
+    expect(useStudioStore.getState().editAutoAspectUserLocked).toBe(false);
+
+    useStudioStore.getState().switchWorkspace(first.id);
+    expect(useStudioStore.getState().editAutoAspectUserLocked).toBe(true);
   });
 
   it("persists material group mutations and deduplicates history refs", () => {

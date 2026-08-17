@@ -43,6 +43,7 @@ export function workspaceSelectionPatch(
     continuousGenerateTest: target.continuousGenerateTest === true,
     editSourceMode: target.editSourceMode ?? "manual",
     batchProcess: target.batchProcess ?? defaultBatchProcessConfig(),
+    editAutoAspectUserLocked: target.editAutoAspectUserLocked === true,
     styleTag: target.styleTag ?? "",
     sources: target.sources,
     currentImage,

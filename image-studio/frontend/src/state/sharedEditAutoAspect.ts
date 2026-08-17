@@ -37,6 +37,13 @@ type StateAdapter = {
   setState: (patch: Partial<StudioState> | ((state: StudioState) => Partial<StudioState>)) => void;
 };
 
+export function activeWorkspaceEditAutoAspectUserLocked(
+  state: Pick<StudioState, "activeWorkspaceId" | "workspaces" | "editAutoAspectUserLocked">,
+): boolean {
+  const workspace = state.workspaces.find((entry) => entry.id === state.activeWorkspaceId);
+  return workspace ? workspace.editAutoAspectUserLocked === true : state.editAutoAspectUserLocked === true;
+}
+
 type AutoAspectSource = {
   path?: string;
   width?: number;
@@ -142,11 +149,20 @@ export function setSharedEditAutoAspectLock(
 ): void {
   store.setState((state) => {
     const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
-    if (!workspace || workspace.editAutoAspectUserLocked === locked) return {};
+    if (!workspace) return {};
+    const workspaceChanged = workspace.editAutoAspectUserLocked !== locked;
+    const activeMirrorChanged = state.activeWorkspaceId === workspaceId
+      && state.editAutoAspectUserLocked !== locked;
+    if (!workspaceChanged && !activeMirrorChanged) return {};
     return {
-      workspaces: patchWorkspaceRuntime(state.workspaces, workspaceId, {
-        editAutoAspectUserLocked: locked,
-      }),
+      ...(workspaceChanged
+        ? {
+            workspaces: patchWorkspaceRuntime(state.workspaces, workspaceId, {
+              editAutoAspectUserLocked: locked,
+            }),
+          }
+        : {}),
+      ...(activeMirrorChanged ? { editAutoAspectUserLocked: locked } : {}),
     };
   });
 }
@@ -225,6 +241,7 @@ export async function syncSharedEditAutoAspect(
           workspaces: patchWorkspaceRuntime(state.workspaces, workspaceId, {
             editAutoAspectUserLocked: false,
           }),
+          ...(state.activeWorkspaceId === workspaceId ? { editAutoAspectUserLocked: false } : {}),
         };
       }
       return {};
@@ -251,6 +268,7 @@ export async function syncSharedEditAutoAspect(
     };
     if (state.activeWorkspaceId === workspaceId) {
       topLevelPatch.sources = patchedSources;
+      topLevelPatch.editAutoAspectUserLocked = workspacePatch.editAutoAspectUserLocked === true;
       if (sizePatch) {
         topLevelPatch.size = sizePatch;
       }

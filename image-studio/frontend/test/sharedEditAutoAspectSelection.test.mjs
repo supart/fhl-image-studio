@@ -43,13 +43,15 @@ test("batch source changes resync the shared auto-aspect preview size", () => {
   assert.match(storeSource, /\(normalizedValue as EditSourceMode\) === "manual" \|\| \(normalizedValue as EditSourceMode\) === "batch"/);
   assert.match(storeSource, /stateBefore\.mode === "edit" && stateBefore\.editSourceMode === "batch"[\s\S]*?syncSharedEditAutoAspect\(\{ getState: get, setState: set \}\)/);
   assert.match(storeSource, /restoredActiveWorkspace\.mode === "edit"[\s\S]*?syncSharedEditAutoAspect\(\{ getState: get, setState: set \}\)/);
+  assert.match(storeSource, /editAutoAspectUserLocked: restoredActiveWorkspace\.editAutoAspectUserLocked === true,/);
   assert.match(imageActionsSource, /async selectBatchInputDir\(\)[\s\S]*?void syncSharedEditAutoAspect\(store\);/s);
   assert.match(imageActionsSource, /async selectBatchInputFiles\(\)[\s\S]*?void syncSharedEditAutoAspect\(store\);/s);
   assert.match(imageActionsSource, /async refreshBatchInputDir\(\)[\s\S]*?void syncSharedEditAutoAspect\(store\);/s);
 });
 
 test("submit respects the edit auto-aspect lock and only stores auto-aspect retries when auto mode is active", () => {
-  assert.match(storeSource, /const editAutoAspectEnabled = s\.mode === "edit"[\s\S]*?&& \(batchProcessMode \|\| !s\.editAutoAspectUserLocked\);/);
+  assert.match(storeSource, /const editAutoAspectUserLocked = activeWorkspaceEditAutoAspectUserLocked\(s\);/);
+  assert.match(storeSource, /const editAutoAspectEnabled = s\.mode === "edit"[\s\S]*?&& \(batchProcessMode \|\| !editAutoAspectUserLocked\);/);
   assert.match(storeSource, /if \(editAutoAspectEnabled && !batchProcessMode\)/);
   assert.match(storeSource, /if \(editAutoAspectEnabled && batchProcessMode\)/);
   assert.match(storeSource, /function implicitEditAutoAspectSource\(/);

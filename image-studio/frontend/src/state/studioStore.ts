@@ -160,6 +160,7 @@ import { buildMacWorkspacePreview, readPreviewScenario } from "../app/dev/previe
 import {
   buildAutoAspectSizeFromDimensions,
   autoAspectSizeInputFromState,
+  activeWorkspaceEditAutoAspectUserLocked,
   normalizedReferenceSlotIndex,
   sourceDimensionsFromMetadata,
   syncSharedEditAutoAspect,
@@ -3095,7 +3096,8 @@ async function submitCurrentRequest(
   });
   const batchAutoSizes: Array<SizeValue | null> = [];
   const editAutoAspectResolution = normalizeAutoAspectResolutionValue(batchProcess.autoAspectResolution);
-  const editAutoAspectEnabled = s.mode === "edit" && !!editAutoAspectResolution && (batchProcessMode || !s.editAutoAspectUserLocked);
+  const editAutoAspectUserLocked = activeWorkspaceEditAutoAspectUserLocked(s);
+  const editAutoAspectEnabled = s.mode === "edit" && !!editAutoAspectResolution && (batchProcessMode || !editAutoAspectUserLocked);
   if (editAutoAspectEnabled && !batchProcessMode) {
     const primarySource = preparedSources[0]
       ?? materializedImplicitCurrentImage
@@ -4418,16 +4420,18 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       });
     } else if (key === "size") {
       const workspacePatch: WorkspacePatch = { size: normalizedValue as SizeValue };
-      if (
+      const shouldLockEditAutoAspect = (
         stateBefore.mode === "edit"
         && stateBefore.editSourceMode === "manual"
         && stateBefore.batchProcess.autoAspectResolution !== ""
-      ) {
+      );
+      if (shouldLockEditAutoAspect) {
         workspacePatch.editAutoAspectUserLocked = true;
       }
-      set({
-        workspaces: patchWorkspaceRuntime(get().workspaces, workspaceId, workspacePatch),
-      });
+      set((state) => ({
+        workspaces: patchWorkspaceRuntime(state.workspaces, workspaceId, workspacePatch),
+        ...(shouldLockEditAutoAspect ? { editAutoAspectUserLocked: true } : {}),
+      }));
     } else if (key === "continuousGenerateTest") {
       set({ workspaces: patchWorkspaceRuntime(get().workspaces, get().activeWorkspaceId, { continuousGenerateTest: normalizedValue as boolean }) });
     } else if (key === "editSourceMode") {
@@ -6101,6 +6105,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       batchCount: restoredActiveWorkspace.batchCount,
       editSourceMode: restoredActiveWorkspace.editSourceMode ?? "manual",
       batchProcess: normalizeBatchProcessConfig(restoredActiveWorkspace.batchProcess),
+      editAutoAspectUserLocked: restoredActiveWorkspace.editAutoAspectUserLocked === true,
       styleTag: restoredActiveWorkspace.styleTag ?? "",
       profiles,
       activeProfileId,

@@ -23,6 +23,10 @@
   - 工作区运行态的纯辅助逻辑。
   - 用来约束运行中 job、批处理、活跃 tab 的派生行为。
 
+- `sharedEditAutoAspect.ts`
+  - 图生图自动比例的来源选择、尺寸计算和锁状态同步。
+  - `Workspace.editAutoAspectUserLocked` 是权威状态，顶层同名字段只镜像当前活动工作区。
+
 - `studioStore.settings.ts`
   - 普通设置的单一默认值、存储键、读取校验和写入策略。
   - 提供主题、字号、代理和通用设置持久化动作，保持 `useStudioStore` 为兼容门面。
@@ -32,6 +36,7 @@
 - store 可以调用 `platform/runtime/*` 暴露的统一接口。
 - store 不应重新实现宿主桥接。
 - `workspaceRuntime.ts` 优先保持纯函数化，方便测试与复用。
+- 工作区字段存在顶层兼容镜像时，业务判断应读取工作区权威值，切换和恢复入口负责同步镜像。
 
 ## 改动建议
 
