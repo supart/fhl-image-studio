@@ -37,6 +37,7 @@
 /image-studio/build/bin/data/
 *.exe
 *.exe~
+/runtime/cli/.gptcodex-image.development.json
 *.log
 *.prof
 coverage*.out

@@ -51,6 +51,10 @@ if (command === "build") {
   await run("node_modules/typescript/bin/tsc", ["--noEmit"], env);
   await run("node_modules/vite/bin/vite.js", ["build", "--mode", mode], env);
 } else if (command === "dev") {
+  if (mode === "windows") {
+    await run("../../scripts/sync-version-metadata.mjs", ["--check"], env);
+    await run("../../scripts/ensure-development-cli.mjs", [], env);
+  }
   const devArgs = ["--mode", mode, "--host", devHost];
   if (devPort) devArgs.push("--port", devPort, "--strictPort");
   await run("node_modules/vite/bin/vite.js", devArgs, env);

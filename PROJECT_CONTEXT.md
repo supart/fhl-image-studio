@@ -6,7 +6,18 @@
 - 正式基线：标签 `windows-v2.0.3-release`，提交 `814da3e64566cc2e7838378639a3c5e7b6e8b948`。
 - 当前本地分支：`codex/windows-v2.0.4-development`；未推送、未创建 PR、未修改 GitHub Release。
 - 活动版本：界面、Wails、桌面 Go、CLI、E2E、构建与发布链由 `product-version.json` 统一为 `V2.0.4`。
-- 初始化、Codex 浏览器入口和 13 个主线优化批次均已完成；自动化、三档 Codex 浏览器和最终要求级审计全部通过。
+- 初始化、Codex 浏览器入口和 14 个后续批次均已完成；批次 14 修复了浏览器开发启动链缺少本地 CLI 任务代理的问题。
+
+## 批次 14 结果
+
+- Windows 浏览器开发模式现在按 `版本检查 -> 开发 CLI 准备 -> Vite` 启动；Go 源码或版本清单变化时自动重建 `runtime\cli\gptcodex-image.exe`，无变化时按内容摘要跳过。
+- 外层 Codex 浏览器启动器增加 Go 预检，并统一为 CMD 可稳定解析的 UTF-8 BOM + CRLF；开发 CLI 和摘要状态均为 Git 忽略的本地产物。
+- 失败合同锁定 CLI 准备失败时 Vite 不启动；真实冷启动从 CLI 完全缺失状态生成 `V2.0.4` 代理并在 `127.0.0.1:5173` 启动成功。
+- 前端 Node `603/603`、UI `64/64`、TypeScript、Lint `0/58` 和 Windows 1,968 modules 构建通过；桌面/CLI Go test+vet、Worker `5/5`、版本、格式和受跟踪源码快照合规通过。
+- Codex 浏览器三档验收无越界、截断或控制台错误；最终恢复 `1239x930`、文生图、活动 API“已配置”和 14 个 Profile。用户已有 2 个排队记录和 2 个失败入口保持不变。
+- 未重试、取消或清理现有任务，未调用生成、连接测试或提示词 API；没有发布、Portable、GitHub 推送、标签或 Release。
+
+详细记录：`docs/changes/2026-08-17-windows-v2.0.4-browser-development-cli-bootstrap.md`。
 
 ## 开发边界
 

@@ -73,3 +73,51 @@ test("every frontend production build gates compilation on version metadata", as
     await rm(harnessRoot, { recursive: true, force: true });
   }
 });
+
+test("Windows browser development prepares the local CLI before Vite", async () => {
+  const harnessRoot = await mkdtemp(join(tmpdir(), "fhl-windows-dev-cli-gate-"));
+  const frontendRoot = join(harnessRoot, "image-studio", "frontend");
+  const platformScript = join(frontendRoot, "scripts", "platform-vite.mjs");
+  const logPath = join(harnessRoot, "calls.log");
+  try {
+    await Promise.all([
+      mkdir(join(harnessRoot, "scripts"), { recursive: true }),
+      mkdir(join(frontendRoot, "scripts"), { recursive: true }),
+      mkdir(join(frontendRoot, "node_modules", "vite", "bin"), { recursive: true }),
+    ]);
+    await copyFile(
+      fileURLToPath(new URL("image-studio/frontend/scripts/platform-vite.mjs", sourceRoot)),
+      platformScript,
+    );
+    for (const [name, label, failureCode] of [
+      ["sync-version-metadata.mjs", "version", 0],
+      ["ensure-development-cli.mjs", "cli", 19],
+    ]) {
+      await writeFile(
+        join(harnessRoot, "scripts", name),
+        'import { appendFileSync } from "node:fs";\n' +
+          `appendFileSync(process.env.GATE_LOG, "${label}\\n");\n` +
+          (failureCode ? `if (process.env.FAIL_DEV_CLI === "1") process.exit(${failureCode});\n` : ""),
+      );
+    }
+    await writeFile(
+      join(frontendRoot, "node_modules", "vite", "bin", "vite.js"),
+      'const { appendFileSync } = require("node:fs");\nappendFileSync(process.env.GATE_LOG, "vite\\n");\n',
+    );
+
+    const env = { ...process.env, GATE_LOG: logPath };
+    await execFileAsync(process.execPath, [platformScript, "dev", "windows"], { env });
+    assert.equal(await readFile(logPath, "utf8"), "version\ncli\nvite\n");
+
+    await writeFile(logPath, "");
+    await assert.rejects(
+      execFileAsync(process.execPath, [platformScript, "dev", "windows"], {
+        env: { ...env, FAIL_DEV_CLI: "1" },
+      }),
+      /ensure-development-cli\.mjs exited with code 19/,
+    );
+    assert.equal(await readFile(logPath, "utf8"), "version\ncli\n");
+  } finally {
+    await rm(harnessRoot, { recursive: true, force: true });
+  }
+});
