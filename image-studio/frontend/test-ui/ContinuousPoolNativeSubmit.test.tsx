@@ -151,3 +151,18 @@ test("one native continuous submit creates and displays exactly one task", async
   expect(state.resultGridOpen).toBe(true);
   expect(state.jobsTotal).toBe(1);
 });
+
+test("native startup failure remains visible as a failed task", async () => {
+  generateMock.mockRejectedValueOnce(new Error("offline startup failure"));
+
+  await useStudioStore.getState().submit();
+
+  await vi.waitFor(() => {
+    const state = useStudioStore.getState();
+    const taskId = state.workspaces.find((entry) => entry.id === workspaceId)?.batchTaskIds[0];
+    expect(taskId).toBeTruthy();
+    expect(state.batchTasksById[taskId!]?.status).toBe("failed");
+    expect(state.batchTasksById[taskId!]?.errorMessage).toContain("offline startup failure");
+    expect(state.resultGridOpen).toBe(true);
+  });
+});

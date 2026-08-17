@@ -28,47 +28,20 @@ test("batch image-to-image can route through the same FHL pool assignment path",
   assert.match(storeSource, /if \(batchUsesFHLPool\) \{[\s\S]+void requestContinuousPoolPump\(\);[\s\S]+return;/);
 });
 
-test("global pool pump round-robins enabled FHL slots and sums per-API capacity across workspaces", () => {
-  assert.match(storeSource, /planContinuousPoolWave,[\s\S]+selectNextContinuousPoolProfile,[\s\S]+selectNextFailoverPoolProfile/);
-  assert.match(storeSource, /function continuousPoolInFlightByProfile/);
-  assert.match(storeSource, /referencedBatchTasksForWorkspaces\(state\.workspaces, state\.batchTasksById\)/);
-  assert.match(storeSource, /for \(const \[jobId, meta\] of Object\.entries\(state\.runningJobMeta\)\)/);
-  assert.match(storeSource, /async function pumpContinuousPoolQueuePass\(\)/);
-  assert.match(storeSource, /function reserveContinuousPoolWave\(\)/);
-  assert.match(storeSource, /function requestContinuousPoolPump\(\)/);
-  assert.match(storeSource, /function fhlPoolTotalCapacity/);
-  assert.match(storeSource, /normalizeFHLPoolPerAPIConcurrencyLimit\(state\.fhlPoolPerAPIConcurrencyLimit\)/);
-  assert.doesNotMatch(storeSource, /shared image limit/);
-  assert.doesNotMatch(storeSource, /shared FHL API pool/);
-  assert.match(storeSource, /planContinuousPoolWave\([\s\S]+continuousPoolInFlightByProfile\(state\)/);
-  assert.doesNotMatch(storeSource, /Math\.min\(sharedLimit, totalCapacity\)/);
-  assert.match(storeSource, /continuousPoolRoundRobinCursor,[\s\S]+totalLimit/);
-  assert.match(storeSource, /const actualProfiles = new Map\(enabledFHLPoolProfiles\(state\)/);
-  assert.match(storeSource, /task\.launchState === "submitting"/);
-  assert.match(storeSource, /apiBaseURL: cleanBaseURL\(profile\.baseURL\)/);
-  assert.match(storeSource, /apiProfileName: profile\.name/);
-  assert.match(storeSource, /continuousPoolEnabled === true/);
-  assert.doesNotMatch(storeSource, /if \(task\.apiMode !== "images" \|\| !profileId\) continue;/);
+test("store delegates continuous pool state and pump ownership to the controller", () => {
+  assert.match(storeSource, /createContinuousPoolController\(\{/);
+  assert.match(storeSource, /continuousPoolController\.queuedTasks\(state\)/);
+  assert.match(storeSource, /continuousPoolController\.inFlightByProfile\(state\)/);
+  assert.match(storeSource, /continuousPoolController\.profileCursor\(\)/);
+  assert.match(storeSource, /continuousPoolController\.requestPump\(\)/);
+  assert.match(storeSource, /continuousPoolController\.reset\(\)/);
 });
 
-test("continuous pool excludes orphan records and native transport claims an exact task before submit", () => {
-  const queueStart = storeSource.indexOf("function continuousPoolQueuedTasks");
-  const queueEnd = storeSource.indexOf("function continuousPoolInFlightByProfile", queueStart);
-  const inFlightEnd = storeSource.indexOf("function fhlPoolInFlightTotal", queueEnd);
+test("native transport claims an exact task before submit", () => {
   const launchStart = storeSource.indexOf("async function launchOneJob");
   const launchEnd = storeSource.indexOf("export { tempDataURLFromB64", launchStart);
-  const queueBlock = storeSource.slice(queueStart, queueEnd);
-  const inFlightBlock = storeSource.slice(queueEnd, inFlightEnd);
   const launchBlock = storeSource.slice(launchStart, launchEnd);
 
-  assert.match(queueBlock, /referencedBatchTasksForWorkspaces\(state\.workspaces, state\.batchTasksById\)/);
-  assert.doesNotMatch(queueBlock, /Object\.values\(state\.batchTasksById\)/);
-  assert.match(inFlightBlock, /referencedBatchTasksForWorkspaces\(state\.workspaces, state\.batchTasksById\)/);
-  assert.doesNotMatch(inFlightBlock, /Object\.values\(state\.batchTasksById\)/);
-  assert.match(storeSource, /if \(!initialWorkspace\?\.batchTaskIds\.includes\(task\.id\)\) return false/);
-  assert.match(storeSource, /if \(!workspace\?\.batchTaskIds\.includes\(task\.id\)\) return false/);
-  assert.match(storeSource, /latestReferencedTaskIds\.has\(task\.id\)/);
-  assert.match(storeSource, /readyReferencedTaskIds\.has\(task\.id\)/);
   assert.match(launchBlock, /taskId: string/);
   assert.match(launchBlock, /claimBatchTaskForLaunch\(/);
   assert.match(launchBlock, /if \(!launchClaimed\) return false/);
@@ -140,19 +113,6 @@ test("workspace submit is single-flight and continuous submission asserts exactl
   assert.match(atomicCommit, /batchTaskIds: nextBatchTaskIds/);
   assert.match(atomicCommit, /resultGridOpen: shouldOpenBatchView/);
   assert.equal((storeSource.slice(taskIdsIndex, pumpIndex).match(/set\(\(state\) => \(\{/g) ?? []).length, 1);
-});
-
-test("native pool launch failures leave a visible failed task instead of a zero-count spinner", () => {
-  const pumpStart = storeSource.indexOf("async function pumpContinuousPoolQueuePass");
-  const pumpEnd = storeSource.indexOf("function requestContinuousPoolPump", pumpStart);
-  const pumpBlock = storeSource.slice(pumpStart, pumpEnd);
-
-  assert.match(pumpBlock, /const started = await startContinuousQueuedTask\(taskToStart\.id\)/);
-  assert.match(pumpBlock, /if \(!started\) \{[\s\S]+failUnstartedContinuousPoolTask/);
-  assert.match(pumpBlock, /catch \(error: any\) \{[\s\S]+failUnstartedContinuousPoolTask/);
-  assert.match(pumpBlock, /startingContinuousTaskIds\.delete\(taskId\)/);
-  assert.match(pumpBlock, /status: "failed"/);
-  assert.match(pumpBlock, /resultGridOpen: true/);
 });
 
 test("production store has no multi-task pressure injection action", () => {

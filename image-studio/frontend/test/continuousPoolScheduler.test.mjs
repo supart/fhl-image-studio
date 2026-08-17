@@ -143,6 +143,19 @@ test("plans all 37 vacancies when only three of 40 slots are occupied", () => {
   }
 });
 
+test("keeps an assigned task pinned while unassigned work follows round-robin order", () => {
+  const profiles = [profile("api-one"), profile("api-two")];
+  const plan = planContinuousPoolWave([
+    { id: "pinned", apiProfileId: "api-two" },
+    { id: "unassigned" },
+  ], profiles, {}, 0, 2);
+
+  assert.deepEqual(
+    plan.assignments.map((assignment) => [assignment.task.id, assignment.profile.id]),
+    [["pinned", "api-two"], ["unassigned", "api-one"]],
+  );
+});
+
 test("a 397-task simulation keeps 40 reserved until the final drain", () => {
   const profiles = Array.from({ length: 10 }, (_, index) => profile(`api-${index + 1}`, { concurrencyLimit: 4 }));
   const tasks = Array.from({ length: 397 }, (_, index) => ({ id: `task-${index + 1}` }));

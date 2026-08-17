@@ -213,6 +213,7 @@ import {
 import { createMaterialActions } from "./studioStore.materials";
 import { activeProfileRuntimePatch, createProfileActions } from "./studioStore.profiles";
 import { createTaskActions, taskRuntimePatchForWorkspace } from "./studioStore.tasks";
+import { createContinuousPoolController } from "./studioStore.continuousPool";
 import { createWorkspaceActions } from "./studioStore.workspaces";
 import { createImageActions } from "./studioStore.images";
 import {
@@ -317,11 +318,12 @@ const STAR_PROMPTED_KEY = storageKey("gptcodex.starPrompted");
 const PROMPT_HISTORY_KEY = storageKey("gptcodex.promptHistory");
 const PRESETS_KEY = storageKey("gptcodex.presets");
 const CONCURRENCY_DEFAULT_V4_MIGRATION_KEY = storageKey("gptcodex.profileConcurrencyDefaultV4Migrated");
-const startingContinuousTaskIds = new Set<string>();
 const unavailableContinuousPoolProfileIds = new Set<string>();
-let continuousPoolRoundRobinCursor = 0;
-let continuousPoolPumpPromise: Promise<void> | null = null;
-let continuousPoolPumpRequested = false;
+const continuousPoolController = createContinuousPoolController({
+  getState: () => useStudioStore.getState(),
+  runPumpPass: () => pumpContinuousPoolQueuePass(),
+});
+const startingContinuousTaskIds = continuousPoolController.startingTaskIds;
 const submitSingleFlight = createKeyedSingleFlight<void>();
 const autoRetryTimersByTaskId = new Map<string, ReturnType<typeof setTimeout>>();
 const recordedTransientFailureSignatures = new Set<string>();
@@ -1774,47 +1776,11 @@ function isContinuousPoolTask(task: BatchTaskRecord): boolean {
 }
 
 function continuousPoolQueuedTasks(state: StudioState): BatchTaskRecord[] {
-  return referencedBatchTasksForWorkspaces(state.workspaces, state.batchTasksById)
-    .filter((task) => (
-      isContinuousPoolTask(task)
-      && task.status === "queued"
-      && !task.jobId
-      && task.launchState !== "submitting"
-      && !startingContinuousTaskIds.has(task.id)
-    ))
-    .sort((a, b) => (
-      a.createdAt - b.createdAt
-      || a.workspaceId.localeCompare(b.workspaceId)
-      || a.slotIndex - b.slotIndex
-      || a.id.localeCompare(b.id)
-    ));
+  return continuousPoolController.queuedTasks(state);
 }
 
 function continuousPoolInFlightByProfile(state: StudioState): Record<string, number> {
-  const counts: Record<string, number> = {};
-  const taskJobIds = new Set<string>();
-
-  for (const task of referencedBatchTasksForWorkspaces(state.workspaces, state.batchTasksById)) {
-    const profileId = String(task.apiProfileId || "").trim();
-    if (!profileId) continue;
-    const inFlight = task.launchState === "submitting"
-      || startingContinuousTaskIds.has(task.id)
-      || task.status === "running"
-      || (task.status === "queued" && !!task.jobId);
-    if (!inFlight) continue;
-    counts[profileId] = (counts[profileId] ?? 0) + 1;
-    if (task.jobId) taskJobIds.add(task.jobId);
-  }
-
-  // A cancelled Wails task remains here until backend emits settled:<jobId>.
-  // Its BatchTaskRecord is terminal already, so the retained job metadata must
-  // still count against the assigned profile's capacity.
-  for (const [jobId, meta] of Object.entries(state.runningJobMeta)) {
-    const profileId = String(meta.apiProfileId || "").trim();
-    if (!profileId || taskJobIds.has(jobId)) continue;
-    counts[profileId] = (counts[profileId] ?? 0) + 1;
-  }
-  return counts;
+  return continuousPoolController.inFlightByProfile(state);
 }
 
 function fhlPoolInFlightTotal(state: StudioState, counts = continuousPoolInFlightByProfile(state)): number {
@@ -1914,7 +1880,7 @@ function reserveContinuousPoolWave(): ReservedContinuousPoolWave | null {
     queue,
     profiles,
     continuousPoolInFlightByProfile(state),
-    continuousPoolRoundRobinCursor,
+    continuousPoolController.profileCursor(),
     totalLimit,
   );
   if (plan.assignments.length === 0) return null;
@@ -1955,7 +1921,7 @@ function reserveContinuousPoolWave(): ReservedContinuousPoolWave | null {
   }
   if (reservedTasks.length === 0) return null;
 
-  continuousPoolRoundRobinCursor = plan.nextCursor;
+  continuousPoolController.setProfileCursor(plan.nextCursor);
   store.setState((current) => {
     let workspaces = current.workspaces;
     let activePatch: WorkspacePatch = {};
@@ -1971,6 +1937,7 @@ function reserveContinuousPoolWave(): ReservedContinuousPoolWave | null {
       ...activePatch,
     } as Partial<StudioState>;
   });
+  continuousPoolController.markTasksScheduled(queue, reservedTasks.map((task) => task.id));
   return { waveId, tasks: reservedTasks };
 }
 
@@ -2292,7 +2259,7 @@ async function pumpContinuousPoolQueuePass(): Promise<void> {
 
       let taskToStart: BatchTaskRecord | null = null;
       let profileToUse: UpstreamProfile | null = null;
-      let nextCursor = continuousPoolRoundRobinCursor;
+      let nextCursor = continuousPoolController.profileCursor();
       let needsAssignment = false;
 
       for (const task of queue) {
@@ -2310,7 +2277,7 @@ async function pumpContinuousPoolQueuePass(): Promise<void> {
         const selection = selectNextContinuousPoolProfile(
           profilesWithEffectiveCapacity,
           inFlightByProfileId,
-          continuousPoolRoundRobinCursor,
+          continuousPoolController.profileCursor(),
         );
         if (!selection.profile) continue;
         taskToStart = task;
@@ -2322,10 +2289,11 @@ async function pumpContinuousPoolQueuePass(): Promise<void> {
 
       if (!taskToStart || !profileToUse) return;
       if (needsAssignment) {
-        continuousPoolRoundRobinCursor = nextCursor;
+        continuousPoolController.setProfileCursor(nextCursor);
         const taskAPIMode = taskToStart.apiMode === "responses" ? "responses" : "images";
         if (!assignContinuousPoolProfile(taskToStart.id, profileToUse, taskAPIMode)) continue;
       }
+      continuousPoolController.markTasksScheduled(queue, [taskToStart.id]);
       try {
         const started = await startContinuousQueuedTask(taskToStart.id);
         if (!started) {
@@ -2345,7 +2313,7 @@ async function pumpContinuousPoolQueuePass(): Promise<void> {
 
 function failUnstartedContinuousPoolTask(taskId: string, message: string) {
   const store = useStudioStore;
-  startingContinuousTaskIds.delete(taskId);
+  continuousPoolController.releaseTaskStart(taskId);
   const state = store.getState();
   const task = state.batchTasksById[taskId];
   const workspace = task
@@ -2393,21 +2361,7 @@ function failUnstartedContinuousPoolTask(taskId: string, message: string) {
 }
 
 function requestContinuousPoolPump(): Promise<void> {
-  if (useStudioStore.getState().isResettingApplication) return Promise.resolve();
-  continuousPoolPumpRequested = true;
-  if (!continuousPoolPumpPromise) {
-    continuousPoolPumpPromise = (async () => {
-      try {
-        while (continuousPoolPumpRequested) {
-          continuousPoolPumpRequested = false;
-          await pumpContinuousPoolQueuePass();
-        }
-      } finally {
-        continuousPoolPumpPromise = null;
-      }
-    })();
-  }
-  return continuousPoolPumpPromise;
+  return continuousPoolController.requestPump();
 }
 
 function markWorkspaceTasks(
@@ -2552,19 +2506,19 @@ function scheduleAutoRetriesForBrowserGroup(group: JobGroupSnapshot) {
 
 async function startContinuousQueuedTask(taskId: string): Promise<boolean> {
   const store = useStudioStore;
-  if (startingContinuousTaskIds.has(taskId)) return false;
+  if (continuousPoolController.isTaskStarting(taskId)) return false;
   const s = store.getState();
   const task = s.batchTasksById[taskId];
   if (!task || task.status !== "queued" || task.jobId) return false;
   const initialWorkspace = s.workspaces.find((entry) => entry.id === task.workspaceId);
   if (!initialWorkspace?.batchTaskIds.includes(task.id)) return false;
-  startingContinuousTaskIds.add(taskId);
+  if (!continuousPoolController.reserveTaskStart(taskId)) return false;
   const workspaceId = task.workspaceId;
   const failQueuedStart = (message: string) => {
     const current = store.getState();
     const currentTask = current.batchTasksById[task.id] ?? task;
     if (currentTask.status === "cancelled") {
-      startingContinuousTaskIds.delete(taskId);
+      continuousPoolController.releaseTaskStart(taskId);
       return false;
     }
     const workspace = current.workspaces.find((entry) => entry.id === workspaceId);
@@ -2598,7 +2552,7 @@ async function startContinuousQueuedTask(taskId: string): Promise<boolean> {
     } as Partial<StudioState>));
     store.getState().pushToast(message, "error", 4600);
     scheduleAutoRetryForTask(failedTasksById[task.id], message);
-    startingContinuousTaskIds.delete(taskId);
+    continuousPoolController.releaseTaskStart(taskId);
     return false;
   };
   const taskContext = retryContextFromOriginalTask(s, task);
@@ -2622,7 +2576,7 @@ async function startContinuousQueuedTask(taskId: string): Promise<boolean> {
   if (!shouldUseBackgroundTaskProxyForSubmit(task.apiMode)) {
     const latestTask = store.getState().batchTasksById[taskId];
     if (!latestTask || latestTask.status !== "queued" || latestTask.jobId) {
-      startingContinuousTaskIds.delete(taskId);
+      continuousPoolController.releaseTaskStart(taskId);
       return false;
     }
     const batchProcessLink = batchProcessLinkFromTask(task);
@@ -2684,7 +2638,7 @@ async function startContinuousQueuedTask(taskId: string): Promise<boolean> {
         },
       });
     } finally {
-      startingContinuousTaskIds.delete(taskId);
+      continuousPoolController.releaseTaskStart(taskId);
     }
   }
   const submitJobGroup = isAndroidTaskProxyMode() ? submitAndroidJobGroup : submitBrowserJobGroup;
@@ -2696,7 +2650,7 @@ async function startContinuousQueuedTask(taskId: string): Promise<boolean> {
       || !optimisticTask
       || optimisticTask.status !== "queued"
       || optimisticTask.jobId) {
-    startingContinuousTaskIds.delete(taskId);
+    continuousPoolController.releaseTaskStart(taskId);
     return false;
   }
   const optimisticTasksById: Record<string, BatchTaskRecord> = {
@@ -2772,7 +2726,7 @@ async function startContinuousQueuedTask(taskId: string): Promise<boolean> {
     } as Partial<StudioState>));
     syncBrowserJobSubscriptions(nextJobGroupsByWorkspace);
     scheduleAutoRetriesForBrowserGroup(response.group);
-    startingContinuousTaskIds.delete(taskId);
+    continuousPoolController.releaseTaskStart(taskId);
     return true;
   } catch (error: any) {
     return failQueuedStart(`提交失败:${error?.message ?? error}`);
@@ -4011,8 +3965,8 @@ const taskActions = createTaskActions({
 }, {
   cancelJob: wailsCancel,
   clearAutoRetryTimer,
-  removeStartingTask: (taskId) => startingContinuousTaskIds.delete(taskId),
-  isStartingTask: (taskId) => startingContinuousTaskIds.has(taskId),
+  removeStartingTask: (taskId) => continuousPoolController.releaseTaskStart(taskId),
+  isStartingTask: (taskId) => continuousPoolController.isTaskStarting(taskId),
   startQueuedTask: startContinuousQueuedTask,
   requestPoolPump: requestContinuousPoolPump,
   pumpQueue: pumpContinuousQueue,
@@ -4312,10 +4266,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       for (const detach of browserWorkspaceSubscriptions.values()) detach();
       browserWorkspaceSubscriptions.clear();
       browserJobRefreshes.clear();
-      startingContinuousTaskIds.clear();
+      continuousPoolController.reset();
       unavailableContinuousPoolProfileIds.clear();
-      continuousPoolRoundRobinCursor = 0;
-      continuousPoolPumpRequested = false;
 
       applyApplicationSettingsRuntime(APPLICATION_SETTINGS_DEFAULTS, settingsRuntime);
       set({
