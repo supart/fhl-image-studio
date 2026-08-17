@@ -171,6 +171,8 @@ export function patchWorkspaceRuntime(workspaces: Workspace[], workspaceId: stri
     if (w.id !== workspaceId) return w;
     const next: Workspace = { ...w };
     if (patch.name !== undefined) next.name = patch.name;
+    if (patch.activeProfileId !== undefined) next.activeProfileId = patch.activeProfileId;
+    if (patch.fhlTransportMode !== undefined) next.fhlTransportMode = patch.fhlTransportMode;
     if (patch.promptPrefix !== undefined) next.promptPrefix = patch.promptPrefix;
     if (patch.prompt !== undefined) next.prompt = patch.prompt;
     if (patch.optimizationGuidance !== undefined) next.optimizationGuidance = patch.optimizationGuidance;
@@ -187,6 +189,7 @@ export function patchWorkspaceRuntime(workspaces: Workspace[], workspaceId: stri
     if (patch.editAutoAspectUserLocked !== undefined) next.editAutoAspectUserLocked = patch.editAutoAspectUserLocked;
     if (patch.styleTag !== undefined) next.styleTag = patch.styleTag;
     if (patch.sources !== undefined) next.sources = patch.sources;
+    if (patch.reversePromptImage !== undefined) next.reversePromptImage = patch.reversePromptImage;
     if (patch.currentImageId !== undefined) next.currentImageId = patch.currentImageId;
     if (patch.batchResultIds !== undefined) next.batchResultIds = patch.batchResultIds;
     if (patch.batchTaskIds !== undefined) next.batchTaskIds = patch.batchTaskIds;

@@ -224,6 +224,8 @@ export function saveActiveWorkspaceSnapshot(s: StudioState): Workspace[] {
     return {
       ...w,
       name,
+      activeProfileId: s.activeProfileId,
+      fhlTransportMode: s.fhlTransportMode,
       promptPrefix: s.promptPrefix,
       prompt: s.prompt,
       optimizationGuidance: s.optimizationGuidance,
@@ -240,6 +242,7 @@ export function saveActiveWorkspaceSnapshot(s: StudioState): Workspace[] {
       editAutoAspectUserLocked: w.editAutoAspectUserLocked === true,
       styleTag: s.styleTag,
       sources: s.sources,
+      reversePromptImage: s.reversePromptImage,
       currentImageId: currentImageIdForWorkspaceSnapshot(s.currentImage, s.streamPreview, s.streamPreviews, w.currentImageId),
       batchResultIds: s.batchResults.map((item) => item.id),
       batchTaskIds: w.batchTaskIds ?? [],

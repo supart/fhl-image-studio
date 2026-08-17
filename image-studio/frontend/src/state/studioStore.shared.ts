@@ -12,6 +12,7 @@ import type {
   OutputFormatValue,
   ProgressInfo,
   QualityValue,
+  ReversePromptImage,
   SizeValue,
   SourceImage,
   StreamPreview,
@@ -353,6 +354,22 @@ function normalizeSourceImage(value: unknown): SourceImage | null {
   };
 }
 
+function normalizeReversePromptImage(value: unknown): ReversePromptImage | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Partial<ReversePromptImage>;
+  const path = typeof raw.path === "string" ? raw.path.trim() : "";
+  if (!path || isVolatileMemoryPath(path)) return null;
+  return {
+    path,
+    name: typeof raw.name === "string" && raw.name.trim()
+      ? raw.name.trim()
+      : path.split(/[\\/]/).pop() ?? path,
+    size: Number.isFinite(Number(raw.size)) ? Math.max(0, Number(raw.size)) : 0,
+    previewUrl: sanitizeStoredPreviewUrl(raw.previewUrl),
+    imageBlob: null,
+  };
+}
+
 function normalizeStreamPreview(value: unknown): StreamPreview | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Partial<StreamPreview>;
@@ -444,6 +461,7 @@ function toPersistedWorkspace(workspace: Workspace): Workspace {
           panoramaRoundtrip: source.panoramaRoundtrip,
           panoramaProject: source.panoramaProject,
         })),
+    reversePromptImage: normalizeReversePromptImage(workspace.reversePromptImage),
     editAutoAspectUserLocked: workspace.editAutoAspectUserLocked === true,
     selectedBatchTaskId: null,
     errorRawPath: workspace.errorRawPath ?? null,
@@ -454,6 +472,7 @@ function toPersistedWorkspace(workspace: Workspace): Workspace {
 function normalizeWorkspace(
   value: unknown,
   fallbackOutputFormat: OutputFormatValue,
+  defaults: { activeProfileId: string; fhlTransportMode: FHLTransportMode },
 ): Workspace | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Partial<Workspace>;
@@ -487,6 +506,10 @@ function normalizeWorkspace(
   return {
     id,
     name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : "图片",
+    activeProfileId: typeof raw.activeProfileId === "string" && raw.activeProfileId.trim()
+      ? raw.activeProfileId.trim()
+      : defaults.activeProfileId,
+    fhlTransportMode: raw.fhlTransportMode === "responses" ? "responses" : defaults.fhlTransportMode,
     promptPrefix: typeof raw.promptPrefix === "string" ? raw.promptPrefix : "",
     prompt: typeof raw.prompt === "string" ? raw.prompt : "",
     optimizationGuidance: typeof raw.optimizationGuidance === "string" ? raw.optimizationGuidance : "",
@@ -505,6 +528,7 @@ function normalizeWorkspace(
     sources: Array.isArray(raw.sources)
       ? raw.sources.map((item) => normalizeSourceImage(item)).filter((item): item is SourceImage => !!item)
       : [],
+    reversePromptImage: normalizeReversePromptImage(raw.reversePromptImage),
     currentImageId: typeof raw.currentImageId === "string" && raw.currentImageId.trim()
       ? raw.currentImageId.trim()
       : null,
@@ -632,7 +656,7 @@ export function persistWorkspaceSession(
       return;
     }
     const payload = {
-      version: 1,
+      version: 2,
       serviceInstanceId: currentWorkspaceServiceInstanceId(),
       activeWorkspaceId,
       updatedAt: Date.now(),
@@ -645,6 +669,7 @@ export function persistWorkspaceSession(
 
 export function loadWorkspaceSession(
   fallbackOutputFormat: OutputFormatValue,
+  defaults: { activeProfileId?: string; fhlTransportMode?: FHLTransportMode } = {},
 ): {
   activeWorkspaceId: string;
   serviceInstanceId: string;
@@ -662,7 +687,10 @@ export function loadWorkspaceSession(
     };
     const workspaces = Array.isArray(parsed?.workspaces)
       ? parsed.workspaces
-        .map((item) => normalizeWorkspace(item, fallbackOutputFormat))
+        .map((item) => normalizeWorkspace(item, fallbackOutputFormat, {
+          activeProfileId: defaults.activeProfileId?.trim() ?? "",
+          fhlTransportMode: defaults.fhlTransportMode === "responses" ? "responses" : "images",
+        }))
         .filter((item): item is Workspace => !!item)
       : [];
     if (workspaces.length === 0) return null;

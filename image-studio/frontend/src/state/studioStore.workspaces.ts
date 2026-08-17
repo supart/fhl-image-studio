@@ -3,6 +3,7 @@ import type { StudioState } from "./studioStore.types.ts";
 import { streamPreviewItemFromWorkspace } from "./studioStore.streamPreview.ts";
 import { defaultBatchProcessConfig, historyItemsByIds } from "./workspaceRuntime.ts";
 import { createDefaultWorkspace } from "./workspaceDefaults.ts";
+import { activeProfileRuntimePatch } from "./studioStore.profiles.ts";
 
 type StateAdapter = {
   getState: () => StudioState;
@@ -27,10 +28,20 @@ export function workspaceSelectionPatch(
   const currentImage = streamPreviewItemFromWorkspace(target, persistedCurrent) ?? persistedCurrent;
   const batchResults = historyItemsByIds(state.history, target.batchResultIds ?? []);
   const runningJobs = target.runningJobIds ?? [];
+  const fhlTransportMode = target.fhlTransportMode ?? state.fhlTransportMode;
+  const activeProfileId = target.activeProfileId ?? state.activeProfileId;
+  const activeProfile = state.profiles.find((profile) => profile.id === activeProfileId);
+  const profilePatch = activeProfile
+    ? activeProfileRuntimePatch(activeProfile, fhlTransportMode)
+    : {};
 
   return {
     workspaces,
     activeWorkspaceId: target.id,
+    activeProfileId,
+    fhlTransportMode,
+    ...profilePatch,
+    apiKey: activeProfileId === state.activeProfileId ? state.apiKey : "",
     promptPrefix: target.promptPrefix ?? "",
     prompt: target.prompt,
     optimizationGuidance: target.optimizationGuidance,
@@ -47,6 +58,7 @@ export function workspaceSelectionPatch(
     editAutoAspectUserLocked: target.editAutoAspectUserLocked === true,
     styleTag: target.styleTag ?? "",
     sources: target.sources,
+    reversePromptImage: target.reversePromptImage ?? null,
     currentImage,
     sourcePreviewReturnImage: null,
     batchResults,
@@ -82,6 +94,10 @@ export function createWorkspaceActions(store: StateAdapter, runtime: WorkspaceAc
         id,
         state.outputFormat,
         name ?? `图片 ${persisted.length + 1}`,
+        {
+          activeProfileId: state.activeProfileId,
+          fhlTransportMode: state.fhlTransportMode,
+        },
       );
       store.setState(workspaceSelectionPatch(state, workspace, [...persisted, workspace]));
     },
@@ -93,6 +109,7 @@ export function createWorkspaceActions(store: StateAdapter, runtime: WorkspaceAc
       const target = persisted.find((workspace) => workspace.id === id);
       if (!target) return;
       store.setState(workspaceSelectionPatch(state, target, persisted));
+      if (target.activeProfileId) void store.getState().setActiveProfile(target.activeProfileId);
     },
 
     closeWorkspace(id: string) {
@@ -112,11 +129,13 @@ export function createWorkspaceActions(store: StateAdapter, runtime: WorkspaceAc
       delete jobGroupsByWorkspace[id];
       const remaining = state.workspaces.filter((workspace) => workspace.id !== id);
       if (state.activeWorkspaceId === id) {
+        const nextActive = remaining[0];
         store.setState({
-          ...workspaceSelectionPatch(state, remaining[0], remaining),
+          ...workspaceSelectionPatch(state, nextActive, remaining),
           runningJobMeta: nextMeta,
           jobGroupsByWorkspace,
         });
+        if (nextActive.activeProfileId) void store.getState().setActiveProfile(nextActive.activeProfileId);
       } else {
         store.setState({ workspaces: remaining, runningJobMeta: nextMeta, jobGroupsByWorkspace });
       }

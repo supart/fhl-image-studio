@@ -29,7 +29,7 @@ import { normalizeAPIKeyInput } from "../lib/apiKey";
 import { syncCLIConfigQuietly, type CLIConfigSyncInput } from "../lib/cliConfigSync";
 import { isOfficialFHLProfile, ProviderPolicy } from "../lib/providerPolicy";
 import { cleanBaseURL } from "../lib/security";
-import { normalizeConcurrencyLimit } from "./workspaceRuntime";
+import { normalizeConcurrencyLimit, patchWorkspaceRuntime } from "./workspaceRuntime";
 import { persistActiveProfileId, persistProfiles } from "./studioStore.shared";
 
 type StateAdapter = {
@@ -266,14 +266,19 @@ export function createProfileActions(store: StateAdapter) {
       ));
       if (hasActiveAssignedTask) return false;
       const nextList = list.filter((_, i) => i !== index);
+      const fallback = pickActiveProfile(nextList, "");
+      const nextWorkspaces = currentState.workspaces.map((workspace) => (
+        workspace.activeProfileId === id
+          ? { ...workspace, activeProfileId: fallback?.id ?? "" }
+          : workspace
+      ));
       persistProfiles(nextList);
       try { await DeleteStoredAPIKey(keyringUserFor(id)); }
       catch (e: any) {
         if (typeof console !== "undefined") console.warn("删除 keyring 项失败，继续", e);
       }
-      store.setState({ profiles: nextList });
+      store.setState({ profiles: nextList, workspaces: nextWorkspaces });
       if (store.getState().activeProfileId === id) {
-        const fallback = pickActiveProfile(nextList, "");
         if (fallback) {
           await this.setActiveProfile(fallback.id);
         } else {
@@ -318,6 +323,7 @@ export function createProfileActions(store: StateAdapter) {
       const before = store.getState();
       const profile = before.profiles.find((p) => p.id === id);
       if (!profile) return;
+      const workspaceId = before.activeWorkspaceId;
       persistActiveProfileId(id);
       const refreshed: UpstreamProfile = { ...profile, lastUsedAt: Date.now() };
       const nextProfiles = store.getState().profiles.map((p) => p.id === id ? refreshed : p);
@@ -327,9 +333,12 @@ export function createProfileActions(store: StateAdapter) {
         activeProfileId: id,
         ...activeProfileRuntimePatch(profile, before.fhlTransportMode),
         apiKey: "",
+        workspaces: patchWorkspaceRuntime(before.workspaces, workspaceId, { activeProfileId: id }),
       });
       const apiKey = await GetStoredAPIKey(keyringUserFor(id)).catch(() => "");
-      if (store.getState().activeProfileId === id) {
+      const current = store.getState();
+      const workspaceStillUsesProfile = current.workspaces.find((workspace) => workspace.id === workspaceId)?.activeProfileId === id;
+      if (current.activeWorkspaceId === workspaceId && current.activeProfileId === id && workspaceStillUsesProfile) {
         store.setState({ apiKey });
         syncCLIConfigQuietly(cliConfigFromProfileState(store.getState(), refreshed, apiKey));
       }

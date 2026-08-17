@@ -1,15 +1,36 @@
 import { DEFAULT_FHL_SIZE } from "../lib/generationDefaults.ts";
-import type { OutputFormatValue, Workspace } from "../types/domain";
+import type { FHLTransportMode, OutputFormatValue, Workspace } from "../types/domain";
 import { defaultBatchProcessConfig } from "./workspaceRuntime.ts";
+
+export interface WorkspaceDefaultsOptions {
+  activeProfileId?: string;
+  fhlTransportMode?: FHLTransportMode;
+}
+
+export const WORKSPACE_DEFAULT_FIELD_KEYS = [
+  "id", "name", "activeProfileId", "fhlTransportMode",
+  "promptPrefix", "prompt", "optimizationGuidance", "negativePrompt",
+  "mode", "size", "quality", "outputFormat", "seed", "batchCount",
+  "continuousGenerateTest", "editSourceMode", "editAutoAspectUserLocked",
+  "batchProcess", "styleTag", "sources", "reversePromptImage",
+  "currentImageId", "batchResultIds", "batchTaskIds", "selectedBatchTaskId",
+  "batchSinglePreviewOpen", "resultGridOpen", "historyGalleryOpen",
+  "historyGallerySinglePreviewId", "historyGallerySort", "runningJobIds",
+  "jobsTotal", "jobsCompleted", "jobsFailed", "progress", "streamPreview",
+  "streamPreviews", "lastLogLine", "errorMessage", "errorRawPath", "lastPayload",
+] as const satisfies readonly (keyof Workspace)[];
 
 export function createDefaultWorkspace(
   id: string,
   outputFormat: OutputFormatValue = "png",
   name = "图片 1",
+  options: WorkspaceDefaultsOptions = {},
 ): Workspace {
   return {
     id,
     name,
+    activeProfileId: options.activeProfileId?.trim() ?? "",
+    fhlTransportMode: options.fhlTransportMode ?? "images",
     promptPrefix: "",
     prompt: "",
     optimizationGuidance: "",
@@ -26,6 +47,7 @@ export function createDefaultWorkspace(
     batchProcess: defaultBatchProcessConfig(),
     styleTag: "",
     sources: [],
+    reversePromptImage: null,
     currentImageId: null,
     batchResultIds: [],
     batchTaskIds: [],

@@ -305,17 +305,21 @@ export function createImageActions(store: StateAdapter) {
         const res = await OpenImageDialog();
         if (!res || !res.path) return;
         const baseName = res.name || res.path.split(/[\\/]/).pop() || res.path;
-        store.setState({
-          reversePromptImage: {
+        store.setState((state) => {
+          const reversePromptImage = {
             path: res.path,
             name: baseName,
             size: res.size,
             imageB64: res.imageB64 || undefined,
             imageBlob: res.imageB64 ? base64ToBlob(res.imageB64) : null,
             previewUrl: res.previewUrl,
-          },
-          errorMessage: null,
-          errorRawPath: null,
+          };
+          return {
+            reversePromptImage,
+            errorMessage: null,
+            errorRawPath: null,
+            workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, { reversePromptImage }),
+          };
         });
       } catch (error: any) {
         store.setState({ errorMessage: `选择反推图片失败: ${error?.message ?? error}`, errorRawPath: null });
@@ -333,17 +337,21 @@ export function createImageActions(store: StateAdapter) {
         const ref = await RegisterImportedImageAsset(result.path).catch(() => null);
         const previewUrl = ref?.previewUrl || result.previewUrl;
         const legacyB64 = previewUrl ? "" : (result.imageB64 || b64);
-        store.setState({
-          reversePromptImage: {
+        store.setState((state) => {
+          const reversePromptImage = {
             path: result.path,
             name: file.name,
             size: file.size,
             imageB64: legacyB64 || undefined,
             imageBlob: legacyB64 ? base64ToBlob(legacyB64) : null,
             previewUrl,
-          },
-          errorMessage: null,
-          errorRawPath: null,
+          };
+          return {
+            reversePromptImage,
+            errorMessage: null,
+            errorRawPath: null,
+            workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, { reversePromptImage }),
+          };
         });
         store.getState().pushToast("已导入反推图片", "success", 2200);
       } catch (error: any) {
@@ -352,7 +360,10 @@ export function createImageActions(store: StateAdapter) {
     },
 
     clearReversePromptImage() {
-      store.setState({ reversePromptImage: null });
+      store.setState((state) => ({
+        reversePromptImage: null,
+        workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, { reversePromptImage: null }),
+      }));
     },
 
     removeSource(index: number) {

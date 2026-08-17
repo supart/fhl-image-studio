@@ -164,6 +164,8 @@ function buildWorkspace(
   return {
     id: workspaceId,
     name: "联调样例",
+    activeProfileId: "preview-profile",
+    fhlTransportMode: "responses",
     promptPrefix: "",
     prompt: currentImage.prompt,
     optimizationGuidance: "Make it more cinematic with stronger lighting depth while preserving the subject and composition.",
@@ -180,6 +182,7 @@ function buildWorkspace(
     editAutoAspectUserLocked: false,
     batchProcess: defaultBatchProcessConfig(),
     sources,
+    reversePromptImage: null,
     currentImageId: currentImage.id,
     batchResultIds: [],
     batchTaskIds: [],

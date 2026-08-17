@@ -4049,6 +4049,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     set({
       fhlTransportMode,
       ...(activeProfile ? activeProfileRuntimePatch(activeProfile, fhlTransportMode) : {}),
+      workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, { fhlTransportMode }),
     });
   },
   openStarPrompt: () => {
@@ -4095,6 +4096,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       editAutoAspectUserLocked: false,
       styleTag: "",
       sources: [],
+      reversePromptImage: null,
       currentImageId: null,
       batchResultIds: [],
       batchTaskIds: preservedTaskIds,
@@ -4201,7 +4203,15 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       await SetOutputDir("");
       const historySummary = await clearHistoryStorage();
       const storageSummary = resetNonAPIStorage();
-      const workspace = createDefaultWorkspace(genId(), APPLICATION_SETTINGS_DEFAULTS.outputFormat);
+      const workspace = createDefaultWorkspace(
+        genId(),
+        APPLICATION_SETTINGS_DEFAULTS.outputFormat,
+        "图片 1",
+        {
+          activeProfileId: current.activeProfileId,
+          fhlTransportMode: current.fhlTransportMode,
+        },
+      );
 
       continuousPoolController.reset();
       unavailableContinuousPoolProfileIds.clear();
@@ -5404,14 +5414,23 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     items = await hydrateHistoryPreviewRefs(items);
     // Make sure there's always at least one workspace.
     const wsId = genId();
-    const initialWorkspace = createDefaultWorkspace(wsId, outputFormat);
-    const restoredSession = loadWorkspaceSession(outputFormat);
+    const initialWorkspace = createDefaultWorkspace(wsId, outputFormat, "图片 1", {
+      activeProfileId,
+      fhlTransportMode,
+    });
+    const restoredSession = loadWorkspaceSession(outputFormat, { activeProfileId, fhlTransportMode });
     let restoredBatchTasksById = restoredSession?.batchTasksById ?? {};
     let restoredDirectTaskCount = 0;
     const serviceRestarted = isBrowserTaskProxyMode()
       && !!restoredSession
       && restoredSession.serviceInstanceId !== currentWorkspaceServiceInstanceId();
     let restoredWorkspaces = restoredSession?.workspaces ?? [initialWorkspace];
+    const validProfileIds = new Set(profiles.map((profile) => profile.id));
+    restoredWorkspaces = restoredWorkspaces.map((workspace) => (
+      workspace.activeProfileId && validProfileIds.has(workspace.activeProfileId)
+        ? workspace
+        : { ...workspace, activeProfileId: activeProfileId || "" }
+    ));
     if (serviceRestarted) {
       restoredWorkspaces = resetWorkspaceSourcesAfterServiceRestart(restoredWorkspaces);
     }
@@ -5564,6 +5583,18 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const restoredActiveWorkspace = restoredWorkspaces.find(
       (workspace) => workspace.id === restoredSession?.activeWorkspaceId,
     ) ?? restoredWorkspaces[0];
+    const restoredActiveProfile = profiles.find((profile) => profile.id === restoredActiveWorkspace.activeProfileId)
+      ?? activeProfile
+      ?? null;
+    const restoredFHLTransportMode = restoredActiveWorkspace.fhlTransportMode ?? fhlTransportMode;
+    const restoredActiveRuntimeProfile = restoredActiveProfile
+      ? activeProfileRuntimePatch(restoredActiveProfile, restoredFHLTransportMode)
+      : null;
+    const restoredActiveKey = restoredActiveProfile
+      ? restoredActiveProfile.id === activeProfile?.id
+        ? activeKey
+        : await GetStoredAPIKey(keyringUserFor(restoredActiveProfile.id)).catch(() => "")
+      : "";
     const restoredCurrentHistory = restoredActiveWorkspace.currentImageId
       ? items.find((item) => item.id === restoredActiveWorkspace.currentImageId) ?? null
       : null;
@@ -5582,9 +5613,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const runtimePlatform = readRuntimePlatformState();
     const shouldAutoOpenSettings = runtimePlatform.isAndroid
       ? false
-      : !activeProfile || !activeKey.trim() || !baseURL.trim();
+      : !restoredActiveProfile || !restoredActiveKey.trim() || !restoredActiveRuntimeProfile?.baseURL.trim();
     set({
-      apiKey: activeKey,
+      apiKey: restoredActiveKey,
       mode: restoredActiveWorkspace.mode,
       promptPrefix: restoredActiveWorkspace.promptPrefix ?? "",
       prompt: restoredActiveWorkspace.prompt,
@@ -5620,18 +5651,19 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       runningJobMeta: isBackgroundTaskProxyMode() ? buildRunningJobMetaFromBrowserGroups(jobGroupsByWorkspace) : {},
       jobGroupsByWorkspace,
       batchTasksById: restoredBatchTasksById,
-      apiMode,
-      fhlTransportMode,
-      requestPolicy,
-      imagesNewAPICompat,
-      baseURL,
-      textModelID,
-      imageModelID,
+      apiMode: restoredActiveRuntimeProfile?.apiMode ?? apiMode,
+      fhlTransportMode: restoredFHLTransportMode,
+      requestPolicy: restoredActiveRuntimeProfile?.requestPolicy ?? requestPolicy,
+      imagesNewAPICompat: restoredActiveRuntimeProfile?.imagesNewAPICompat ?? imagesNewAPICompat,
+      baseURL: restoredActiveRuntimeProfile?.baseURL ?? baseURL,
+      textModelID: restoredActiveRuntimeProfile?.textModelID ?? textModelID,
+      imageModelID: restoredActiveRuntimeProfile?.imageModelID ?? imageModelID,
       kernelRuntimeMode,
       noPromptRevision,
       proxyMode,
       proxyURL,
       sources: restoredActiveWorkspace.sources,
+      reversePromptImage: restoredActiveWorkspace.reversePromptImage ?? null,
       runningJobs: restoredRunningJobs,
       jobsTotal: isBackgroundTaskProxyMode()
         ? browserRuntime.jobsTotal ?? 0
@@ -5668,7 +5700,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       editAutoAspectUserLocked: restoredActiveWorkspace.editAutoAspectUserLocked === true,
       styleTag: restoredActiveWorkspace.styleTag ?? "",
       profiles,
-      activeProfileId,
+      activeProfileId: restoredActiveProfile?.id ?? "",
       workspaces: restoredWorkspaces,
       activeWorkspaceId: restoredActiveWorkspace.id,
       // Android WebView restores with a compact hero state to avoid layout jumps.
@@ -7331,6 +7363,7 @@ useStudioStore.subscribe((state, prevState) => {
     || state.batchProcess !== prevState.batchProcess
     || state.styleTag !== prevState.styleTag
     || state.sources !== prevState.sources
+    || state.reversePromptImage !== prevState.reversePromptImage
     || state.currentImage !== prevState.currentImage
     || state.batchResults !== prevState.batchResults
     || state.batchTasksById !== prevState.batchTasksById

@@ -6,6 +6,7 @@ import type {
   BatchProcessConfig,
   BatchTaskRecord,
   EditSourceMode,
+  FHLTransportMode,
   HistoryGallerySort,
   HistoryItem,
   JobGroupSnapshot,
@@ -21,6 +22,7 @@ import type {
   ProxyMode,
   QualityValue,
   RequestPolicy,
+  ReversePromptImage,
   SizeValue,
   SourceImage,
   StreamPreview,
@@ -35,15 +37,6 @@ import type { MaterialOutputSyncResultLike } from "../platform/runtime/hostTypes
 import type { RunningJobMeta } from "./workspaceRuntime";
 import type { ResetSummary } from "./applicationStateReset";
 
-export interface ReversePromptImage {
-  path: string;
-  name: string;
-  size: number;
-  previewUrl?: string;
-  imageB64?: string;
-  imageBlob?: Blob | null;
-}
-
 export interface ModeConfig {
   baseURL: string;
   apiKey: string;
@@ -54,7 +47,7 @@ export interface ModeConfig {
 
 export type CompareMode = "curtain" | "sideBySide";
 
-export type FHLTransportMode = "images" | "responses";
+export type { FHLTransportMode, ReversePromptImage } from "../types/domain";
 
 export interface SourceImageImportOptions {
   replaceSourcePath?: string;

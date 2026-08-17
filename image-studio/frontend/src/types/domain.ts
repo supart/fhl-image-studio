@@ -169,6 +169,17 @@ export interface SourceImage {
   panoramaProject?: PanoramaProjectRef;
 }
 
+export interface ReversePromptImage {
+  path: string;
+  name: string;
+  size: number;
+  previewUrl?: string;
+  imageB64?: string;
+  imageBlob?: Blob | null;
+}
+
+export type FHLTransportMode = "images" | "responses";
+
 export interface BatchProcessSourceImage {
   path: string;
   name: string;
@@ -429,6 +440,8 @@ export interface Workspace {
   id: string;
   name: string;
   // Fields whose value is workspace-scoped (different per tab).
+  activeProfileId: string;
+  fhlTransportMode: FHLTransportMode;
   promptPrefix: string;
   prompt: string;
   optimizationGuidance: string;
@@ -445,6 +458,7 @@ export interface Workspace {
   editAutoAspectUserLocked: boolean;
   styleTag: string;
   sources: SourceImage[];
+  reversePromptImage: ReversePromptImage | null;
   // We store currentImageId rather than the full HistoryItem so we don't
   // duplicate large base64 blobs. The history list is shared across tabs.
   currentImageId: string | null;

@@ -12,8 +12,10 @@ vi.mock("../src/lib/storage", async (importOriginal) => ({
 import { MATERIAL_LIBRARY_KEY } from "../src/state/materialLibrary.ts";
 import { activeWorkspaceEditAutoAspectUserLocked } from "../src/state/sharedEditAutoAspect.ts";
 import { useStudioStore } from "../src/state/studioStore.ts";
-import { createWorkspaceActions } from "../src/state/studioStore.workspaces.ts";
-import { createDefaultWorkspace } from "../src/state/workspaceDefaults.ts";
+import { loadWorkspaceSession, persistWorkspaceSession } from "../src/state/studioStore.shared.ts";
+import { createWorkspaceActions, workspaceSelectionPatch } from "../src/state/studioStore.workspaces.ts";
+import { createDefaultWorkspace, WORKSPACE_DEFAULT_FIELD_KEYS } from "../src/state/workspaceDefaults.ts";
+import { storageKey } from "../src/lib/storageNamespace.ts";
 import type { HistoryItem } from "../src/types/domain.ts";
 
 function historyItem(id: string, createdAt: number): HistoryItem {
@@ -42,6 +44,128 @@ describe("workspace, material, and history domain modules", () => {
       isResettingApplication: false,
       batchTasksById: {},
     });
+  });
+
+  it("keeps the explicit workspace field manifest aligned with defaults", () => {
+    expect(Object.keys(createDefaultWorkspace("workspace-fields")).sort())
+      .toEqual([...WORKSPACE_DEFAULT_FIELD_KEYS].sort());
+  });
+
+  it("restores the profile, transport, and reverse prompt image for the selected workspace", () => {
+    const first = createDefaultWorkspace("workspace-1", "png", "Workspace 1", {
+      activeProfileId: "profile-images",
+      fhlTransportMode: "images",
+    });
+    const second = {
+      ...createDefaultWorkspace("workspace-2", "webp", "Workspace 2", {
+        activeProfileId: "profile-responses",
+        fhlTransportMode: "responses",
+      }),
+      reversePromptImage: {
+        path: "I:/input/reverse.png",
+        name: "reverse.png",
+        size: 42,
+      },
+    };
+    const state = {
+      ...useStudioStore.getState(),
+      workspaces: [first, second],
+      activeWorkspaceId: first.id,
+      activeProfileId: first.activeProfileId,
+      fhlTransportMode: first.fhlTransportMode,
+      apiKey: "key-stays-only-with-current-profile",
+      profiles: [
+        {
+          id: "profile-images", name: "Images", apiMode: "images" as const,
+          requestPolicy: "openai" as const, baseURL: "https://images.example.test",
+          textModelID: "", imageModelID: "image-a", concurrencyLimit: 1, createdAt: 1,
+        },
+        {
+          id: "profile-responses", name: "Responses", apiMode: "responses" as const,
+          requestPolicy: "openai" as const, baseURL: "https://responses.example.test",
+          textModelID: "text-b", imageModelID: "image-b", concurrencyLimit: 1, createdAt: 2,
+        },
+      ],
+    };
+
+    const patch = workspaceSelectionPatch(state, second, state.workspaces);
+
+    expect(patch.activeProfileId).toBe("profile-responses");
+    expect(patch.fhlTransportMode).toBe("responses");
+    expect(patch.apiMode).toBe("responses");
+    expect(patch.textModelID).toBe("text-b");
+    expect(patch.reversePromptImage).toEqual(second.reversePromptImage);
+    expect(patch.apiKey).toBe("");
+  });
+
+  it("creates a blank workspace that inherits only the active profile selection", () => {
+    const first = createDefaultWorkspace("workspace-1", "webp", "Workspace 1", {
+      activeProfileId: "profile-current",
+      fhlTransportMode: "responses",
+    });
+    useStudioStore.setState({
+      workspaces: [first],
+      activeWorkspaceId: first.id,
+      activeProfileId: "profile-current",
+      fhlTransportMode: "responses",
+      outputFormat: "webp",
+      prompt: "must not be copied",
+      sources: [{ path: "I:/input/a.png", name: "a.png", size: 1 }],
+    });
+
+    useStudioStore.getState().newWorkspace("Fresh");
+    const created = useStudioStore.getState().workspaces.at(-1)!;
+
+    expect(created.activeProfileId).toBe("profile-current");
+    expect(created.fhlTransportMode).toBe("responses");
+    expect(created.prompt).toBe("");
+    expect(created.sources).toEqual([]);
+    expect(created.reversePromptImage).toBeNull();
+    expect(created.batchTaskIds).toEqual([]);
+  });
+
+  it("migrates v1 workspace sessions to v2 defaults without persisting image payloads", () => {
+    const key = storageKey("gptcodex.workspaceSession.v1");
+    const legacy = createDefaultWorkspace("legacy-workspace", "png");
+    const legacyRecord = { ...legacy } as Record<string, unknown>;
+    delete legacyRecord.activeProfileId;
+    delete legacyRecord.fhlTransportMode;
+    delete legacyRecord.reversePromptImage;
+    localStorage.setItem(key, JSON.stringify({
+      version: 1,
+      activeWorkspaceId: legacy.id,
+      workspaces: [legacyRecord],
+      batchTasksById: {},
+    }));
+
+    const restored = loadWorkspaceSession("png", {
+      activeProfileId: "profile-fallback",
+      fhlTransportMode: "responses",
+    });
+    expect(restored?.workspaces[0].activeProfileId).toBe("profile-fallback");
+    expect(restored?.workspaces[0].fhlTransportMode).toBe("responses");
+    expect(restored?.workspaces[0].reversePromptImage).toBeNull();
+
+    const workspace = {
+      ...restored!.workspaces[0],
+      reversePromptImage: {
+        path: "I:/input/reverse.png",
+        name: "reverse.png",
+        size: 10,
+        imageB64: "must-not-persist",
+        imageBlob: new Blob(["must-not-persist"]),
+      },
+    };
+    persistWorkspaceSession(workspace.id, [workspace], {});
+    const persisted = JSON.parse(localStorage.getItem(key) ?? "{}");
+    expect(persisted.version).toBe(2);
+    expect(persisted.workspaces[0].reversePromptImage).toEqual({
+      path: "I:/input/reverse.png",
+      name: "reverse.png",
+      size: 10,
+      imageBlob: null,
+    });
+    expect(JSON.stringify(persisted)).not.toContain("must-not-persist");
   });
 
   it("switches workspaces through the compatibility store entry", () => {
