@@ -33,6 +33,7 @@ import type {
 import type { HistoryPageCursor } from "../lib/storage";
 import type { MaterialOutputSyncResultLike } from "../platform/runtime/hostTypes";
 import type { RunningJobMeta } from "./workspaceRuntime";
+import type { ResetSummary } from "./applicationStateReset";
 
 export interface ReversePromptImage {
   path: string;
@@ -327,6 +328,7 @@ export interface StudioState {
   saveAndTestFHLTextAPI: (apiKeyInput?: string) => Promise<boolean>;
   deleteFHLTextAPIConfig: () => Promise<void>;
   isTestingKey: boolean;
+  isResettingApplication: boolean;
   isOptimizingPrompt: boolean;
   isReversingPrompt: boolean;
   optimizePrompt: (options?: { useGuidance?: boolean }) => Promise<void>;
@@ -340,6 +342,7 @@ export interface StudioState {
   openStarPrompt: () => void;
   dismissStarPrompt: () => void;
   resetCurrentWorkspaceDraft: () => void;
+  resetApplicationStatePreservingAPI: () => Promise<ResetSummary>;
   setFHLPoolPerAPIConcurrencyLimit: (limit: number) => Promise<void>;
   newWorkspace: (name?: string) => void;
   switchWorkspace: (id: string) => void;

@@ -21,6 +21,8 @@ export function APICredentialLibrary() {
   const profiles = useStudioStore((state) => state.profiles);
   const fhlTextAPIConfigured = useStudioStore((state) => state.fhlTextAPIConfigured);
   const batchTasksById = useStudioStore((state) => state.batchTasksById);
+  const runningJobMeta = useStudioStore((state) => state.runningJobMeta);
+  const jobGroupsByWorkspace = useStudioStore((state) => state.jobGroupsByWorkspace);
   const isRunning = useStudioStore((state) => state.isRunning);
   const runningJobs = useStudioStore((state) => state.runningJobs);
   const isTestingKey = useStudioStore((state) => state.isTestingKey);
@@ -40,6 +42,8 @@ export function APICredentialLibrary() {
     isRunning,
     runningJobs,
     batchTasksById,
+    runningJobMeta,
+    jobGroupsByWorkspace,
     isTestingKey,
     fhlTextAPITestStatus,
     isOptimizingPrompt,

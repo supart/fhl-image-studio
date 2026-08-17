@@ -58,6 +58,7 @@
 }
 
 .app-modal-card-desktop {
+  max-width: calc(100vw - 40px);
   max-height: 86vh;
   border-radius: 22px;
 }
@@ -99,6 +100,44 @@
 
 .app-modal-body-phone {
   padding: 16px;
+}
+
+.application-reset-entry-button {
+  min-height: 44px;
+  padding: 0 12px;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.application-reset-action-button {
+  min-height: 40px;
+  padding: 0 12px;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.application-reset-complete-button {
+  height: 36px;
+  padding: 0 16px;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .app-modal-backdrop-desktop {
+    padding: 12px;
+  }
+
+  .app-modal-card-desktop {
+    max-width: calc(100vw - 24px);
+  }
+
+  .app-modal-body-desktop {
+    padding: 16px;
+  }
 }
 
 html.dark .app-modal-card {

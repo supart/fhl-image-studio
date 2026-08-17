@@ -1,4 +1,4 @@
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useEffect, useId } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { usePlatform } from "../../platform/context";
@@ -18,6 +18,7 @@ export function Modal({
   bodyClassName?: string;
 }) {
   const { isAndroidPhone, usesFluentUI, usesAppleUI } = usePlatform();
+  const titleId = useId();
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -39,14 +40,17 @@ export function Modal({
         style={cardStyle}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
         onClick={(e) => e.stopPropagation()}
         className={`app-modal-card ${usesAppleUI ? "liquid-glass-panel" : ""} ${isAndroidPhone ? "app-modal-card-phone" : "app-modal-card-desktop"} ${usesFluentUI ? "app-modal-card-windows" : ""} ${cardClassName}`}
       >
         {title && (
           <div className={`app-modal-header ${isAndroidPhone ? "app-modal-header-phone" : "app-modal-header-desktop"} ${headerClassName}`}>
-            <h3 className="m-0 text-[15px] font-semibold tracking-[-0.01em] text-zinc-900 dark:text-zinc-100">{title}</h3>
+            <h3 id={titleId} className="m-0 text-[15px] font-semibold tracking-[-0.01em] text-zinc-900 dark:text-zinc-100">{title}</h3>
             <button
+              type="button"
               onClick={onClose}
+              aria-label="关闭"
               title="关闭 (Esc)"
               className={`-mr-1 p-1.5 text-zinc-500 hover:bg-black/[0.05] hover:text-zinc-900 dark:hover:bg-white/[0.06] dark:hover:text-zinc-100 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
             >

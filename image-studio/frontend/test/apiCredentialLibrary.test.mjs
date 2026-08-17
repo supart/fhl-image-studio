@@ -76,6 +76,25 @@ test("secure wipe is blocked by queued, running, or ordinary active work", () =>
     batchTasksById: {},
     isOptimizingPrompt: true,
   }), true);
+  assert.equal(library.hasActiveAPIWork({
+    isRunning: false,
+    runningJobs: [],
+    batchTasksById: { submitting: { status: "failed", launchState: "submitting" } },
+  }), true);
+  assert.equal(library.hasActiveAPIWork({
+    isRunning: false,
+    runningJobs: [],
+    batchTasksById: {},
+    runningJobMeta: { detached: {} },
+  }), true);
+  assert.equal(library.hasActiveAPIWork({
+    isRunning: false,
+    runningJobs: [],
+    batchTasksById: {},
+    jobGroupsByWorkspace: {
+      workspace: [{ statusSummary: { queued: 1, running: 0 }, slots: [] }],
+    },
+  }), true);
 });
 
 test("credential deletion verifies every target and reports partial failures", async () => {

@@ -2,12 +2,11 @@ import {
   Cancel as wailsCancel,
   EventsOff,
 } from "../platform/runtime/host";
-import type { HistoryItem, Workspace } from "../types/domain";
 import type { StudioState } from "./studioStore.types";
-import { DEFAULT_FHL_SIZE } from "../lib/generationDefaults";
 import { historyItemsByIds, saveActiveWorkspaceSnapshot } from "./studioStore.runtime";
 import { streamPreviewItemFromWorkspace } from "./studioStore.streamPreview";
 import { defaultBatchProcessConfig } from "./workspaceRuntime";
+import { createDefaultWorkspace } from "./workspaceDefaults";
 
 type StateAdapter = {
   getState: () => StudioState;
@@ -20,46 +19,11 @@ export function createWorkspaceActions(store: StateAdapter) {
       const state = store.getState();
       const persisted = saveActiveWorkspaceSnapshot(state);
       const id = `ws-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-      const newWorkspace: Workspace = {
+      const newWorkspace = createDefaultWorkspace(
         id,
-        name: name ?? `图片 ${persisted.length + 1}`,
-        promptPrefix: "",
-        prompt: "",
-        optimizationGuidance: "",
-        negativePrompt: "",
-        mode: "generate",
-        size: DEFAULT_FHL_SIZE,
-        quality: "medium",
-        outputFormat: state.outputFormat,
-        seed: 0,
-        batchCount: 1,
-        continuousGenerateTest: false,
-        editSourceMode: "manual",
-        batchProcess: defaultBatchProcessConfig(),
-        editAutoAspectUserLocked: false,
-        styleTag: "",
-        sources: [],
-        currentImageId: null,
-        batchResultIds: [],
-        batchTaskIds: [],
-        selectedBatchTaskId: null,
-        batchSinglePreviewOpen: false,
-        resultGridOpen: false,
-        historyGalleryOpen: false,
-        historyGallerySinglePreviewId: null,
-        historyGallerySort: "newest",
-        runningJobIds: [],
-        jobsTotal: 0,
-        jobsCompleted: 0,
-        jobsFailed: 0,
-        progress: null,
-        streamPreview: null,
-        streamPreviews: {},
-        lastLogLine: "",
-        errorMessage: null,
-        errorRawPath: null,
-        lastPayload: null,
-      };
+        state.outputFormat,
+        name ?? `图片 ${persisted.length + 1}`,
+      );
       store.setState({
         workspaces: [...persisted, newWorkspace],
         activeWorkspaceId: id,

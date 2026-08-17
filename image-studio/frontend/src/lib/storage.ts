@@ -250,6 +250,20 @@ export async function pruneHistoryStorage(keepIDs: string[]): Promise<void> {
   await txDone(fullTx);
 }
 
+export async function clearHistoryStorage(): Promise<{ historyEntries: number; fullHistoryEntries: number }> {
+  const db = await openDB();
+  const tx = db.transaction([HISTORY_STORE, HISTORY_FULL_STORE], "readwrite");
+  const historyStore = tx.objectStore(HISTORY_STORE);
+  const fullStore = tx.objectStore(HISTORY_FULL_STORE);
+  const historyCount = reqAsPromise<number>(historyStore.count());
+  const fullHistoryCount = reqAsPromise<number>(fullStore.count());
+  historyStore.clear();
+  fullStore.clear();
+  const [historyEntries, fullHistoryEntries] = await Promise.all([historyCount, fullHistoryCount]);
+  await txDone(tx);
+  return { historyEntries, fullHistoryEntries };
+}
+
 export async function removeHistoryItem(id: string): Promise<void> {
   const { store: historyStore, tx: historyTx } = await openHistoryTx("readwrite");
   historyStore.delete(id);

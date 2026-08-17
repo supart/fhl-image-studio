@@ -10,6 +10,7 @@ import {
   ImportImageFromB64,
   ReadImageAsBase64,
   GetOutputDir,
+  SetOutputDir,
   DeleteStoredAPIKey,
   GetStoredAPIKey,
   SetStoredAPIKey,
@@ -84,6 +85,7 @@ import {
   loadHistoryPage,
   loadHistoryItemsByIds,
   loadHistoryItemsBySavedPaths,
+  clearHistoryStorage,
 } from "../lib/storage";
 import { purgeForeignAPIKeyStorageKeys, storageKey } from "../lib/storageNamespace.ts";
 import { migrateStableNamespaceData } from "../lib/storageMigration.ts";
@@ -215,6 +217,16 @@ import { createMediaActions } from "./studioStore.media";
 import { activeProfileRuntimePatch, createProfileActions } from "./studioStore.profiles";
 import { createWorkspaceActions } from "./studioStore.workspaces";
 import { createImageActions } from "./studioStore.images";
+import { hasActiveAPIWork } from "../lib/apiCredentialLibrary.ts";
+import {
+  APPLICATION_RESET_DEFAULT_LABELS,
+  applicationStateEpoch,
+  countPreservedAPIConfigurations,
+  createApplicationResetPatch,
+  resetNonAPIStorage,
+  type ResetSummary,
+} from "./applicationStateReset";
+import { createDefaultWorkspace } from "./workspaceDefaults";
 import { buildEffectivePrompt } from "./promptComposition";
 import {
   continuousSlotIndex,
@@ -348,6 +360,8 @@ const recordedTransientFailureSignatures = new Set<string>();
 const transientFailureWindowsByProfile = new Map<string, number[]>();
 const temporaryConcurrencyCapsByProfile = new Map<string, { limit: number; expiresAt: number; timer?: ReturnType<typeof setTimeout> }>();
 const temporaryConcurrencyDowngradeCountsByProfile = new Map<string, number>();
+let applicationResetPromise: Promise<ResetSummary> | null = null;
+let pendingHistorySynchronizationCount = 0;
 const AUTO_RETRY_DELAY_MS = 15_000;
 const AUTO_RETRY_MAX_COUNT = 1;
 const TRANSIENT_FAILURE_WINDOW_MS = 2 * 60_000;
@@ -2406,6 +2420,7 @@ function reservedLaunchAttempt(tasks: readonly BatchTaskRecord[], taskId: string
 async function pumpContinuousPoolQueuePass(): Promise<void> {
   const store = useStudioStore;
   const initialState = store.getState();
+  if (initialState.isResettingApplication) return;
   const initialQueue = continuousPoolQueuedTasks(initialState);
   if (initialQueue.length === 0) return;
   if (!isAndroidTaskProxyMode() && shouldUseBackgroundTaskProxyForSubmit(initialQueue[0].apiMode)) {
@@ -2416,6 +2431,7 @@ async function pumpContinuousPoolQueuePass(): Promise<void> {
 
   while (true) {
       const state = store.getState();
+      if (state.isResettingApplication) return;
       const queue = continuousPoolQueuedTasks(state);
       if (queue.length === 0) return;
 
@@ -2529,6 +2545,7 @@ function failUnstartedContinuousPoolTask(taskId: string, message: string) {
 }
 
 function requestContinuousPoolPump(): Promise<void> {
+  if (useStudioStore.getState().isResettingApplication) return Promise.resolve();
   continuousPoolPumpRequested = true;
   if (!continuousPoolPumpPromise) {
     continuousPoolPumpPromise = (async () => {
@@ -2964,6 +2981,8 @@ async function submitCurrentRequest(
   set: (patch: Partial<StudioState> | ((state: StudioState) => Partial<StudioState>)) => void,
 ): Promise<void> {
   const s = get();
+  if (s.isResettingApplication) return;
+  const submitEpoch = applicationStateEpoch.capture();
   const batchProcess = normalizeBatchProcessConfig(s.batchProcess);
   const requestedBatchProcessMode = s.mode === "edit" && s.editSourceMode === "batch";
   const hasBatchQueueSources = batchProcess.discoveredSources.length > 0;
@@ -3310,6 +3329,8 @@ async function submitCurrentRequest(
     sourceImages: s.mode === "edit" && !batchProcessMode ? preparedSources : undefined,
   };
   const persistedPayload = batchProcessMode ? null : basePayload;
+
+  if (!applicationStateEpoch.isCurrent(submitEpoch) || get().isResettingApplication) return;
 
   if (s.prompt.trim()) {
     const ph = [s.prompt, ...get().promptHistory.filter((p) => p !== s.prompt)].slice(0, 50);
@@ -3860,6 +3881,24 @@ async function syncHistoryItemFromBrowserJobSlot(
     updateWorkspaceSelection: boolean;
   },
 ) {
+  if (useStudioStore.getState().isResettingApplication) return;
+  pendingHistorySynchronizationCount += 1;
+  const syncEpoch = applicationStateEpoch.capture();
+  try {
+    await syncHistoryItemFromBrowserJobSlotCore(group, slot, options, syncEpoch);
+  } finally {
+    pendingHistorySynchronizationCount = Math.max(0, pendingHistorySynchronizationCount - 1);
+  }
+}
+
+async function syncHistoryItemFromBrowserJobSlotCore(
+  group: JobGroupSnapshot,
+  slot: JobGroupSnapshot["slots"][number],
+  options: {
+    updateWorkspaceSelection: boolean;
+  },
+  syncEpoch: number,
+) {
   const store = useStudioStore;
   const taskForOutputSync = Object.values(store.getState().batchTasksById).find((task) => (
     task.workspaceId === group.workspaceId && task.jobId === slot.jobId
@@ -3872,7 +3911,7 @@ async function syncHistoryItemFromBrowserJobSlot(
     sourceImages: taskForOutputSync ? sourceImagesForTask(taskForOutputSync) : undefined,
     panoramaRoundtrip: taskForOutputSync?.panoramaRoundtrip,
   });
-  if (!historyItem) return;
+  if (!historyItem || !applicationStateEpoch.isCurrent(syncEpoch) || store.getState().isResettingApplication) return;
   const activeItem: HistoryItem = {
     ...historyItem,
     previewOnly: false,
@@ -3920,6 +3959,7 @@ async function syncHistoryItemFromBrowserJobSlot(
     } as Partial<StudioState>;
   });
   await persistHistoryItem(historyItem).catch(() => undefined);
+  if (!applicationStateEpoch.isCurrent(syncEpoch) || store.getState().isResettingApplication) return;
   persistTrimmedHistory(useStudioStore.getState().history);
   const autoPastedPanorama = await autoPastePanoramaRoundtripResult(historyItem, {
     workspaceId: group.workspaceId,
@@ -4088,49 +4128,6 @@ const imageActions = createImageActions({
   },
 });
 
-function initialWorkspaceForBootstrap(id: string, outputFormat: OutputFormatValue): Workspace {
-  return {
-    id,
-    name: "图片 1",
-    promptPrefix: "",
-    prompt: "",
-    optimizationGuidance: "",
-    negativePrompt: "",
-    mode: "generate",
-    size: DEFAULT_FHL_SIZE,
-    quality: "medium",
-    outputFormat,
-    seed: 0,
-    batchCount: 1,
-    continuousGenerateTest: false,
-    editSourceMode: "manual",
-    editAutoAspectUserLocked: false,
-    batchProcess: defaultBatchProcessConfig(),
-    styleTag: "",
-    sources: [],
-    currentImageId: null,
-    batchResultIds: [],
-    batchTaskIds: [],
-    selectedBatchTaskId: null,
-    batchSinglePreviewOpen: false,
-    resultGridOpen: false,
-    historyGalleryOpen: false,
-    historyGallerySinglePreviewId: null,
-    historyGallerySort: "newest",
-    runningJobIds: [],
-    jobsTotal: 0,
-    jobsCompleted: 0,
-    jobsFailed: 0,
-    progress: null,
-    streamPreview: null,
-    streamPreviews: {},
-    lastLogLine: "",
-    errorMessage: null,
-    errorRawPath: null,
-    lastPayload: null,
-  };
-}
-
 function isE2EOnlyBootstrap(): boolean {
   if (typeof window === "undefined") return false;
   return (window as Window & {
@@ -4242,6 +4239,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   openSettings: () => set({ settingsOpen: true, upstreamModalOpen: false }),
   closeSettings: () => set({ settingsOpen: false }),
   isTestingKey: false,
+  isResettingApplication: false,
   isOptimizingPrompt: false,
   isReversingPrompt: false,
   upstreamModalOpen: false,
@@ -4379,6 +4377,89 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       workspaces: patchWorkspaceRuntime(current.workspaces, workspaceId, resetPatch),
     }));
     get().pushToast("Current workspace draft has been reset", "success", 2200);
+  },
+  resetApplicationStatePreservingAPI: () => {
+    if (applicationResetPromise) return applicationResetPromise;
+    const execute = async (): Promise<ResetSummary> => {
+      const state = get();
+      if (hasActiveAPIWork(state) || pendingHistorySynchronizationCount > 0) {
+        throw new Error("当前仍有运行、排队、连接测试或提示词任务，结束后才能恢复默认。");
+      }
+      applicationStateEpoch.advance();
+      set({ isResettingApplication: true });
+
+      // Stop delayed work before the first await so stale state cannot be written back.
+      if (workspaceSessionPersistTimer) clearTimeout(workspaceSessionPersistTimer);
+      workspaceSessionPersistTimer = null;
+      pendingWorkspaceSessionState = null;
+      for (const timer of autoRetryTimersByTaskId.values()) clearTimeout(timer);
+      autoRetryTimersByTaskId.clear();
+      for (const cap of temporaryConcurrencyCapsByProfile.values()) {
+        if (cap.timer) clearTimeout(cap.timer);
+      }
+      temporaryConcurrencyCapsByProfile.clear();
+      temporaryConcurrencyDowngradeCountsByProfile.clear();
+      transientFailureWindowsByProfile.clear();
+      recordedTransientFailureSignatures.clear();
+
+      if (deferredHistoryLoadPromise) await deferredHistoryLoadPromise.catch(() => undefined);
+      const current = get();
+      if (hasActiveAPIWork(current) || pendingHistorySynchronizationCount > 0) {
+        throw new Error("当前仍有运行、排队、连接测试或提示词任务，结束后才能恢复默认。");
+      }
+
+      if (current.fullscreen || document.fullscreenElement) {
+        await setNativeFullscreen(false).catch(() => undefined);
+      }
+      await SetOutputDir("");
+      const historySummary = await clearHistoryStorage();
+      const storageSummary = resetNonAPIStorage();
+      const workspace = createDefaultWorkspace(genId(), "png");
+
+      for (const detach of browserJobSubscriptions.values()) detach();
+      browserJobSubscriptions.clear();
+      for (const detach of browserWorkspaceSubscriptions.values()) detach();
+      browserWorkspaceSubscriptions.clear();
+      browserJobRefreshes.clear();
+      startingContinuousTaskIds.clear();
+      unavailableContinuousPoolProfileIds.clear();
+      continuousPoolRoundRobinCursor = 0;
+      continuousPoolPumpRequested = false;
+
+      applyTheme("system");
+      document.documentElement.style.setProperty("--font-scale", "1");
+      setKernelRuntimeMode("auto");
+      set({
+        ...createApplicationResetPatch(workspace),
+        canvasViewResetTick: current.canvasViewResetTick + 1,
+      });
+      persistWorkspaceSession(workspace.id, [workspace], {});
+
+      const summary: ResetSummary = {
+        historyEntriesCleared: historySummary.historyEntries,
+        fullHistoryEntriesCleared: historySummary.fullHistoryEntries,
+        workspacesReset: current.workspaces.length,
+        taskRecordsCleared: Object.keys(current.batchTasksById).length,
+        promptHistoryEntriesCleared: current.promptHistory.length,
+        presetsCleared: current.presets.length,
+        materialGroupsCleared: current.materialGroups.length,
+        localContentEntriesCleared: storageSummary.contentEntriesCleared,
+        apiConfigurationsPreserved: countPreservedAPIConfigurations(current),
+        defaultsRestored: [...APPLICATION_RESET_DEFAULT_LABELS],
+        warnings: ["磁盘上的生成图片、input、output 和 intermediate 文件未删除。"],
+      };
+      get().pushToast(
+        `已恢复默认并保留 ${summary.apiConfigurationsPreserved} 项 API 配置。`,
+        "success",
+        5200,
+      );
+      return summary;
+    };
+    applicationResetPromise = execute().finally(() => {
+      set({ isResettingApplication: false });
+      applicationResetPromise = null;
+    });
+    return applicationResetPromise;
   },
   setFHLPoolPerAPIConcurrencyLimit: async (limit) => {
     const normalized = normalizeFHLPoolPerAPIConcurrencyLimit(limit);
@@ -4583,6 +4664,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   reorderSources: (from, to) => imageActions.reorderSources(from, to),
 
   submit: () => {
+    if (get().isResettingApplication) {
+      get().pushToast("应用正在初始化，请稍后再提交。", "warn", 2600);
+      return Promise.resolve();
+    }
     const workspaceId = get().activeWorkspaceId;
     return submitSingleFlight(workspaceId, () => submitCurrentRequest(get, set));
   },
@@ -5457,7 +5542,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   bootstrap: async () => {
     if (isE2EOnlyBootstrap()) {
       const workspaceId = genId();
-      const workspace = initialWorkspaceForBootstrap(workspaceId, "png");
+      const workspace = createDefaultWorkspace(workspaceId, "png");
       applyTheme("system");
       document.documentElement.style.setProperty("--font-scale", "1");
       setKernelRuntimeMode("auto");
@@ -5890,7 +5975,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     items = await hydrateHistoryPreviewRefs(items);
     // Make sure there's always at least one workspace.
     const wsId = genId();
-    const initialWorkspace = initialWorkspaceForBootstrap(wsId, outputFormat);
+    const initialWorkspace = createDefaultWorkspace(wsId, outputFormat);
     const restoredSession = loadWorkspaceSession(outputFormat);
     let restoredBatchTasksById = restoredSession?.batchTasksById ?? {};
     let restoredDirectTaskCount = 0;
@@ -6469,6 +6554,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   closePanoramaPastebackAligner: () => set({ panoramaAlignTarget: null }),
   materializeCurrentImage: async (item) => mediaActions.materializeCurrentImage(item),
   loadMoreHistory: async () => {
+    if (get().isResettingApplication) return;
     if (deferredHistoryLoadPromise) return deferredHistoryLoadPromise;
     if (!get().historyHasMore || get().historyLoading) return;
     set({ historyLoading: true });
@@ -6485,6 +6571,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           limit: INITIAL_HISTORY_LOAD,
           direction,
         });
+        if (get().isResettingApplication) return;
         const existing = new Set(currentHistory.map((item) => item.id));
         const incoming = nextPage.items.filter((item) => !existing.has(item.id));
         const recoveredPanoramaHistory = recoverPanoramaHistoryMetadata(
@@ -6497,10 +6584,12 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           historyHasMore: !!nextPage.nextCursor,
           historyCursor: nextPage.nextCursor,
         });
-        if (recoveredPanoramaHistory.repaired.length > 0) {
-          void persistHistoryItems(recoveredPanoramaHistory.repaired);
-        }
-        void backfillHistoryPreviewRefs(incoming);
+        await Promise.all([
+          recoveredPanoramaHistory.repaired.length > 0
+            ? persistHistoryItems(recoveredPanoramaHistory.repaired)
+            : Promise.resolve(),
+          backfillHistoryPreviewRefs(incoming),
+        ]);
       } catch (error) {
         if (typeof console !== "undefined") console.warn("load more history failed", error);
       } finally {
@@ -6543,6 +6632,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
   testProfileConnection: async (profileId) => {
     const s = get();
+    if (s.isResettingApplication) return false;
     const cleanProfileId = String(profileId || "").trim();
     const profile = s.profiles.find((item) => item.id === cleanProfileId);
     if (!profile) {
@@ -6612,6 +6702,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   saveAndTestFHLTextAPI: async (apiKeyInput = "") => {
+    if (get().isResettingApplication) throw new Error("应用正在初始化，请稍后再测试 API。");
     const input = apiKeyInput.trim();
     let apiKey = "";
     if (input) {
@@ -6669,6 +6760,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
   testAPIKey: async () => {
     const s = get();
+    if (s.isResettingApplication) return;
     if (!currentProviderHasRequiredKey(s)) {
       s.pushToast("请先填写 API Key", "warn");
       return;
@@ -6715,6 +6807,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   optimizePrompt: async (options: { useGuidance?: boolean } = {}) => {
     const s = get();
     if (s.isOptimizingPrompt || s.isReversingPrompt) return;
+    if (s.isResettingApplication) return;
     const optimizeProfile = await resolvePromptTextProfile(s);
     if (!optimizeProfile.apiKey) {
       s.pushToast("请先配置用于 Prompt 优化的 API Key", "warn");
@@ -6766,6 +6859,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   reversePromptFromImage: async () => {
     const s = get();
     if (s.isOptimizingPrompt || s.isReversingPrompt) return;
+    if (s.isResettingApplication) return;
     const reverseProfile = await resolvePromptTextProfile(s);
     if (!reverseProfile.apiKey) {
       s.pushToast("请先配置用于反推提示词的 API Key", "warn");

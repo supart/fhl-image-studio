@@ -59,11 +59,16 @@ export function apiCredentialUsersForProfiles(profiles: UpstreamProfile[]): stri
 export function hasActiveAPIWork(input: {
   isRunning: boolean;
   runningJobs: string[];
-  batchTasksById: Record<string, { status: string }>;
+  batchTasksById: Record<string, { status: string; launchState?: string }>;
+  runningJobMeta?: Record<string, unknown>;
   isTestingKey?: boolean;
   fhlTextAPITestStatus?: string;
   isOptimizingPrompt?: boolean;
   isReversingPrompt?: boolean;
+  jobGroupsByWorkspace?: Record<string, Array<{
+    statusSummary?: { queued?: number; running?: number };
+    slots?: Array<{ status?: string }>;
+  }>>;
 }): boolean {
   if (
     input.isRunning
@@ -72,10 +77,16 @@ export function hasActiveAPIWork(input: {
     || input.fhlTextAPITestStatus === "testing"
     || input.isOptimizingPrompt
     || input.isReversingPrompt
+    || Object.keys(input.runningJobMeta ?? {}).length > 0
   ) return true;
-  return Object.values(input.batchTasksById).some((task) => (
-    task.status === "queued" || task.status === "running"
-  ));
+  if (Object.values(input.batchTasksById).some((task) => (
+    task.status === "queued" || task.status === "running" || task.launchState === "submitting"
+  ))) return true;
+  return Object.values(input.jobGroupsByWorkspace ?? {}).some((groups) => groups.some((group) => (
+    (group.statusSummary?.queued ?? 0) > 0
+    || (group.statusSummary?.running ?? 0) > 0
+    || (group.slots ?? []).some((slot) => slot.status === "queued" || slot.status === "running")
+  )));
 }
 
 export async function deleteAndVerifyAPIKeyUsers(

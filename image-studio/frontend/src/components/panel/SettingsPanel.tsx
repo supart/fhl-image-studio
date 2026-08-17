@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Download, Folder, FolderEdit, Github, Info, KeyRound,
   MessageSquare, Monitor, Moon, Network, RotateCw, Sparkles, Sun, Trash2, Upload,
@@ -24,6 +24,7 @@ import { SettingsRow, SettingsSegButton } from "./settingsPrimitives";
 import { ensureFHLProfiles, focusFHLAPIKeyInput } from "../../lib/fhlAPI";
 import { ensureAPIMartProfile, focusAPIMartAPIKeyInput } from "../../lib/apimartAPI";
 import { apiModeRequiresDirectAPIKey } from "../../lib/profiles";
+import { ApplicationResetConfirmView, ApplicationResetSettingsEntry } from "./ApplicationResetSettings";
 
 const REPO_URL = "https://github.com/supart/fhl-image-studio";
 const ISSUES_URL = "https://github.com/supart/fhl-image-studio/issues";
@@ -52,6 +53,9 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
   const [apimartChoiceOpen, setAPIMartChoiceOpen] = useState(false);
   const [runningHubChoiceOpen, setRunningHubChoiceOpen] = useState(false);
   const [runningHubQuickConfigOpen, setRunningHubQuickConfigOpen] = useState(false);
+  const [resetViewOpen, setResetViewOpen] = useState(false);
+  const [resetRunning, setResetRunning] = useState(false);
+  const resetTriggerRef = useRef<HTMLButtonElement>(null);
   const { isMac, usesFluentUI, isAndroid, isAndroidPad } = usePlatform();
 
   useEffect(() => {
@@ -120,9 +124,16 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
   }
 
   function closeSettings() {
+    if (resetRunning) return;
     setAboutOpen(false);
+    setResetViewOpen(false);
     onClose();
   }
+
+  const cancelResetView = useCallback(() => {
+    setResetViewOpen(false);
+    requestAnimationFrame(() => resetTriggerRef.current?.focus());
+  }, []);
 
   const outputLabel = androidTarget.isAndroid ? platformOutputRootLabel() : (outputDir || "...");
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId);
@@ -170,14 +181,20 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
       <Modal
         open={open}
         onClose={closeSettings}
-        title="设置"
+        title={resetViewOpen ? "恢复默认但保留 API" : "设置"}
         width={isAndroidPad ? 1040 : 540}
         backdropClassName={isAndroid ? "android-settings-modal-backdrop" : ""}
         cardClassName={isAndroid ? "android-settings-modal-card" : ""}
         headerClassName={isAndroid ? "android-settings-modal-header" : ""}
         bodyClassName={isAndroid ? "android-settings-modal-body" : ""}
       >
-        {androidSettings ?? (
+        {resetViewOpen ? (
+          <ApplicationResetConfirmView
+            onCancel={cancelResetView}
+            onComplete={closeSettings}
+            onRunningChange={setResetRunning}
+          />
+        ) : androidSettings ?? (
         <div className={`flex flex-col ${androidTarget.isAndroid ? "gap-3" : isMac ? "gap-4" : "gap-3.5"}`}>
           <div className={`border border-amber-300/70 bg-amber-50 px-3 py-2 text-amber-900 shadow-sm dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-100 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -368,6 +385,11 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
               <Download className="w-3 h-3" /> 导入历史
             </button>
           </div>
+
+          <ApplicationResetSettingsEntry
+            onOpen={() => setResetViewOpen(true)}
+            triggerRef={resetTriggerRef}
+          />
 
           {/* 危险动作 */}
           <div className="flex gap-1.5">
