@@ -8,6 +8,7 @@ vi.mock("../src/platform/runtime/host", () => ({
   OpenExternalURL: vi.fn(async () => undefined),
   ChooseOutputDir: vi.fn(async () => ""),
   SetOutputDir: vi.fn(async () => undefined),
+  setKernelRuntimeMode: vi.fn(),
 }));
 
 vi.mock("../src/platform", () => ({

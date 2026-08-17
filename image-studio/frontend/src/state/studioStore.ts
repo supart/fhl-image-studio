@@ -55,7 +55,6 @@ import {
   type EditSourceMode,
   HistoryItem,
   JobGroupSnapshot,
-  KernelRuntimeMode,
   MaterialGroup,
   MaterialGroupKind,
   MaterialRef,
@@ -70,7 +69,6 @@ import {
   SizeValue,
   SourceImage,
   StreamPreviewMap,
-  ThemeMode,
   Toast,
   UpstreamProfile,
   Workspace,
@@ -93,7 +91,6 @@ import {
   cleanBaseURL,
 } from "../lib/security";
 import { normalizeAPIKeyInput, validateAPIKeyForHeader } from "../lib/apiKey";
-import { loadProxyConfig, normalizeProxyMode, persistProxyConfig } from "../lib/proxy";
 import { syncCLIConfigQuietly, type CLIConfigSyncInput } from "../lib/cliConfigSync";
 import {
   fetchRunningHubResultImage,
@@ -217,6 +214,12 @@ import { createMediaActions } from "./studioStore.media";
 import { activeProfileRuntimePatch, createProfileActions } from "./studioStore.profiles";
 import { createWorkspaceActions } from "./studioStore.workspaces";
 import { createImageActions } from "./studioStore.images";
+import {
+  APPLICATION_SETTINGS_DEFAULTS,
+  applyApplicationSettingsRuntime,
+  createSettingsActions,
+  loadApplicationSettings,
+} from "./studioStore.settings";
 import { hasActiveAPIWork } from "../lib/apiCredentialLibrary.ts";
 import {
   APPLICATION_RESET_DEFAULT_LABELS,
@@ -320,13 +323,9 @@ const browserWorkspaceSubscriptions = new Map<string, () => void>();
 const browserJobRefreshes = new Map<string, Promise<void>>();
 const ENABLE_LEGACY_PROFILE_MIGRATION = false;
 const STAR_PROMPTED_KEY = storageKey("gptcodex.starPrompted");
-const KERNEL_RUNTIME_MODE_KEY = storageKey("gptcodex.kernelRuntimeMode");
-const OUTPUT_FORMAT_KEY = storageKey("gptcodex.outputFormat");
 const PROMPT_HISTORY_KEY = storageKey("gptcodex.promptHistory");
 const PRESETS_KEY = storageKey("gptcodex.presets");
 const CONCURRENCY_DEFAULT_V4_MIGRATION_KEY = storageKey("gptcodex.profileConcurrencyDefaultV4Migrated");
-const THEME_KEY = storageKey("gptcodex.theme");
-const FONT_SCALE_KEY = storageKey("gptcodex.fontScale");
 const INITIAL_HISTORY_LOAD = 48;
 const HISTORY_MEDIA_HYDRATE_CONCURRENCY = 4;
 
@@ -4128,6 +4127,19 @@ const imageActions = createImageActions({
   },
 });
 
+const settingsRuntime = {
+  applyTheme,
+  applyFontScale: (fontScale: number) => {
+    document.documentElement.style.setProperty("--font-scale", String(fontScale));
+  },
+  setKernelRuntimeMode,
+};
+
+const settingsActions = createSettingsActions({
+  getState: () => useStudioStore.getState(),
+  setState: (patch) => useStudioStore.setState(patch),
+}, settingsRuntime);
+
 function isE2EOnlyBootstrap(): boolean {
   if (typeof window === "undefined") return false;
   return (window as Window & {
@@ -4144,14 +4156,11 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   negativePrompt: "",
   size: DEFAULT_FHL_SIZE,
   quality: "medium",
-  outputFormat: "png",
+  ...APPLICATION_SETTINGS_DEFAULTS,
   seed: 0,
-  kernelRuntimeMode: "auto",
   baseURL: "",
   textModelID: "",
   imageModelID: "",
-  proxyMode: "system",
-  proxyURL: "",
   apiMode: "responses",
   fhlTransportMode: "images",
   fhlTextAPIConfigured: false,
@@ -4233,8 +4242,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   editSourceMode: "manual",
   batchProcess: defaultBatchProcessConfig(),
   presets: [],
-  theme: "system",
-  fontScale: 1,
   settingsOpen: false,
   openSettings: () => set({ settingsOpen: true, upstreamModalOpen: false }),
   closeSettings: () => set({ settingsOpen: false }),
@@ -4414,7 +4421,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       await SetOutputDir("");
       const historySummary = await clearHistoryStorage();
       const storageSummary = resetNonAPIStorage();
-      const workspace = createDefaultWorkspace(genId(), "png");
+      const workspace = createDefaultWorkspace(genId(), APPLICATION_SETTINGS_DEFAULTS.outputFormat);
 
       for (const detach of browserJobSubscriptions.values()) detach();
       browserJobSubscriptions.clear();
@@ -4426,9 +4433,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       continuousPoolRoundRobinCursor = 0;
       continuousPoolPumpRequested = false;
 
-      applyTheme("system");
-      document.documentElement.style.setProperty("--font-scale", "1");
-      setKernelRuntimeMode("auto");
+      applyApplicationSettingsRuntime(APPLICATION_SETTINGS_DEFAULTS, settingsRuntime);
       set({
         ...createApplicationResetPatch(workspace),
         canvasViewResetTick: current.canvasViewResetTick + 1,
@@ -4564,12 +4569,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     } else if (key === "lastPayload") {
       set({ workspaces: patchWorkspaceRuntime(get().workspaces, get().activeWorkspaceId, { lastPayload: value as backend.GenerateOptions | null }) });
     }
-    if (key === "kernelRuntimeMode") {
-      try { localStorage.setItem(KERNEL_RUNTIME_MODE_KEY, String(value)); } catch {}
-      setKernelRuntimeMode(value as KernelRuntimeMode);
-    } else if (key === "outputFormat") {
-      try { localStorage.setItem(OUTPUT_FORMAT_KEY, String(value)); } catch {}
-    } else if (key === "mode" && normalizedValue === "edit") {
+    settingsActions.persistField(key, normalizedValue);
+    if (key === "mode" && normalizedValue === "edit") {
       void syncSharedEditAutoAspect({ getState: get, setState: set });
     }
   },
@@ -5542,11 +5543,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   bootstrap: async () => {
     if (isE2EOnlyBootstrap()) {
       const workspaceId = genId();
-      const workspace = createDefaultWorkspace(workspaceId, "png");
-      applyTheme("system");
-      document.documentElement.style.setProperty("--font-scale", "1");
-      setKernelRuntimeMode("auto");
+      const workspace = createDefaultWorkspace(workspaceId, APPLICATION_SETTINGS_DEFAULTS.outputFormat);
+      applyApplicationSettingsRuntime(APPLICATION_SETTINGS_DEFAULTS, settingsRuntime);
       set({
+        ...APPLICATION_SETTINGS_DEFAULTS,
         apiKey: "",
         profiles: [],
         activeProfileId: "",
@@ -5560,7 +5560,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         negativePrompt: "",
         size: DEFAULT_FHL_SIZE,
         quality: "medium",
-        outputFormat: "png",
         seed: 0,
         apiMode: "responses",
         fhlTransportMode: "images",
@@ -5602,8 +5601,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         batchProcess: defaultBatchProcessConfig(),
         workspaces: [workspace],
         activeWorkspaceId: workspaceId,
-        theme: "system",
-        fontScale: 1,
         settingsOpen: false,
         upstreamModalOpen: false,
         errorMessage: null,
@@ -5625,10 +5622,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     if (previewScenario === "mac-workspace") {
       const workspaceId = genId();
       const preview = buildMacWorkspacePreview(workspaceId);
-      applyTheme("dark");
-      document.documentElement.style.setProperty("--font-scale", "1");
-      setKernelRuntimeMode("auto");
+      const previewSettings = { ...APPLICATION_SETTINGS_DEFAULTS, theme: "dark" } as const;
+      applyApplicationSettingsRuntime(previewSettings, settingsRuntime);
       set({
+        ...previewSettings,
         apiKey: "sk-preview",
         mode: "edit",
         promptPrefix: preview.workspace.promptPrefix,
@@ -5637,14 +5634,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         negativePrompt: preview.currentImage.negativePrompt ?? "",
         size: preview.currentImage.size,
         quality: preview.currentImage.quality,
-        outputFormat: "png",
         seed: preview.currentImage.seed ?? 3200,
-        kernelRuntimeMode: "auto",
         baseURL: preview.profile.baseURL,
         textModelID: preview.profile.textModelID,
         imageModelID: preview.profile.imageModelID,
-        proxyMode: "system",
-        proxyURL: "",
         apiMode: preview.profile.apiMode,
         requestPolicy: preview.profile.requestPolicy,
         imagesNewAPICompat: preview.profile.imagesNewAPICompat ?? false,
@@ -5702,8 +5695,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         editSourceMode: preview.workspace.editSourceMode ?? "manual",
         batchProcess: normalizeBatchProcessConfig(preview.workspace.batchProcess),
         presets: [],
-        theme: "dark",
-        fontScale: 1,
         workspaces: [preview.workspace],
         activeWorkspaceId: workspaceId,
         styleTag: preview.currentImage.styleTag ?? "",
@@ -5727,8 +5718,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const materialGroups = loadMaterialGroups();
     let promptHistory: string[] = [];
     let presets: Preset[] = [];
-    let theme: ThemeMode = "system";
-    let fontScale = 1;
     try {
       const raw = localStorage.getItem(PROMPT_HISTORY_KEY);
       if (raw) promptHistory = JSON.parse(raw);
@@ -5737,27 +5726,16 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       const raw = localStorage.getItem(PRESETS_KEY);
       if (raw) presets = JSON.parse(raw);
     } catch {}
-    try {
-      const raw = localStorage.getItem(THEME_KEY);
-      if (raw === "system" || raw === "light" || raw === "dark") theme = raw;
-    } catch {}
-    try {
-      const raw = localStorage.getItem(FONT_SCALE_KEY);
-      const n = Number(raw);
-      if (!Number.isNaN(n) && n > 0.5 && n < 2) fontScale = n;
-    } catch {}
-    let kernelRuntimeMode: KernelRuntimeMode = "auto";
-    try {
-      const v = localStorage.getItem(KERNEL_RUNTIME_MODE_KEY);
-      if (v === "auto" || v === "local" || v === "remote") kernelRuntimeMode = v;
-    } catch {}
     const noPromptRevision = true;
-    const proxyConfig = loadProxyConfig();
-    let outputFormat: OutputFormatValue = "png";
-    try {
-      const v = localStorage.getItem(OUTPUT_FORMAT_KEY);
-      if (v === "png" || v === "jpeg" || v === "webp") outputFormat = v;
-    } catch {}
+    const applicationSettings = loadApplicationSettings();
+    const {
+      theme,
+      fontScale,
+      kernelRuntimeMode,
+      outputFormat,
+      proxyMode,
+      proxyURL,
+    } = applicationSettings;
     // ---- v0.1.6 profile migration / keyring sync ----
     // 1) Keep profile ids in gptcodex.profiles.
     // 2) Move legacy shared responses/images config into profiles and keyring.
@@ -5968,9 +5946,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       : "";
     const fhlTextAPIKey = await loadFHLTextAPIKey().catch(() => "");
     // Apply theme + font scale to root immediately.
-    applyTheme(theme);
-    document.documentElement.style.setProperty("--font-scale", String(fontScale));
-    setKernelRuntimeMode(kernelRuntimeMode);
+    applyApplicationSettingsRuntime(applicationSettings, settingsRuntime);
     await GetOutputDir().catch(() => "");
     items = await hydrateHistoryPreviewRefs(items);
     // Make sure there's always at least one workspace.
@@ -6200,8 +6176,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       imageModelID,
       kernelRuntimeMode,
       noPromptRevision,
-      proxyMode: proxyConfig.mode,
-      proxyURL: proxyConfig.url,
+      proxyMode,
+      proxyURL,
       sources: restoredActiveWorkspace.sources,
       runningJobs: restoredRunningJobs,
       jobsTotal: isBackgroundTaskProxyMode()
@@ -6611,24 +6587,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   deletePreset: (id) => mediaActions.deletePreset(id),
   exportHistory: async () => mediaActions.exportHistory(),
 
-  setTheme: (t) => {
-    set({ theme: t });
-    try { localStorage.setItem(THEME_KEY, t); } catch {}
-    applyTheme(t);
-  },
-
-  setFontScale: (v) => {
-    set({ fontScale: v });
-    try { localStorage.setItem(FONT_SCALE_KEY, String(v)); } catch {}
-    document.documentElement.style.setProperty("--font-scale", String(v));
-  },
-
-  setProxyConfig: (mode, url) => {
-    const normalizedMode = normalizeProxyMode(mode);
-    const nextURL = (url ?? get().proxyURL).trim();
-    set({ proxyMode: normalizedMode, proxyURL: nextURL });
-    persistProxyConfig(normalizedMode, nextURL);
-  },
+  setTheme: (theme) => settingsActions.setTheme(theme),
+  setFontScale: (fontScale) => settingsActions.setFontScale(fontScale),
+  setProxyConfig: (mode, url) => settingsActions.setProxyConfig(mode, url),
 
   testProfileConnection: async (profileId) => {
     const s = get();

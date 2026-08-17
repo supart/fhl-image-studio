@@ -11,6 +11,10 @@
   - 工作区运行态的纯辅助逻辑。
   - 用来约束运行中 job、批处理、活跃 tab 的派生行为。
 
+- `studioStore.settings.ts`
+  - 普通设置的单一默认值、存储键、读取校验和写入策略。
+  - 提供主题、字号、代理和通用设置持久化动作，保持 `useStudioStore` 为兼容门面。
+
 ## 维护规则
 
 - store 可以调用 `platform/runtime/*` 暴露的统一接口。

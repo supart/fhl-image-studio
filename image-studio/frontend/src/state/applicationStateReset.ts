@@ -4,6 +4,10 @@ import { storageKey } from "../lib/storageNamespace.ts";
 import type { Workspace } from "../types/domain";
 import { MATERIAL_LIBRARY_KEY } from "./materialLibrary.ts";
 import type { StudioState } from "./studioStore.types";
+import {
+  APPLICATION_SETTING_DEFAULT_STORAGE_VALUES,
+  APPLICATION_SETTINGS_DEFAULTS,
+} from "./studioStore.settings.ts";
 import { defaultBatchProcessConfig } from "./workspaceRuntime.ts";
 export { createDefaultWorkspace } from "./workspaceDefaults.ts";
 
@@ -38,12 +42,7 @@ const CONTENT_KEYS = [
 ] as const;
 
 const DEFAULT_SETTING_VALUES = [
-  [storageKey("gptcodex.theme"), "system"],
-  [storageKey("gptcodex.fontScale"), "1"],
-  [storageKey("gptcodex.kernelRuntimeMode"), "auto"],
-  [storageKey("gptcodex.outputFormat"), "png"],
-  [storageKey("gptcodex.proxyMode"), "system"],
-  [storageKey("gptcodex.proxyURL"), ""],
+  ...APPLICATION_SETTING_DEFAULT_STORAGE_VALUES,
   [storageKey("gptcodex.fhlImagesPool.perApiConcurrencyLimit.v1"), String(DEFAULT_CONCURRENCY_LIMIT)],
 ] as const;
 
@@ -98,11 +97,8 @@ export function createApplicationResetPatch(workspace: Workspace): Partial<Studi
     negativePrompt: "",
     size: DEFAULT_FHL_SIZE,
     quality: "medium",
-    outputFormat: "png",
+    ...APPLICATION_SETTINGS_DEFAULTS,
     seed: 0,
-    kernelRuntimeMode: "auto",
-    proxyMode: "system",
-    proxyURL: "",
     noPromptRevision: true,
     sources: [],
     reversePromptImage: null,
@@ -166,8 +162,6 @@ export function createApplicationResetPatch(workspace: Workspace): Partial<Studi
     batchProcess: defaultBatchProcessConfig(),
     editAutoAspectUserLocked: false,
     presets: [],
-    theme: "system",
-    fontScale: 1,
     workspaces: [workspace],
     activeWorkspaceId: workspace.id,
     styleTag: "",
