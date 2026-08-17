@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const harnessSource = readFileSync(new URL("../src/app/dev/e2eHarness.ts", import.meta.url), "utf8");
-const hostSource = readFileSync(new URL("../src/platform/runtime/host.ts", import.meta.url), "utf8");
+const hostContextSource = readFileSync(new URL("../src/platform/runtime/hostContext.ts", import.meta.url), "utf8");
 const mainSource = readFileSync(new URL("../src/main.tsx", import.meta.url), "utf8");
 
 test("desktop E2E harness exposes a safe automation state summary", () => {
@@ -32,9 +32,9 @@ test("desktop E2E harness can load packaged batch input directories", () => {
 });
 
 test("runtime host can read backend or injected E2E automation status", () => {
-  assert.match(hostSource, /export function GetAutomationStatus/);
-  assert.match(hostSource, /__IMAGE_STUDIO_E2E_BOOTSTRAP/);
-  assert.match(hostSource, /hasServiceMethod\("GetAutomationStatus"\)/);
+  assert.match(hostContextSource, /export function GetAutomationStatus/);
+  assert.match(hostContextSource, /__IMAGE_STUDIO_E2E_BOOTSTRAP/);
+  assert.match(hostContextSource, /hasServiceMethod\("GetAutomationStatus"\)/);
 });
 
 test("main entry installs E2E harness before rendering the app", () => {

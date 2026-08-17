@@ -6,7 +6,7 @@ const apiSource = await readFile(new URL("../src/lib/apimartAPI.ts", import.meta
 const domainSource = await readFile(new URL("../src/types/domain.ts", import.meta.url), "utf8");
 const remoteTypesSource = await readFile(new URL("../src/platform/runtime/remote-kernel/types.ts", import.meta.url), "utf8");
 const kernelSource = await readFile(new URL("../src/platform/runtime/remote-kernel/apimart.ts", import.meta.url), "utf8");
-const hostSource = await readFile(new URL("../src/platform/runtime/host.ts", import.meta.url), "utf8");
+const hostTasksSource = await readFile(new URL("../src/platform/runtime/hostTasks.ts", import.meta.url), "utf8");
 const storeSource = await readFile(new URL("../src/state/studioStore.ts", import.meta.url), "utf8");
 const storeTypesSource = await readFile(new URL("../src/state/studioStore.types.ts", import.meta.url), "utf8");
 const sharedStoreSource = await readFile(new URL("../src/state/studioStore.shared.ts", import.meta.url), "utf8");
@@ -23,8 +23,8 @@ test("apimart task ids are persisted from runtime events into task records", () 
   assert.match(kernelSource, /submittedTaskId = submitted\.taskId \|\| ""/);
   assert.match(kernelSource, /apimartTaskId: submittedTaskId \|\| undefined/);
   assert.match(kernelSource, /if \(submittedTaskId && !error\.apimartTaskId\) error\.apimartTaskId = submittedTaskId/);
-  assert.match(hostSource, /apimartTaskId: result\.apimartTaskId \|\| undefined/);
-  assert.match(hostSource, /apimartTaskId: typed\.apimartTaskId \|\| undefined/);
+  assert.match(hostTasksSource, /apimartTaskId: result\.apimartTaskId \|\| undefined/);
+  assert.match(hostTasksSource, /apimartTaskId: typed\.apimartTaskId \|\| undefined/);
   assert.match(sharedStoreSource, /apimartTaskId: typeof raw\.apimartTaskId === "string"/);
   assert.match(taskRecordsSource, /apimartTaskId: slot\.apimartTaskId \|\| task\.apimartTaskId/);
 });

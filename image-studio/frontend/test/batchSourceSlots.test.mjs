@@ -6,7 +6,9 @@ const storeSource = readFileSync(new URL("../src/state/studioStore.ts", import.m
 const domainSource = readFileSync(new URL("../src/types/domain.ts", import.meta.url), "utf8");
 const contractsSource = readFileSync(new URL("../src/platform/runtime/browserJobContracts.ts", import.meta.url), "utf8");
 const proxySource = readFileSync(new URL("../dev/browserJobProxy.ts", import.meta.url), "utf8");
-const hostSource = readFileSync(new URL("../src/platform/runtime/host.ts", import.meta.url), "utf8");
+const hostContextSource = readFileSync(new URL("../src/platform/runtime/hostContext.ts", import.meta.url), "utf8");
+const hostFilesSource = readFileSync(new URL("../src/platform/runtime/hostFiles.ts", import.meta.url), "utf8");
+const hostMediaSource = readFileSync(new URL("../src/platform/runtime/hostMedia.ts", import.meta.url), "utf8");
 const sharedStoreSource = readFileSync(new URL("../src/state/studioStore.shared.ts", import.meta.url), "utf8");
 
 test("batch image-to-image builds reference slots around one rotating source", () => {
@@ -33,10 +35,10 @@ test("batch browser proxy materializes virtual sources before queueing", () => {
 });
 
 test("packaged E2E browser imports do not persist volatile memory batch sources", () => {
-  assert.match(hostSource, /function shouldAvoidVolatileBrowserImages/);
-  assert.match(hostSource, /persistBrowserImageToLocalInput/);
-  assert.match(hostSource, /ImportImageFromB64/);
-  assert.match(hostSource, /shouldAvoidVolatileBrowserImages\(\)[\s\S]*\? null[\s\S]*fallbackVirtual/);
+  assert.match(hostContextSource, /function shouldAvoidVolatileBrowserImages/);
+  assert.match(hostMediaSource, /persistBrowserImageToLocalInput/);
+  assert.match(hostMediaSource, /ImportImageFromB64/);
+  assert.match(hostFilesSource, /shouldAvoidVolatileBrowserImages\(\)[\s\S]*\? null[\s\S]*fallbackVirtual/);
   assert.match(sharedStoreSource, /function isVolatileMemoryPath/);
   assert.match(sharedStoreSource, /discoveredSources: workspace\.batchProcess\.discoveredSources[\s\S]*?filter\(\(source\) => !isVolatileMemoryPath\(source\.path\)\)/);
   assert.match(sharedStoreSource, /if \(!itemPath \|\| isVolatileMemoryPath\(itemPath\)\) return null;/);

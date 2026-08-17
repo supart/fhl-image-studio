@@ -4,11 +4,21 @@
 
 ## 结构
 
-- [host.ts](/Users/lin/Image-Studio/image-studio/frontend/src/platform/runtime/host.ts)
-  - 对上暴露统一宿主能力
-  - 决定走 Wails、本地宿主、Android bridge，还是远程内核
+- `host.ts`
+  - 兼容门面，显式重导出现有 52 个宿主能力
+  - 业务调用方继续只依赖该入口
+- `hostContext.ts`
+  - 宿主识别、能力矩阵、事件、主题和 E2E bootstrap
+- `hostTasks.ts`
+  - 生成、编辑、提示词处理、取消和远程任务事件
+- `hostFiles.ts`
+  - 文件/目录对话框、历史文件、外部打开和浏览器文件回退
+- `hostMedia.ts`
+  - 图片保存、分享、导入、登记、读取、变换和素材同步
+- `hostCredentials.ts`
+  - 凭据、输出目录设置和上游探测
 
-- [remoteKernel.ts](/Users/lin/Image-Studio/image-studio/frontend/src/platform/runtime/remoteKernel.ts)
+- `remoteKernel.ts`
   - 兼容导出层
   - 让现有调用方和测试路径保持稳定
 
