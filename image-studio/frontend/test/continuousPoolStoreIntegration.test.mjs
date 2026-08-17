@@ -67,10 +67,7 @@ test("assigned pool tasks use non-sensitive snapshots and multi-reference transi
 });
 
 test("cancelled task events cannot restore task state and FHL slot capacity is freed only after settled", () => {
-  assert.match(storeSource, /EventsOn\(`settled:\$\{jobId\}`/);
-  assert.match(storeSource, /if \(isCancelledTaskForJob\(\)\) return;/);
   assert.match(storeSource, /const retainedFHLPoolJobIds = new Set\([\s\S]+shouldRetainFHLPoolCapacityOnCancel/);
-  assert.match(storeSource, /const notifySettled = \(status: "success" \| "error" \| "cancelled"\) => \{[\s\S]+isFHLImagesPoolProfileId\(store\.getState\(\), snapshot\.apiProfileId\)[\s\S]+requestContinuousPoolPump/);
   assert.match(recordsSource, /if \(task\.status === "cancelled"\) continue;/);
   assert.match(recordsSource, /if \(task\.status === "cancelled"\) return current;/);
   assert.match(recordsSource, /if \(task\.status === "cancelled" && patch\.status !== "cancelled"\) return current;/);

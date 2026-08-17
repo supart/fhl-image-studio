@@ -123,9 +123,11 @@ describe("workspace, material, and history domain modules", () => {
       workspaces: [first, second],
       activeWorkspaceId: first.id,
       runningJobMeta: { "job-1": { workspaceId: first.id } },
+      jobGroupsByWorkspace: { [first.id]: [] },
     };
     const cancelJob = vi.fn();
-    const offEvents = vi.fn();
+    const detachJobEvents = vi.fn();
+    const syncTaskSubscriptions = vi.fn();
     const actions = createWorkspaceActions({
       getState: () => state,
       setState: (patch) => {
@@ -133,23 +135,19 @@ describe("workspace, material, and history domain modules", () => {
       },
     }, {
       cancelJob,
-      offEvents,
+      detachJobEvents,
+      syncTaskSubscriptions,
       saveActiveSnapshot: (current) => current.workspaces,
     });
 
     actions.closeWorkspace(first.id);
 
     expect(cancelJob).toHaveBeenCalledWith("job-1");
-    expect(offEvents).toHaveBeenCalledWith(
-      "progress:job-1",
-      "log:job-1",
-      "preview:job-1",
-      "result:job-1",
-      "error:job-1",
-      "settled:job-1",
-    );
+    expect(detachJobEvents).toHaveBeenCalledExactlyOnceWith("job-1");
+    expect(syncTaskSubscriptions).toHaveBeenCalledTimes(1);
     expect(state.workspaces.map((workspace) => workspace.id)).toEqual([second.id]);
     expect(state.runningJobMeta).toEqual({});
+    expect(state.jobGroupsByWorkspace).toEqual({});
   });
 
   it("persists material group mutations and deduplicates history refs", () => {

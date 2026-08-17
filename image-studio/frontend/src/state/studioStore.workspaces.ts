@@ -11,7 +11,8 @@ type StateAdapter = {
 
 type WorkspaceActionRuntime = {
   cancelJob: (jobId: string) => unknown;
-  offEvents: (...eventNames: string[]) => void;
+  detachJobEvents: (jobId: string) => void;
+  syncTaskSubscriptions: () => void;
   saveActiveSnapshot: (state: StudioState) => Workspace[];
 };
 
@@ -103,19 +104,23 @@ export function createWorkspaceActions(store: StateAdapter, runtime: WorkspaceAc
       const closingJobIds = state.workspaces.find((workspace) => workspace.id === id)?.runningJobIds ?? [];
       for (const jobId of closingJobIds) {
         try { void runtime.cancelJob(jobId); } catch {}
-        runtime.offEvents(`progress:${jobId}`, `log:${jobId}`, `preview:${jobId}`, `result:${jobId}`, `error:${jobId}`, `settled:${jobId}`);
+        runtime.detachJobEvents(jobId);
       }
       const nextMeta = { ...state.runningJobMeta };
       for (const jobId of closingJobIds) delete nextMeta[jobId];
+      const jobGroupsByWorkspace = { ...state.jobGroupsByWorkspace };
+      delete jobGroupsByWorkspace[id];
       const remaining = state.workspaces.filter((workspace) => workspace.id !== id);
       if (state.activeWorkspaceId === id) {
         store.setState({
           ...workspaceSelectionPatch(state, remaining[0], remaining),
           runningJobMeta: nextMeta,
+          jobGroupsByWorkspace,
         });
       } else {
-        store.setState({ workspaces: remaining, runningJobMeta: nextMeta });
+        store.setState({ workspaces: remaining, runningJobMeta: nextMeta, jobGroupsByWorkspace });
       }
+      runtime.syncTaskSubscriptions();
     },
 
     renameWorkspace(id: string, name: string) {

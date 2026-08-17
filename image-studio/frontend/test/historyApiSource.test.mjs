@@ -76,12 +76,12 @@ test("current workspace batch sessions merge restored results instead of replaci
   assert.match(storeSource, /include: \[historyItem\]/);
   assert.match(storeSource, /batchResultIds: uniqueStrings/);
 
-  const browserSyncBlock = storeSource.match(/async function syncHistoryItemFromBrowserJobSlot[\s\S]+?function ensureBrowserJobSubscription/)?.[0] ?? "";
+  const browserSyncBlock = storeSource.match(/async function syncHistoryItemFromBrowserJobSlot[\s\S]+?function browserJobEventIsTerminal/)?.[0] ?? "";
   assert.match(browserSyncBlock, /const mergedBatch = mergeWorkspaceBatchResult\(state, group\.workspaceId, historyItem, nextHistory\);/);
   assert.match(browserSyncBlock, /batchResultIds: mergedBatch\.batchResultIds/);
   assert.match(browserSyncBlock, /batchResults = state\.activeWorkspaceId === group\.workspaceId\s*\? mergedBatch\.batchResults/);
 
-  const localResultBlock = storeSource.match(/offResult = EventsOn\(`result:\$\{jobId\}`[\s\S]+?persistTrimmedHistory\(trimmed\);/)?.[0] ?? "";
+  const localResultBlock = storeSource.match(/onResult: \(eventPayload, control\) => \{[\s\S]+?persistTrimmedHistory\(trimmed\);/)?.[0] ?? "";
   assert.match(localResultBlock, /const mergedBatch = mergeWorkspaceBatchResult\(state, snapshot\.workspaceId, historyItem, trimmed\);/);
   assert.match(localResultBlock, /batchResultIds: mergedBatch\.batchResultIds/);
   assert.match(localResultBlock, /batchResults = state\.activeWorkspaceId === snapshot\.workspaceId\s*\? mergedBatch\.batchResults/);

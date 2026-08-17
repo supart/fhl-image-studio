@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../src/platform/runtime/host", () => ({
   Cancel: vi.fn(async () => undefined),
   EventsOff: vi.fn(),
+  EventsOn: vi.fn(() => () => undefined),
   GetOutputDir: vi.fn(() => new Promise<string>(() => undefined)),
   OpenOutputDir: vi.fn(async () => undefined),
   OpenExternalURL: vi.fn(async () => undefined),

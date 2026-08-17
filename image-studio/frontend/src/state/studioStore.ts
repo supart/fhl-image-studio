@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import {
   BuildBatchOutputPath,
-  EventsOff,
   EventsOn,
   Generate as wailsGenerate,
   Edit as wailsEdit,
@@ -23,7 +22,10 @@ import {
   probeCurrentUpstream,
   setKernelRuntimeMode,
 } from "../platform/runtime/host";
-import { createDesktopJobEventGate } from "../platform/runtime/desktopJobEvents";
+import {
+  createDesktopJobLifecycleRegistry,
+  type DesktopJobTerminalStatus,
+} from "../platform/runtime/desktopJobEvents";
 import {
   cancelBrowserJobs,
   listBrowserJobGroups,
@@ -214,6 +216,7 @@ import { createMaterialActions } from "./studioStore.materials";
 import { activeProfileRuntimePatch, createProfileActions } from "./studioStore.profiles";
 import { createTaskActions, taskRuntimePatchForWorkspace } from "./studioStore.tasks";
 import { createContinuousPoolController } from "./studioStore.continuousPool";
+import { createBrowserTaskLifecycle } from "./studioStore.browserTaskLifecycle";
 import { createWorkspaceActions } from "./studioStore.workspaces";
 import { createImageActions } from "./studioStore.images";
 import {
@@ -310,9 +313,6 @@ type BrowserSourceIdentity = {
   panoramaRoundtrip?: HistoryItem["panoramaRoundtrip"];
 };
 
-const browserJobSubscriptions = new Map<string, () => void>();
-const browserWorkspaceSubscriptions = new Map<string, () => void>();
-const browserJobRefreshes = new Map<string, Promise<void>>();
 const ENABLE_LEGACY_PROFILE_MIGRATION = false;
 const STAR_PROMPTED_KEY = storageKey("gptcodex.starPrompted");
 const PROMPT_HISTORY_KEY = storageKey("gptcodex.promptHistory");
@@ -322,6 +322,22 @@ const unavailableContinuousPoolProfileIds = new Set<string>();
 const continuousPoolController = createContinuousPoolController({
   getState: () => useStudioStore.getState(),
   runPumpPass: () => pumpContinuousPoolQueuePass(),
+});
+const desktopJobLifecycleRegistry = createDesktopJobLifecycleRegistry(EventsOn);
+const browserTaskLifecycle = createBrowserTaskLifecycle({
+  mode: () => (isAndroidTaskProxyMode() ? "android" : "browser"),
+  getGroups: () => useStudioStore.getState().jobGroupsByWorkspace,
+  isWorkspaceKnown: (workspaceId) => useStudioStore.getState().workspaces.some((workspace) => workspace.id === workspaceId),
+  resolveWorkspaceIdForJob: resolveWorkspaceIdForBrowserJob,
+  jobStillLooksActive: browserJobStillLooksActive,
+  applyEvent: applyBrowserJobEvent,
+  refreshWorkspace: refreshBrowserJobGroupsForWorkspaceCore,
+  subscribeJob: (jobId, onEvent, onError, onClose) => (
+    isAndroidTaskProxyMode()
+      ? subscribeToAndroidJob(jobId, onEvent, onError, onClose)
+      : subscribeToBrowserJob(jobId, onEvent, onError, onClose)
+  ),
+  subscribeWorkspace: subscribeToBrowserWorkspace,
 });
 const startingContinuousTaskIds = continuousPoolController.startingTaskIds;
 const submitSingleFlight = createKeyedSingleFlight<void>();
@@ -717,8 +733,10 @@ async function autoPastePanoramaRoundtripResult(
     selectAsCurrent?: boolean;
     alignment?: PanoramaPastebackAlignment | null;
     pasteMask?: PanoramaPastebackMaskInput | null;
+    isCurrent?: () => boolean;
   },
 ): Promise<HistoryItem | null> {
+  if (options.isCurrent && !options.isCurrent()) return null;
   item = recoverPanoramaItemMetadata(item, useStudioStore.getState().history);
   const roundtrip = resolvePanoramaRoundtripRef(item);
   if (!roundtrip) return null;
@@ -751,13 +769,17 @@ async function autoPastePanoramaRoundtripResult(
       : loadHistoryItemAsHtmlImage(sourceItem),
     loadHistoryItemAsHtmlImage(item),
   ]);
+  if (options.isCurrent && !options.isCurrent()) return null;
   const pasted = pastePanoramaRoundtripBase64(erpImage, rectImage, roundtrip.roundtripState, options.alignment, options.pasteMask ?? null);
   const imported = await ImportImageFromB64(pasted.imageB64, `panorama-roundtrip-${Date.now()}.png`);
+  if (options.isCurrent && !options.isCurrent()) return null;
   const ref = await RegisterImportedImageAsset(imported.path).catch(() => null);
+  if (options.isCurrent && !options.isCurrent()) return null;
   const nextItem = ref
     ? withMediaAssetRef(syntheticPanoramaResultItem(imported, pasted.imageB64, item, sourceItem), ref)
     : syntheticPanoramaResultItem(imported, pasted.imageB64, item, sourceItem);
   useStudioStore.setState((state) => {
+    if (options.isCurrent && !options.isCurrent()) return {};
     const history = trimHistory([nextItem, ...state.history.filter((entry) => entry.id !== nextItem.id)]);
     const workspacePatch: WorkspacePatch = options.selectAsCurrent
       ? {
@@ -784,6 +806,7 @@ async function autoPastePanoramaRoundtripResult(
     } as Partial<StudioState>;
   });
   await persistHistoryItem(nextItem).catch(() => undefined);
+  if (options.isCurrent && !options.isCurrent()) return null;
   persistTrimmedHistory(useStudioStore.getState().history);
   return nextItem;
 }
@@ -3564,6 +3587,7 @@ function applyBrowserJobGroupsForWorkspaceToStore(
   workspaceId: string,
   groups: JobGroupSnapshot[],
 ) {
+  if (!useStudioStore.getState().workspaces.some((workspace) => workspace.id === workspaceId)) return;
   useStudioStore.setState((state) => {
     const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
     const visibleGroups = filterVisibleJobGroupsForWorkspace(workspace, groups);
@@ -3633,48 +3657,31 @@ function findBrowserJobGroupSlot(
   return null;
 }
 
-async function refreshBrowserJobGroupsForWorkspace(workspaceId: string, jobId?: string): Promise<void> {
-  if (!workspaceId || !isBackgroundTaskProxyMode()) return;
-  const existing = browserJobRefreshes.get(workspaceId);
-  if (existing) {
-    await existing;
-    return;
-  }
+async function refreshBrowserJobGroupsForWorkspaceCore(
+  workspaceId: string,
+  jobIds: ReadonlySet<string>,
+  isCurrent: () => boolean,
+): Promise<void> {
+  if (!workspaceId || !isBackgroundTaskProxyMode() || !isCurrent()) return;
   const listJobGroups = isAndroidTaskProxyMode() ? listAndroidJobGroups : listBrowserJobGroups;
-  const task = (async () => {
-    try {
-      const response = await listJobGroups(workspaceId);
-      const workspace = useStudioStore.getState().workspaces.find((entry) => entry.id === workspaceId);
-      const visibleGroups = filterVisibleJobGroupsForWorkspace(workspace, response.groups);
-      applyBrowserJobGroupsForWorkspaceToStore(workspaceId, visibleGroups);
-      if (!jobId) return;
+  try {
+    const response = await listJobGroups(workspaceId);
+    if (!isCurrent()) return;
+    const workspace = useStudioStore.getState().workspaces.find((entry) => entry.id === workspaceId);
+    if (!workspace) return;
+    const visibleGroups = filterVisibleJobGroupsForWorkspace(workspace, response.groups);
+    applyBrowserJobGroupsForWorkspaceToStore(workspaceId, visibleGroups);
+    for (const jobId of jobIds) {
+      if (!isCurrent()) return;
       const match = findBrowserJobGroupSlot(visibleGroups, jobId);
-      if (!match || match.slot.status !== "succeeded") return;
+      if (!match || match.slot.status !== "succeeded") continue;
       await syncHistoryItemFromBrowserJobSlot(match.group, match.slot, {
         updateWorkspaceSelection: true,
       });
-    } catch {
-      // Ignore refresh failures; the next job update or reload will reconcile state.
-    } finally {
-      browserJobRefreshes.delete(workspaceId);
     }
-  })();
-  browserJobRefreshes.set(workspaceId, task);
-  await task;
-}
-
-function clearBrowserJobSubscription(jobId: string) {
-  const off = browserJobSubscriptions.get(jobId);
-  if (!off) return;
-  try { off(); } catch {}
-  browserJobSubscriptions.delete(jobId);
-}
-
-function clearBrowserWorkspaceSubscription(workspaceId: string) {
-  const off = browserWorkspaceSubscriptions.get(workspaceId);
-  if (!off) return;
-  try { off(); } catch {}
-  browserWorkspaceSubscriptions.delete(workspaceId);
+  } catch {
+    // Ignore refresh failures; the next job update or reload will reconcile state.
+  }
 }
 
 async function syncHistoryItemFromBrowserJobSlot(
@@ -3714,12 +3721,19 @@ async function syncHistoryItemFromBrowserJobSlotCore(
     sourceImages: taskForOutputSync ? sourceImagesForTask(taskForOutputSync) : undefined,
     panoramaRoundtrip: taskForOutputSync?.panoramaRoundtrip,
   });
-  if (!historyItem || !applicationStateEpoch.isCurrent(syncEpoch) || store.getState().isResettingApplication) return;
+  const isSyncCurrent = () => {
+    const state = store.getState();
+    return applicationStateEpoch.isCurrent(syncEpoch)
+      && !state.isResettingApplication
+      && state.workspaces.some((workspace) => workspace.id === group.workspaceId);
+  };
+  if (!historyItem || !isSyncCurrent()) return;
   const activeItem: HistoryItem = {
     ...historyItem,
     previewOnly: false,
   };
   store.setState((state) => {
+    if (!isSyncCurrent()) return {};
     const nextHistory = trimHistory([
       historyItem,
       ...state.history.filter((item) => item.id !== historyItem.id),
@@ -3762,15 +3776,17 @@ async function syncHistoryItemFromBrowserJobSlotCore(
     } as Partial<StudioState>;
   });
   await persistHistoryItem(historyItem).catch(() => undefined);
-  if (!applicationStateEpoch.isCurrent(syncEpoch) || store.getState().isResettingApplication) return;
+  if (!isSyncCurrent()) return;
   persistTrimmedHistory(useStudioStore.getState().history);
   const autoPastedPanorama = await autoPastePanoramaRoundtripResult(historyItem, {
     workspaceId: group.workspaceId,
     selectAsCurrent: options.updateWorkspaceSelection && group.continuousGenerateTest !== true && group.batchCount <= 1,
+    isCurrent: isSyncCurrent,
   }).catch((error: any) => {
     store.getState().pushToast(`全景贴回失败: ${error?.message ?? error}`, "warn", 4200);
     return null;
   });
+  if (!isSyncCurrent()) return;
   if (shouldSyncBatchOutput) {
     syncBatchOutputAfterSuccess(batchProcessLinkFromTask(taskForOutputSync), historyItem.savedPath);
   }
@@ -3791,6 +3807,7 @@ function browserJobEventIsTerminal(event: BrowserJobEvent) {
 function applyBrowserJobEvent(event: BrowserJobEvent) {
   const terminal = browserJobEventIsTerminal(event);
   const workspace = useStudioStore.getState().workspaces.find((entry) => entry.id === event.group.workspaceId);
+  if (!workspace || event.slot.workspaceId !== workspace.id) return terminal;
   if (!isJobGroupVisibleForWorkspace(workspace, event.group)) return terminal;
   applyBrowserJobGroupToStore(event.group);
   if (event.type === "terminal" && event.slot.status === "succeeded") {
@@ -3805,86 +3822,8 @@ function applyBrowserJobEvent(event: BrowserJobEvent) {
   return terminal;
 }
 
-function ensureBrowserJobSubscription(jobId: string) {
-  if (!jobId || browserJobSubscriptions.has(jobId)) return;
-  const reconcileIfStreamEndedEarly = () => {
-    const workspaceId = resolveWorkspaceIdForBrowserJob(jobId);
-    const shouldRefresh = browserJobStillLooksActive(jobId);
-    clearBrowserJobSubscription(jobId);
-    if (!shouldRefresh || !workspaceId) return;
-    void refreshBrowserJobGroupsForWorkspace(workspaceId, jobId);
-  };
-  const off = subscribeToBrowserJob(jobId, (event) => {
-    if (applyBrowserJobEvent(event)) {
-      clearBrowserJobSubscription(jobId);
-    }
-  }, () => {
-    reconcileIfStreamEndedEarly();
-  }, () => {
-    reconcileIfStreamEndedEarly();
-  });
-  browserJobSubscriptions.set(jobId, off);
-}
-
-function browserWorkspaceHasActiveJobs(
-  groupsByWorkspace: Record<string, JobGroupSnapshot[]>,
-  workspaceId: string,
-) {
-  return (groupsByWorkspace[workspaceId] ?? []).some((group) => runningJobIdsFromGroup(group).length > 0);
-}
-
-function ensureBrowserWorkspaceSubscription(workspaceId: string) {
-  if (!workspaceId || browserWorkspaceSubscriptions.has(workspaceId)) return;
-  const reconcileIfStreamEndedEarly = () => {
-    const shouldRefresh = browserWorkspaceHasActiveJobs(useStudioStore.getState().jobGroupsByWorkspace, workspaceId);
-    clearBrowserWorkspaceSubscription(workspaceId);
-    if (!shouldRefresh) return;
-    void refreshBrowserJobGroupsForWorkspace(workspaceId).finally(() => {
-      syncBrowserJobSubscriptions(useStudioStore.getState().jobGroupsByWorkspace);
-    });
-  };
-  const off = subscribeToBrowserWorkspace(workspaceId, (event) => {
-    if (applyBrowserJobEvent(event)) {
-      syncBrowserJobSubscriptions(useStudioStore.getState().jobGroupsByWorkspace);
-    }
-  }, () => {
-    reconcileIfStreamEndedEarly();
-  }, () => {
-    reconcileIfStreamEndedEarly();
-  });
-  browserWorkspaceSubscriptions.set(workspaceId, off);
-}
-
 function syncBrowserJobSubscriptions(groupsByWorkspace: Record<string, JobGroupSnapshot[]>) {
-  if (!isAndroidTaskProxyMode()) {
-    for (const jobId of Array.from(browserJobSubscriptions.keys())) clearBrowserJobSubscription(jobId);
-    const liveWorkspaceIds = new Set<string>();
-    for (const [workspaceId, groups] of Object.entries(groupsByWorkspace)) {
-      if (!groups.some((group) => runningJobIdsFromGroup(group).length > 0)) continue;
-      liveWorkspaceIds.add(workspaceId);
-      ensureBrowserWorkspaceSubscription(workspaceId);
-    }
-    for (const workspaceId of Array.from(browserWorkspaceSubscriptions.keys())) {
-      if (!liveWorkspaceIds.has(workspaceId)) clearBrowserWorkspaceSubscription(workspaceId);
-    }
-    return;
-  }
-
-  for (const workspaceId of Array.from(browserWorkspaceSubscriptions.keys())) {
-    clearBrowserWorkspaceSubscription(workspaceId);
-  }
-  const liveIds = new Set<string>();
-  for (const groups of Object.values(groupsByWorkspace)) {
-    for (const group of groups) {
-      for (const jobId of runningJobIdsFromGroup(group)) {
-        liveIds.add(jobId);
-        ensureBrowserJobSubscription(jobId);
-      }
-    }
-  }
-  for (const jobId of Array.from(browserJobSubscriptions.keys())) {
-    if (!liveIds.has(jobId)) clearBrowserJobSubscription(jobId);
-  }
+  browserTaskLifecycle.sync(groupsByWorkspace);
 }
 
 const mediaActions = createMediaActions({
@@ -3931,7 +3870,8 @@ const workspaceActions = createWorkspaceActions({
   },
 }, {
   cancelJob: wailsCancel,
-  offEvents: EventsOff,
+  detachJobEvents: (jobId) => desktopJobLifecycleRegistry.detach(jobId),
+  syncTaskSubscriptions: () => syncBrowserJobSubscriptions(useStudioStore.getState().jobGroupsByWorkspace),
   saveActiveSnapshot: saveActiveWorkspaceSnapshot,
 });
 
@@ -4231,6 +4171,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       }
       applicationStateEpoch.advance();
       set({ isResettingApplication: true });
+      browserTaskLifecycle.reset();
+      desktopJobLifecycleRegistry.reset();
 
       // Stop delayed work before the first await so stale state cannot be written back.
       if (workspaceSessionPersistTimer) clearTimeout(workspaceSessionPersistTimer);
@@ -4261,11 +4203,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       const storageSummary = resetNonAPIStorage();
       const workspace = createDefaultWorkspace(genId(), APPLICATION_SETTINGS_DEFAULTS.outputFormat);
 
-      for (const detach of browserJobSubscriptions.values()) detach();
-      browserJobSubscriptions.clear();
-      for (const detach of browserWorkspaceSubscriptions.values()) detach();
-      browserWorkspaceSubscriptions.clear();
-      browserJobRefreshes.clear();
       continuousPoolController.reset();
       unavailableContinuousPoolProfileIds.clear();
 
@@ -6881,23 +6818,19 @@ async function launchOneJob(
 ): Promise<boolean> {
   const store = useStudioStore;
   const jobId = cryptoIDFallback();
-  let offProgress = () => {};
-  let offLog = () => {};
-  let offPreview = () => {};
-  let offResult = () => {};
-  let offError = () => {};
-  let offSettled = () => {};
-  let terminalStatus: "success" | "error" | "cancelled" = "error";
-  let terminalHandled = false;
-  let settled = false;
+  const launchEpoch = applicationStateEpoch.capture();
   let launchClaimed = false;
-  const cleanupTerminalEventHandlers = () => { offProgress(); offLog(); offPreview(); offResult(); offError(); };
-  const cleanup = () => { cleanupTerminalEventHandlers(); offSettled(); };
   const isCancelledTaskForJob = () => {
-    const task = store.getState().batchTasksById[snapshot.taskId];
-    return task?.status === "cancelled";
+    const state = store.getState();
+    const workspaceExists = state.workspaces.some((workspace) => workspace.id === snapshot.workspaceId);
+    const task = state.batchTasksById[snapshot.taskId];
+    return !applicationStateEpoch.isCurrent(launchEpoch)
+      || state.isResettingApplication
+      || !workspaceExists
+      || !task
+      || task.status === "cancelled";
   };
-  const notifySettled = (status: "success" | "error" | "cancelled") => {
+  const notifySettled = (status: DesktopJobTerminalStatus) => {
     if (isFHLImagesPoolProfileId(store.getState(), snapshot.apiProfileId)) void requestContinuousPoolPump();
     hooks?.onSettled?.(status);
   };
@@ -6984,55 +6917,52 @@ async function launchOneJob(
       });
     };
 
-    const desktopEventGate = createDesktopJobEventGate();
-    offProgress = EventsOn(`progress:${jobId}`, (p: ProgressInfo, meta?: unknown) => {
-      if (!desktopEventGate.accept(meta)) return;
-      if (isCancelledTaskForJob()) return;
-      const patch: WorkspacePatch = { progress: p };
-      store.setState((state) => ({
-        workspaces: patchWorkspaceRuntime(state.workspaces, snapshot.workspaceId, patch),
-        ...(state.activeWorkspaceId === snapshot.workspaceId ? activeRuntimePatch(patch) : {}),
-      } as Partial<StudioState>));
-    });
-    offLog = EventsOn(`log:${jobId}`, (line: string, meta?: unknown) => {
-      if (!desktopEventGate.accept(meta)) return;
-      if (isCancelledTaskForJob()) return;
-      const patch: WorkspacePatch = { lastLogLine: line };
-      store.setState((state) => ({
-        workspaces: patchWorkspaceRuntime(state.workspaces, snapshot.workspaceId, patch),
-        ...(state.activeWorkspaceId === snapshot.workspaceId ? activeRuntimePatch(patch) : {}),
-      } as Partial<StudioState>));
-    });
-    offPreview = EventsOn(`preview:${jobId}`, (preview: StreamPreviewPayload, meta?: unknown) => {
-      if (!desktopEventGate.accept(meta)) return;
-      if (isCancelledTaskForJob()) return;
-      store.setState((state) => (
-        streamPreviewStatePatch(state, jobId, preview, {
-          workspaceId: snapshot.workspaceId,
-          mode: mode === "edit" ? "edit" : "generate",
-          prompt: payload.prompt,
-          size: snapshot.size,
-          quality: snapshot.quality,
-          outputFormat: snapshot.outputFormat,
-          currentImage: snapshot.currentImage,
-          batchIndex: snapshot.batchIndex,
-        }) ?? {}
-      ));
-    });
-
     const startedAt = Date.now();
-    offResult = EventsOn(`result:${jobId}`, (r: any, meta?: unknown) => {
-      if (!desktopEventGate.accept(meta)) return;
-      if (terminalHandled || isCancelledTaskForJob()) {
-        terminalHandled = true;
-        terminalStatus = "cancelled";
-        cleanupTerminalEventHandlers();
-        return;
-      }
-      terminalHandled = true;
-      terminalStatus = "success";
-      cleanupTerminalEventHandlers();
-      void (async () => {
+    desktopJobLifecycleRegistry.register(jobId, {
+      isCancelled: isCancelledTaskForJob,
+      onProgress: (eventPayload) => {
+        const p = eventPayload as ProgressInfo;
+        const patch: WorkspacePatch = { progress: p };
+        store.setState((state) => ({
+          workspaces: patchWorkspaceRuntime(state.workspaces, snapshot.workspaceId, patch),
+          ...(state.activeWorkspaceId === snapshot.workspaceId ? activeRuntimePatch(patch) : {}),
+        } as Partial<StudioState>));
+      },
+      onLog: (eventPayload) => {
+        const line = String(eventPayload ?? "");
+        const patch: WorkspacePatch = { lastLogLine: line };
+        store.setState((state) => ({
+          workspaces: patchWorkspaceRuntime(state.workspaces, snapshot.workspaceId, patch),
+          ...(state.activeWorkspaceId === snapshot.workspaceId ? activeRuntimePatch(patch) : {}),
+        } as Partial<StudioState>));
+      },
+      onPreview: (eventPayload) => {
+        const preview = eventPayload as StreamPreviewPayload;
+        store.setState((state) => (
+          streamPreviewStatePatch(state, jobId, preview, {
+            workspaceId: snapshot.workspaceId,
+            mode: mode === "edit" ? "edit" : "generate",
+            prompt: payload.prompt,
+            size: snapshot.size,
+            quality: snapshot.quality,
+            outputFormat: snapshot.outputFormat,
+            currentImage: snapshot.currentImage,
+            batchIndex: snapshot.batchIndex,
+          }) ?? {}
+        ));
+      },
+      onResult: (eventPayload, control) => {
+        const r = eventPayload as any;
+        const resultEpoch = applicationStateEpoch.capture();
+        const resultIsCurrent = () => {
+          const state = store.getState();
+          return applicationStateEpoch.isCurrent(resultEpoch)
+            && !state.isResettingApplication
+            && state.workspaces.some((workspace) => workspace.id === snapshot.workspaceId)
+            && !!state.batchTasksById[snapshot.taskId];
+        };
+        if (!resultIsCurrent()) return;
+        void (async () => {
         try {
           const elapsedSec = (Date.now() - startedAt) / 1000;
           const rd = [elapsedSec, ...store.getState().recentDurations].slice(0, 5);
@@ -7162,10 +7092,14 @@ async function launchOneJob(
           const autoPastedPanorama = await autoPastePanoramaRoundtripResult(historyItem, {
             workspaceId: snapshot.workspaceId,
             selectAsCurrent: !snapshot.continuousGenerateTest && totalNow <= 1,
+            isCurrent: resultIsCurrent,
           }).catch((error: any) => {
-            store.getState().pushToast(`全景贴回失败: ${error?.message ?? error}`, "warn", 4200);
+            if (resultIsCurrent()) {
+              store.getState().pushToast(`全景贴回失败: ${error?.message ?? error}`, "warn", 4200);
+            }
             return null;
           });
+          if (!resultIsCurrent()) return;
           const completedTask = store.getState().batchTasksById[snapshot.taskId];
           if (completedTask) clearAutoRetryTimer(completedTask.id);
           if (completedTask?.continuousPoolTask) void requestContinuousPoolPump();
@@ -7193,6 +7127,7 @@ async function launchOneJob(
                 && localStorage.getItem(STAR_PROMPTED_KEY) !== "1"
                 && !store.getState().starPromptOpen) {
               setTimeout(() => {
+                if (!resultIsCurrent()) return;
                 const snapshot = store.getState();
                 const overlayBusy =
                   snapshot.upstreamModalOpen ||
@@ -7205,6 +7140,7 @@ async function launchOneJob(
             }
           } catch { /* localStorage cleanup is best-effort. */ }
         } catch (err: any) {
+          if (!resultIsCurrent()) return;
           const message = `保存生成结果失败：${err?.message ?? err}`;
           store.setState((state) => {
             const workspace = state.workspaces.find((entry) => entry.id === snapshot.workspaceId);
@@ -7232,24 +7168,15 @@ async function launchOneJob(
             } as Partial<StudioState>;
           });
           removeFromRunning();
-          terminalStatus = "error";
+          control.setTerminalStatus("error");
           const failedTask = store.getState().batchTasksById[snapshot.taskId];
           if (failedTask?.continuousPoolTask) void requestContinuousPoolPump();
         }
-      })();
-    });
-    offError = EventsOn(`error:${jobId}`, (e: { message: string; rawPath?: string; apimartTaskId?: string }, meta?: unknown) => {
-      if (!desktopEventGate.accept(meta)) return;
-      if (terminalHandled || isCancelledTaskForJob()) {
-        terminalHandled = true;
-        terminalStatus = "cancelled";
-        cleanupTerminalEventHandlers();
-        return;
-      }
-      terminalHandled = true;
-      terminalStatus = "error";
-      cleanupTerminalEventHandlers();
-      store.setState((state) => {
+        })();
+      },
+      onError: (eventPayload) => {
+        const e = eventPayload as { message: string; rawPath?: string; apimartTaskId?: string };
+        store.setState((state) => {
         const runtime = workspaceRuntimeFromState(state, snapshot.workspaceId);
         const prunedPreview = removeStreamPreview(runtime.streamPreviews, jobId);
         const workspace = state.workspaces.find((w) => w.id === snapshot.workspaceId);
@@ -7294,28 +7221,19 @@ async function launchOneJob(
               }
             : {}),
         } as Partial<StudioState>;
-      });
-      removeFromRunning(true);
-      const failedTask = store.getState().batchTasksById[snapshot.taskId];
-      if (failedTask?.continuousPoolTask) void requestContinuousPoolPump();
-      if (failedTask) scheduleAutoRetryForTask(failedTask, e?.message ?? failedTask.errorMessage);
-    });
-    offSettled = EventsOn(`settled:${jobId}`, (_payload?: unknown, meta?: unknown) => {
-      desktopEventGate.observe(meta);
-      if (settled) return;
-      settled = true;
-      cleanup();
-      const cancelled = isCancelledTaskForJob();
-      store.setState((state) => {
-        if (!state.runningJobMeta[jobId]) return {};
-        const runningJobMeta = { ...state.runningJobMeta };
-        delete runningJobMeta[jobId];
-        return { runningJobMeta } as Partial<StudioState>;
-      });
-      notifySettled(cancelled ? "cancelled" : terminalStatus);
+        });
+        removeFromRunning(true);
+        const failedTask = store.getState().batchTasksById[snapshot.taskId];
+        if (failedTask?.continuousPoolTask) void requestContinuousPoolPump();
+        if (failedTask) scheduleAutoRetryForTask(failedTask, e?.message ?? failedTask.errorMessage);
+      },
+      onSettled: (status) => {
+        releaseReservedJob();
+        notifySettled(status);
+      },
     });
     if (isCancelledTaskForJob()) {
-      cleanup();
+      desktopJobLifecycleRegistry.detach(jobId);
       releaseReservedJob();
       notifySettled("cancelled");
       return false;
@@ -7324,12 +7242,12 @@ async function launchOneJob(
       ? await wailsEdit({ ...payload, requestedJobId: jobId } as backend.GenerateOptions)
       : await wailsGenerate({ ...payload, requestedJobId: jobId } as backend.GenerateOptions);
     if (started.jobId && started.jobId !== jobId) {
-      cleanup();
+      desktopJobLifecycleRegistry.detach(jobId);
       throw new Error(`job id 不一致: expected ${jobId}, got ${started.jobId}`);
     }
     return true;
   } catch (e: any) {
-    cleanup();
+    desktopJobLifecycleRegistry.detach(jobId);
     const message = `提交失败:${e?.message ?? e}`;
     const patch: WorkspacePatch = {
       errorMessage: message,

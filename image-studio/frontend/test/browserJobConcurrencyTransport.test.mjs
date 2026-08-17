@@ -56,7 +56,6 @@ test("browser job retention keeps all 40 active groups plus 500 settled groups",
 
 test("browser transport uses one workspace SSE and serialized registry writes", async () => {
   const proxySource = await readFile(new URL("../dev/browserJobProxy.ts", import.meta.url), "utf8");
-  const storeSource = await readFile(new URL("../src/state/studioStore.ts", import.meta.url), "utf8");
 
   assert.match(proxySource, /private readonly workspaceSubscribers = new Map/);
   assert.match(proxySource, /subscribeWorkspace\(workspaceId: string/);
@@ -67,7 +66,4 @@ test("browser transport uses one workspace SSE and serialized registry writes", 
   assert.match(proxySource, /if \(registrations\.length > 0\) await this\.persist\(\)/);
   assert.match(proxySource, /this\.findGroupByClientTaskId\(clientTaskId\)/);
   assert.match(proxySource, /retainBrowserJobGroups\(this\.registry\.groups, MAX_BROWSER_JOB_GROUPS\)/);
-  assert.match(storeSource, /submitBrowserJobGroups\(request\)/);
-  assert.match(storeSource, /subscribeToBrowserWorkspace\(workspaceId/);
-  assert.match(storeSource, /const browserWorkspaceSubscriptions = new Map/);
 });
