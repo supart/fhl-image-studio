@@ -103,7 +103,7 @@ export function createWorkspaceActions(store: StateAdapter, runtime: WorkspaceAc
       const closingJobIds = state.workspaces.find((workspace) => workspace.id === id)?.runningJobIds ?? [];
       for (const jobId of closingJobIds) {
         try { void runtime.cancelJob(jobId); } catch {}
-        runtime.offEvents(`progress:${jobId}`, `log:${jobId}`, `preview:${jobId}`, `result:${jobId}`, `error:${jobId}`);
+        runtime.offEvents(`progress:${jobId}`, `log:${jobId}`, `preview:${jobId}`, `result:${jobId}`, `error:${jobId}`, `settled:${jobId}`);
       }
       const nextMeta = { ...state.runningJobMeta };
       for (const jobId of closingJobIds) delete nextMeta[jobId];

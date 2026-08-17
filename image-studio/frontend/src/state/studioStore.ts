@@ -212,6 +212,7 @@ import {
 } from "./studioStore.media";
 import { createMaterialActions } from "./studioStore.materials";
 import { activeProfileRuntimePatch, createProfileActions } from "./studioStore.profiles";
+import { createTaskActions, taskRuntimePatchForWorkspace } from "./studioStore.tasks";
 import { createWorkspaceActions } from "./studioStore.workspaces";
 import { createImageActions } from "./studioStore.images";
 import {
@@ -288,7 +289,6 @@ import {
   recoverPanoramaItemMetadataFromTask,
   recoverPanoramaSourceMetadata,
 } from "./panoramaRoundtripRecovery";
-import { sourceContextPatchFromBatchTask } from "./sourceContextSelection";
 import {
   currentImageIdForWorkspaceSnapshot,
   removeStreamPreview,
@@ -1763,31 +1763,6 @@ function buildBatchCombinedSourcePaths(
     cleanBatch,
     ...cleanFixed.slice(insertAt),
   ];
-}
-
-function taskRuntimePatchForWorkspace(
-  workspaceId: string,
-  taskIds: string[],
-  tasksById: Record<string, BatchTaskRecord>,
-): WorkspacePatch {
-  const tasks = sortedBatchTasksForWorkspace(workspaceId, taskIds, tasksById);
-  const runningJobs = tasks
-    .filter((task) => task.status === "running" || (task.status === "queued" && !!task.jobId))
-    .map((task) => task.jobId)
-    .filter((item): item is string => typeof item === "string" && item.trim().length > 0);
-  return {
-    batchTaskIds: taskIds,
-    jobsTotal: tasks.length,
-    jobsCompleted: tasks.filter((task) => (
-      task.status === "succeeded"
-      || task.status === "failed"
-      || task.status === "cancelled"
-      || task.status === "interrupted"
-    )).length,
-    jobsFailed: tasks.filter((task) => task.status === "failed" || task.status === "interrupted").length,
-    runningJobs,
-    resultGridOpen: tasks.length > 0 || runningJobs.length > 0,
-  };
 }
 
 function continuousQueueLimitForState(state: StudioState, apiMode: APIModeValue, apiProfileId?: string): number {
@@ -4030,6 +4005,24 @@ const settingsActions = createSettingsActions({
   setState: (patch) => useStudioStore.setState(patch),
 }, settingsRuntime);
 
+const taskActions = createTaskActions({
+  getState: () => useStudioStore.getState(),
+  setState: (patch) => useStudioStore.setState(patch),
+}, {
+  cancelJob: wailsCancel,
+  clearAutoRetryTimer,
+  removeStartingTask: (taskId) => startingContinuousTaskIds.delete(taskId),
+  isStartingTask: (taskId) => startingContinuousTaskIds.has(taskId),
+  startQueuedTask: startContinuousQueuedTask,
+  requestPoolPump: requestContinuousPoolPump,
+  pumpQueue: pumpContinuousQueue,
+  shouldRetainPoolCapacityOnCancel: shouldRetainFHLPoolCapacityOnCancel,
+  syncEditAutoAspect: () => syncSharedEditAutoAspect({
+    getState: () => useStudioStore.getState(),
+    setState: (patch) => useStudioStore.setState(patch),
+  }),
+});
+
 function isE2EOnlyBootstrap(): boolean {
   if (typeof window === "undefined") return false;
   return (window as Window & {
@@ -4655,341 +4648,19 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
   },
 
-  selectBatchTask: (taskId) => {
-    const trimmed = typeof taskId === "string" ? taskId.trim() : "";
-    const selectedBatchTaskId = trimmed ? trimmed : null;
-    const state = get();
-    const workspaceId = state.activeWorkspaceId;
-    const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
-    const task = selectedBatchTaskId ? state.batchTasksById[selectedBatchTaskId] : null;
-    if (!task || task.workspaceId !== workspaceId || !(workspace?.batchTaskIds ?? []).includes(task.id)) {
-      set({
-        selectedBatchTaskId,
-        workspaces: patchWorkspaceRuntime(state.workspaces, workspaceId, { selectedBatchTaskId }),
-      });
-      return;
-    }
-    set(sourceContextPatchFromBatchTask(state, task, selectedBatchTaskId));
-    if (task.mode === "edit" && (task.sourceImagePaths?.length ?? 0) > 0) {
-      void syncSharedEditAutoAspect({ getState: get, setState: set });
-    }
-  },
+  selectBatchTask: (taskId) => taskActions.selectBatchTask(taskId),
 
-  selectBatchTaskForCancel: (taskId) => {
-    get().selectBatchTask(taskId);
-  },
+  selectBatchTaskForCancel: (taskId) => taskActions.selectBatchTaskForCancel(taskId),
 
-  cancelBatchTask: async (taskId) => {
-    const s = get();
-    const workspaceId = s.activeWorkspaceId;
-    const selectedId = typeof taskId === "string" ? taskId.trim() : "";
-    const workspace = s.workspaces.find((entry) => entry.id === workspaceId);
-    const taskIds = workspace?.batchTaskIds ?? [];
-    const task = selectedId ? s.batchTasksById[selectedId] : null;
-    if (!task || task.workspaceId !== workspaceId || !taskIds.includes(task.id)) {
-      s.pushToast("No matching batch task was found", "warn", 2400);
-      return;
-    }
-    const retryableTerminalTask = isRetryableBatchTask(task, retryHistoryByIdForState(s));
-    if (task.status !== "queued" && task.status !== "running" && !retryableTerminalTask) {
-      s.pushToast("This task is not queued, running, failed, or missing its final image", "warn", 2400);
-      return;
-    }
+  cancelBatchTask: (taskId) => taskActions.cancelBatchTask(taskId),
 
-    clearAutoRetryTimer(task.id);
-    const jobId = typeof task.jobId === "string" && task.jobId.trim() ? task.jobId.trim() : "";
+  cancelQueuedBatchTasks: () => taskActions.cancelQueuedBatchTasks(),
 
-    const current = get();
-    const currentTask = current.batchTasksById[task.id] ?? task;
-    const currentRetryableTerminalTask = isRetryableBatchTask(currentTask, retryHistoryByIdForState(current));
-    if (currentTask.status !== "queued" && currentTask.status !== "running" && !currentRetryableTerminalTask) {
-      return;
-    }
-    const now = Date.now();
-    const batchTasksById: Record<string, BatchTaskRecord> = {
-      ...current.batchTasksById,
-      [task.id]: {
-        ...currentTask,
-        status: "cancelled",
-        queuedReason: undefined,
-        queuePriority: undefined,
-        updatedAt: now,
-      },
-    };
-    const runtime = workspaceRuntimeFromState(current, workspaceId);
-    const prunedPreview = jobId ? removeStreamPreview(runtime.streamPreviews, jobId) : {
-      streamPreview: runtime.streamPreview,
-      streamPreviews: runtime.streamPreviews,
-    };
-    const taskPatch = taskRuntimePatchForWorkspace(workspaceId, taskIds, batchTasksById);
-    const nextMeta = { ...current.runningJobMeta };
-    if (jobId && !shouldRetainFHLPoolCapacityOnCancel(current, jobId)) delete nextMeta[jobId];
-    const cancelPatch: WorkspacePatch = {
-      ...taskPatch,
-      selectedBatchTaskId: null,
-      progress: taskPatch.runningJobs?.length ? runtime.progress : null,
-      streamPreview: taskPatch.runningJobs?.length ? prunedPreview.streamPreview : null,
-      streamPreviews: taskPatch.runningJobs?.length ? prunedPreview.streamPreviews : {},
-      lastLogLine: taskPatch.runningJobs?.length ? runtime.lastLogLine : "",
-      resultGridOpen: true,
-      historyGalleryOpen: false,
-    };
-    set((state) => ({
-      batchTasksById,
-      selectedBatchTaskId: null,
-      runningJobMeta: nextMeta,
-      workspaces: patchWorkspaceRuntime(state.workspaces, workspaceId, cancelPatch),
-      ...(state.activeWorkspaceId === workspaceId ? {
-        ...activeRuntimePatch(cancelPatch),
-        resultGridOpen: true,
-        historyGalleryOpen: false,
-      } : {}),
-    } as Partial<StudioState>));
-    if (jobId) {
-      try { await wailsCancel(jobId); } catch { /* best effort */ }
-    }
-    get().pushToast(jobId
-      ? "Cancelled running task; upstream work may already be billed"
-      : "Cancelled queued task",
-      "info",
-      3600,
-    );
-    if (task.continuousPoolTask) {
-      void requestContinuousPoolPump();
-    } else {
-      void pumpContinuousQueue(workspaceId, task.apiMode);
-    }
-  },
+  clearFailedBatchTasks: () => taskActions.clearFailedBatchTasks(),
 
-  cancelQueuedBatchTasks: async () => {
-    const s = get();
-    const workspaceId = s.activeWorkspaceId;
-    const workspace = s.workspaces.find((entry) => entry.id === workspaceId);
-    const taskIds = workspace?.batchTaskIds ?? [];
-    const queuedTasks = sortedBatchTasksForWorkspace(workspaceId, taskIds, s.batchTasksById)
-      .filter((task) => task.status === "queued");
-    if (queuedTasks.length === 0) {
-      s.pushToast("No queued tasks in the current batch", "info", 2200);
-      return;
-    }
+  promoteBatchTask: (taskId) => taskActions.promoteBatchTask(taskId),
 
-    const queuedTaskIds = new Set(queuedTasks.map((task) => task.id));
-    const current = get();
-    const currentWorkspace = current.workspaces.find((entry) => entry.id === workspaceId);
-    const currentTaskIds = currentWorkspace?.batchTaskIds ?? taskIds;
-    const now = Date.now();
-    let cancelledCount = 0;
-    const cancelledJobIds = new Set<string>();
-    const batchTasksById: Record<string, BatchTaskRecord> = { ...current.batchTasksById };
-    for (const id of currentTaskIds) {
-      const task = batchTasksById[id];
-      if (!task || task.workspaceId !== workspaceId || !queuedTaskIds.has(task.id) || task.status !== "queued") continue;
-      const jobId = typeof task.jobId === "string" && task.jobId.trim() ? task.jobId.trim() : "";
-      if (jobId) cancelledJobIds.add(jobId);
-      startingContinuousTaskIds.delete(task.id);
-      clearAutoRetryTimer(task.id);
-      batchTasksById[task.id] = {
-        ...task,
-        status: "cancelled",
-        queuedReason: undefined,
-        queuePriority: undefined,
-        updatedAt: now,
-      };
-      cancelledCount += 1;
-    }
-    if (cancelledCount === 0) {
-      get().pushToast("No cancellable queued tasks were found after refresh", "info", 2200);
-      return;
-    }
-
-    const runtime = workspaceRuntimeFromState(current, workspaceId);
-    let prunedPreview = {
-      streamPreview: runtime.streamPreview,
-      streamPreviews: runtime.streamPreviews,
-    };
-    for (const jobId of cancelledJobIds) {
-      prunedPreview = removeStreamPreview(prunedPreview.streamPreviews, jobId);
-    }
-    const taskPatch = taskRuntimePatchForWorkspace(workspaceId, currentTaskIds, batchTasksById);
-    const nextMeta = { ...current.runningJobMeta };
-    for (const jobId of cancelledJobIds) {
-      if (!shouldRetainFHLPoolCapacityOnCancel(current, jobId)) delete nextMeta[jobId];
-    }
-    const cancelPatch: WorkspacePatch = {
-      ...taskPatch,
-      selectedBatchTaskId: null,
-      progress: taskPatch.runningJobs?.length ? runtime.progress : null,
-      streamPreview: taskPatch.runningJobs?.length ? prunedPreview.streamPreview : null,
-      streamPreviews: taskPatch.runningJobs?.length ? prunedPreview.streamPreviews : {},
-      lastLogLine: taskPatch.runningJobs?.length ? runtime.lastLogLine : "",
-      resultGridOpen: true,
-      historyGalleryOpen: false,
-    };
-    set((state) => ({
-      batchTasksById,
-      selectedBatchTaskId: null,
-      runningJobMeta: nextMeta,
-      workspaces: patchWorkspaceRuntime(state.workspaces, workspaceId, cancelPatch),
-      ...(state.activeWorkspaceId === workspaceId ? {
-        ...activeRuntimePatch(cancelPatch),
-        resultGridOpen: true,
-        historyGalleryOpen: false,
-      } : {}),
-    } as Partial<StudioState>));
-    get().pushToast(`已取消当前批次 ${cancelledCount} 个排队任务`, "info", 3200);
-    for (const jobId of cancelledJobIds) {
-      try { await wailsCancel(jobId); } catch { /* best effort */ }
-    }
-    if (queuedTasks.some((task) => task.continuousPoolTask)) void requestContinuousPoolPump();
-  },
-
-  clearFailedBatchTasks: async () => {
-    const s = get();
-    const workspaceId = s.activeWorkspaceId;
-    const workspace = s.workspaces.find((entry) => entry.id === workspaceId);
-    const taskIds = workspace?.batchTaskIds ?? [];
-    const retryHistoryById = retryHistoryByIdForState(s);
-    const retryableTasks = sortedBatchTasksForCurrentView(workspaceId, taskIds, s.batchTasksById)
-      .filter((task) => isRetryableBatchTask(task, retryHistoryById));
-    if (retryableTasks.length === 0) {
-      s.pushToast("当前批次没有可清空的生成失败/终图缺失任务", "info", 2200);
-      return;
-    }
-
-    const current = get();
-    const currentWorkspace = current.workspaces.find((entry) => entry.id === workspaceId);
-    const currentTaskIds = currentWorkspace?.batchTaskIds ?? taskIds;
-    const currentRetryHistoryById = retryHistoryByIdForState(current);
-    const now = Date.now();
-    const clearedTaskIds = new Set(retryableTasks.map((task) => task.id));
-    const clearedJobIds = new Set<string>();
-    let clearedCount = 0;
-    const batchTasksById: Record<string, BatchTaskRecord> = { ...current.batchTasksById };
-    for (const id of currentTaskIds) {
-      const task = batchTasksById[id];
-      if (!task || task.workspaceId !== workspaceId || !clearedTaskIds.has(task.id) || !isRetryableBatchTask(task, currentRetryHistoryById)) continue;
-      clearAutoRetryTimer(task.id);
-      const jobId = typeof task.jobId === "string" && task.jobId.trim() ? task.jobId.trim() : "";
-      if (jobId) clearedJobIds.add(jobId);
-      batchTasksById[task.id] = {
-        ...task,
-        status: "cancelled",
-        queuedReason: undefined,
-        queuePriority: undefined,
-        groupId: undefined,
-        jobId: undefined,
-        autoRetryScheduledAt: undefined,
-        autoRetryReason: undefined,
-        autoRetryCount: 0,
-        updatedAt: now,
-      };
-      clearedCount += 1;
-    }
-    if (clearedCount === 0) {
-      get().pushToast("刷新后没有剩余的生成失败/终图缺失任务", "info", 2200);
-      return;
-    }
-
-    const runtime = workspaceRuntimeFromState(current, workspaceId);
-    let prunedPreview = {
-      streamPreview: runtime.streamPreview,
-      streamPreviews: runtime.streamPreviews,
-    };
-    for (const jobId of clearedJobIds) {
-      prunedPreview = removeStreamPreview(prunedPreview.streamPreviews, jobId);
-    }
-    const taskPatch = taskRuntimePatchForWorkspace(workspaceId, currentTaskIds, batchTasksById);
-    const nextMeta = { ...current.runningJobMeta };
-    for (const jobId of clearedJobIds) delete nextMeta[jobId];
-    const clearPatch: WorkspacePatch = {
-      ...taskPatch,
-      selectedBatchTaskId: null,
-      progress: taskPatch.runningJobs?.length ? runtime.progress : null,
-      streamPreview: taskPatch.runningJobs?.length ? prunedPreview.streamPreview : null,
-      streamPreviews: taskPatch.runningJobs?.length ? prunedPreview.streamPreviews : {},
-      lastLogLine: taskPatch.runningJobs?.length ? runtime.lastLogLine : "",
-      resultGridOpen: true,
-      historyGalleryOpen: false,
-    };
-    set((state) => ({
-      batchTasksById,
-      selectedBatchTaskId: null,
-      runningJobMeta: nextMeta,
-      workspaces: patchWorkspaceRuntime(state.workspaces, workspaceId, clearPatch),
-      ...(state.activeWorkspaceId === workspaceId ? {
-        ...activeRuntimePatch(clearPatch),
-        resultGridOpen: true,
-        historyGalleryOpen: false,
-      } : {}),
-    } as Partial<StudioState>));
-    get().pushToast(`已清空 ${clearedCount} 个生成失败/终图缺失任务`, "info", 3200);
-  },
-
-  promoteBatchTask: async (taskId) => {
-    const s = get();
-    const workspaceId = s.activeWorkspaceId;
-    const selectedId = typeof taskId === "string" ? taskId.trim() : "";
-    const workspace = s.workspaces.find((entry) => entry.id === workspaceId);
-    const taskIds = workspace?.batchTaskIds ?? [];
-    const task = selectedId ? s.batchTasksById[selectedId] : null;
-    if (!task || task.workspaceId !== workspaceId || !taskIds.includes(task.id)) {
-      s.pushToast("没有找到对应的排队任务", "warn", 2400);
-      return;
-    }
-    if (task.status !== "queued" || task.jobId || task.queuedReason !== "local_concurrency") {
-      s.pushToast("这个排队任务当前不能立即插队", "warn", 3000);
-      return;
-    }
-
-    const current = get();
-    const currentTask = current.batchTasksById[task.id] ?? task;
-    if (currentTask.status !== "queued" || currentTask.jobId || currentTask.queuedReason !== "local_concurrency") {
-      current.pushToast("这个排队任务状态已经变化，请刷新后重试", "warn", 2600);
-      return;
-    }
-    if (startingContinuousTaskIds.has(currentTask.id)) {
-      current.pushToast("这个排队任务已经在启动中", "info", 2400);
-      return;
-    }
-    const batchTasksById: Record<string, BatchTaskRecord> = {
-      ...current.batchTasksById,
-      [currentTask.id]: {
-        ...currentTask,
-        updatedAt: Date.now(),
-      },
-    };
-    const taskPatch = taskRuntimePatchForWorkspace(workspaceId, taskIds, batchTasksById);
-    const promotePatch: WorkspacePatch = {
-      ...taskPatch,
-      resultGridOpen: true,
-      historyGalleryOpen: false,
-    };
-    set((state) => ({
-      batchTasksById,
-      workspaces: patchWorkspaceRuntime(state.workspaces, workspaceId, promotePatch),
-      ...(state.activeWorkspaceId === workspaceId ? {
-        ...activeRuntimePatch(promotePatch),
-        resultGridOpen: true,
-        historyGalleryOpen: false,
-      } : {}),
-    } as Partial<StudioState>));
-    const started = await startContinuousQueuedTask(currentTask.id);
-    if (started) {
-      get().pushToast("已立即插队，新增一个并发任务", "success", 2800);
-      return;
-    }
-    get().pushToast("排队任务暂时无法立即启动，请稍后再试", "warn", 3200);
-  },
-
-  cancelSelectedTask: async () => {
-    const selectedId = get().selectedBatchTaskId;
-    if (!selectedId) {
-      get().pushToast("没有选中的批次任务可取消", "warn", 2400);
-      return;
-    }
-    await get().cancelBatchTask(selectedId);
-  },
-
+  cancelSelectedTask: () => taskActions.cancelSelectedTask(),
   recoverRunningHubResult: async (taskId) => {
     const state = get();
     const task = state.batchTasksById[taskId];

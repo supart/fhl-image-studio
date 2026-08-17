@@ -5,7 +5,11 @@
 ## 文件职责
 
 - `studioStore.ts`
-  - `useStudioStore` 兼容入口、跨领域编排和仍待迁移的任务生命周期。
+  - `useStudioStore` 兼容入口、跨领域编排和仍待迁移的任务启动/事件生命周期。
+
+- `studioStore.tasks.ts`
+  - 任务选择、取消、失败项清理、队列插队和任务运行态派生。
+  - 宿主取消、重试计时器、连续池启动与队列 pump 通过运行时依赖注入。
 
 - `studioStore.workspaces.ts`
   - 工作区新建、切换、关闭和重命名动作。

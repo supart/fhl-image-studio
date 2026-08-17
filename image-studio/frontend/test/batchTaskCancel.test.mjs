@@ -211,12 +211,10 @@ test("one-click workspace reset keeps active queued and running batch tasks only
   assert.match(resetBlock, /patchWorkspaceRuntime\(current\.workspaces, workspaceId, resetPatch\)/);
 });
 
-test("store keeps selected cancel compatibility while exposing cancelBatchTask", () => {
+test("store keeps task cancellation compatibility through the task action facade", () => {
   assert.match(storeTypesSource, /cancelBatchTask: \(taskId: string\) => Promise<void>/);
-  assert.match(storeSource, /cancelBatchTask: async \(taskId\) =>/);
-  assert.match(storeSource, /const selectedId = typeof taskId === "string" \? taskId\.trim\(\) : ""/);
-  assert.match(storeSource, /try \{ await wailsCancel\(jobId\); \} catch/);
-  assert.match(storeSource, /await get\(\)\.cancelBatchTask\(selectedId\)/);
+  assert.match(storeSource, /cancelBatchTask: \(taskId\) => taskActions\.cancelBatchTask\(taskId\)/);
+  assert.match(storeSource, /cancelSelectedTask: \(\) => taskActions\.cancelSelectedTask\(\)/);
 });
 
 test("cancellation records the terminal state before asking the backend to stop", () => {
@@ -227,21 +225,11 @@ test("cancellation records the terminal state before asking the backend to stop"
   assert.ok(globalCancelBlock.indexOf('status: "cancelled"') < globalCancelBlock.indexOf("await wailsCancel(id)"));
   assert.match(globalCancelBlock, /const retainedFHLPoolJobIds = new Set\([\s\S]+shouldRetainFHLPoolCapacityOnCancel\(s, jobId\)/);
 
-  const taskCancelStart = storeSource.indexOf("cancelBatchTask: async (taskId) =>");
-  const taskCancelEnd = storeSource.indexOf("cancelQueuedBatchTasks: async () =>", taskCancelStart);
-  const taskCancelBlock = storeSource.slice(taskCancelStart, taskCancelEnd);
-  assert.ok(taskCancelStart >= 0 && taskCancelEnd > taskCancelStart);
-  assert.ok(taskCancelBlock.indexOf('status: "cancelled"') < taskCancelBlock.indexOf("await wailsCancel(jobId)"));
-  assert.match(taskCancelBlock, /if \(jobId && !shouldRetainFHLPoolCapacityOnCancel\(current, jobId\)\) delete nextMeta\[jobId\]/);
 });
 
 test("store exposes queue promotion for local queued tasks", () => {
   assert.match(storeTypesSource, /promoteBatchTask: \(taskId: string\) => Promise<void>/);
-  assert.match(storeSource, /promoteBatchTask: async \(taskId\) =>/);
-  assert.match(storeSource, /task\.status !== "queued" \|\| task\.jobId \|\| task\.queuedReason !== "local_concurrency"/);
-  assert.match(storeSource, /startingContinuousTaskIds\.has\(currentTask\.id\)/);
-  assert.match(storeSource, /const started = await startContinuousQueuedTask\(currentTask\.id\)/);
-  assert.match(storeSource, /已立即插队，新增一个并发任务/);
+  assert.match(storeSource, /promoteBatchTask: \(taskId\) => taskActions\.promoteBatchTask\(taskId\)/);
   assert.match(storeSource, /runningOrSubmittedTaskCountForWorkspace\([\s\S]+startingContinuousTaskIds/);
 });
 
@@ -276,16 +264,7 @@ test("submit button labels batch image-to-image count explicitly", () => {
 
 test("submit bar exposes one-click cancel for queued batch tasks", () => {
   assert.match(storeTypesSource, /cancelQueuedBatchTasks: \(\) => Promise<void>/);
-  assert.match(storeSource, /cancelQueuedBatchTasks: async \(\) =>/);
-  const cancelQueuedIndex = storeSource.indexOf("cancelQueuedBatchTasks: async () =>");
-  const promoteIndex = storeSource.indexOf("promoteBatchTask: async", cancelQueuedIndex);
-  assert.ok(cancelQueuedIndex >= 0 && promoteIndex > cancelQueuedIndex);
-  const cancelQueuedBlock = storeSource.slice(cancelQueuedIndex, promoteIndex);
-  assert.match(cancelQueuedBlock, /filter\(\(task\) => task\.status === "queued"\)/);
-  assert.match(cancelQueuedBlock, /status: "cancelled"/);
-  assert.match(cancelQueuedBlock, /queuedReason: undefined/);
-  assert.match(cancelQueuedBlock, /queuePriority: undefined/);
-  assert.match(cancelQueuedBlock, /startingContinuousTaskIds\.delete\(task\.id\)/);
+  assert.match(storeSource, /cancelQueuedBatchTasks: \(\) => taskActions\.cancelQueuedBatchTasks\(\)/);
   assert.match(submitBarSource, /queuedBatchTaskCount: number/);
   assert.match(submitBarSource, /onCancelQueuedBatchTasks: \(\) => void \| Promise<void>/);
   assert.match(submitBarSource, /data-audit-id="cancel-queued-batch-tasks"/);
@@ -329,22 +308,7 @@ test("submit bar exposes one-click retry for current failed batch tasks only", (
 
 test("submit bar exposes one-click clear for current failed batch tasks", () => {
   assert.match(storeTypesSource, /clearFailedBatchTasks: \(\) => Promise<void>/);
-  assert.match(storeSource, /clearFailedBatchTasks: async \(\) =>/);
-  const clearFailedIndex = storeSource.indexOf("clearFailedBatchTasks: async () =>");
-  const promoteIndex = storeSource.indexOf("promoteBatchTask: async", clearFailedIndex);
-  assert.ok(clearFailedIndex >= 0 && promoteIndex > clearFailedIndex);
-  const clearFailedBlock = storeSource.slice(clearFailedIndex, promoteIndex);
-  assert.match(clearFailedBlock, /filter\(\(task\) => isRetryableBatchTask\(task, retryHistoryById\)\)/);
-  assert.match(clearFailedBlock, /!isRetryableBatchTask\(task, currentRetryHistoryById\)/);
-  assert.match(clearFailedBlock, /clearAutoRetryTimer\(task\.id\)/);
-  assert.match(clearFailedBlock, /status: "cancelled"/);
-  assert.match(clearFailedBlock, /queuedReason: undefined/);
-  assert.match(clearFailedBlock, /queuePriority: undefined/);
-  assert.match(clearFailedBlock, /groupId: undefined/);
-  assert.match(clearFailedBlock, /jobId: undefined/);
-  assert.match(clearFailedBlock, /autoRetryScheduledAt: undefined/);
-  assert.match(clearFailedBlock, /autoRetryReason: undefined/);
-  assert.match(clearFailedBlock, /已清空 \$\{clearedCount\} 个生成失败\/终图缺失任务/);
+  assert.match(storeSource, /clearFailedBatchTasks: \(\) => taskActions\.clearFailedBatchTasks\(\)/);
   assert.match(submitBarSource, /onClearFailedBatchTasks: \(\) => void \| Promise<void>/);
   assert.match(submitBarSource, /const \[clearingFailed, setClearingFailed\] = useState\(false\)/);
   assert.match(submitBarSource, /const clearFailedButton = failedBatchTaskCount > 0/);

@@ -12,6 +12,7 @@ vi.mock("../src/lib/storage", async (importOriginal) => ({
 import { MATERIAL_LIBRARY_KEY } from "../src/state/materialLibrary.ts";
 import { activeWorkspaceEditAutoAspectUserLocked } from "../src/state/sharedEditAutoAspect.ts";
 import { useStudioStore } from "../src/state/studioStore.ts";
+import { createWorkspaceActions } from "../src/state/studioStore.workspaces.ts";
 import { createDefaultWorkspace } from "../src/state/workspaceDefaults.ts";
 import type { HistoryItem } from "../src/types/domain.ts";
 
@@ -109,6 +110,46 @@ describe("workspace, material, and history domain modules", () => {
 
     useStudioStore.getState().switchWorkspace(first.id);
     expect(useStudioStore.getState().editAutoAspectUserLocked).toBe(true);
+  });
+
+  it("unbinds every native job event when a workspace closes", () => {
+    const first = {
+      ...createDefaultWorkspace("workspace-1", "png", "Workspace 1"),
+      runningJobIds: ["job-1"],
+    };
+    const second = createDefaultWorkspace("workspace-2", "png", "Workspace 2");
+    let state = {
+      ...useStudioStore.getState(),
+      workspaces: [first, second],
+      activeWorkspaceId: first.id,
+      runningJobMeta: { "job-1": { workspaceId: first.id } },
+    };
+    const cancelJob = vi.fn();
+    const offEvents = vi.fn();
+    const actions = createWorkspaceActions({
+      getState: () => state,
+      setState: (patch) => {
+        state = { ...state, ...(typeof patch === "function" ? patch(state) : patch) };
+      },
+    }, {
+      cancelJob,
+      offEvents,
+      saveActiveSnapshot: (current) => current.workspaces,
+    });
+
+    actions.closeWorkspace(first.id);
+
+    expect(cancelJob).toHaveBeenCalledWith("job-1");
+    expect(offEvents).toHaveBeenCalledWith(
+      "progress:job-1",
+      "log:job-1",
+      "preview:job-1",
+      "result:job-1",
+      "error:job-1",
+      "settled:job-1",
+    );
+    expect(state.workspaces.map((workspace) => workspace.id)).toEqual([second.id]);
+    expect(state.runningJobMeta).toEqual({});
   });
 
   it("persists material group mutations and deduplicates history refs", () => {
