@@ -37,7 +37,7 @@ function FluentMenuIcon({ item }: { item: MenuItem }) {
 
   if (item.danger || matchesAny(label, ["删除", "清空"])) return <Trash2 className={iconClass} />;
   if (matchesAny(label, ["详情"])) return <Info className={iconClass} />;
-  if (matchesAny(label, ["复制 prompt", "复制图像", "粘贴图像", "复制"])) {
+  if (matchesAny(label, ["复制 prompt", "复制图像", "粘贴图像", "粘贴", "复制"])) {
     return <Clipboard className={iconClass} />;
   }
   if (matchesAny(label, ["路径", "复制本地路径"])) return <FolderOpen className={iconClass} />;

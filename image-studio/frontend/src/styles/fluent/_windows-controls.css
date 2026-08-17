@@ -357,9 +357,24 @@ html[data-platform="windows"][data-ui-family="fluent"] .source-strip {
 }
 
 html[data-platform="windows"][data-ui-family="fluent"] .source-thumb {
-  width: 56px;
   height: 56px;
   border-radius: 4px;
+}
+
+html[data-platform="windows"][data-ui-family="fluent"] .source-thumb.source-image-tile {
+  width: var(--source-tile-width, 56px);
+  min-width: 36px;
+  max-width: 112px;
+}
+
+html[data-platform="windows"][data-ui-family="fluent"] .source-thumb.source-image-tile img {
+  object-fit: contain;
+}
+
+html[data-platform="windows"][data-ui-family="fluent"] .source-thumb.add {
+  width: 56px;
+  min-width: 56px;
+  max-width: 56px;
 }
 
 html[data-platform="windows"][data-ui-family="fluent"] .stage-host {

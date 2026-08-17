@@ -18,7 +18,7 @@ test("reference updates preserve an enabled batch image-to-image mode", () => {
   );
 
   const selectSourceImage = actionBlock("async selectSourceImage()", "async selectBatchInputDir()");
-  const importSourceImageFile = actionBlock("async importSourceImageFile(file: File)", "async selectReversePromptImage()");
+  const importSourceImageFile = actionBlock("async importSourceImageFile(file: File, options?: SourceImageImportOptions)", "async selectReversePromptImage()");
   const reuseAsSource = actionBlock("async reuseAsSource(item: HistoryItem)", "applyHistoryParams(item: HistoryItem)");
   const importImageFile = actionBlock("async importImageFile(file: File)", "\n  };");
 

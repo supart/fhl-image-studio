@@ -17,7 +17,8 @@ import { suggestImageFileName, suggestManualSaveImageFileName } from "../lib/ima
 import { persistHistoryItem, removeHistoryItem } from "../lib/storage";
 import { buildPanoramaProjectRef, isLikelyPanoramaItem } from "../panorama/core";
 import type { HistoryItem, SourceImage } from "../types/domain";
-import type { StudioState } from "./studioStore.types";
+import type { SourceImageImportOptions, StudioState } from "./studioStore.types";
+import { applySourceImageImport } from "./sourceImageImport";
 import { sourceImagesFromHistoryItem } from "./historySourceImages";
 import {
   persistMaterialGroups,
@@ -249,10 +250,15 @@ export function createImageActions(store: StateAdapter) {
       }
     },
 
-    async importSourceImageFile(file: File) {
+    async importSourceImageFile(file: File, options?: SourceImageImportOptions) {
       try {
         if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) {
           store.setState({ errorMessage: `不支持的图片类型: ${file.type || "(未知)"}，请用 PNG/JPG/WebP`, errorRawPath: null });
+          return;
+        }
+        const replaceSourcePath = String(options?.replaceSourcePath || "").trim();
+        if (replaceSourcePath && !store.getState().sources.some((source) => source.path === replaceSourcePath)) {
+          store.getState().pushToast("目标参考图已变化，未执行替换", "warn", 2800);
           return;
         }
         const b64 = await fileToBase64(file);
@@ -261,28 +267,34 @@ export function createImageActions(store: StateAdapter) {
         const previewUrl = ref?.previewUrl || result.previewUrl;
         const legacyB64 = previewUrl ? "" : (result.imageB64 || b64);
         const currentState = store.getState();
-        const existing = currentState.sources;
-        const alreadyIn = existing.some((source) => source.path === result.path);
+        const imported: SourceImage = {
+          path: result.path,
+          name: file.name,
+          size: file.size,
+          width: Number.isFinite(Number(result.previewWidth)) ? Number(result.previewWidth) : undefined,
+          height: Number.isFinite(Number(result.previewHeight)) ? Number(result.previewHeight) : undefined,
+          imageB64: legacyB64 || undefined,
+          imageBlob: legacyB64 ? base64ToBlob(legacyB64) : null,
+          previewUrl,
+        };
+        const update = applySourceImageImport(currentState.sources, imported, replaceSourcePath || undefined);
         store.setState({
-          sources: alreadyIn
-            ? existing
-            : [...existing, {
-                path: result.path,
-                name: file.name,
-                size: file.size,
-                width: Number.isFinite(Number(result.previewWidth)) ? Number(result.previewWidth) : undefined,
-                height: Number.isFinite(Number(result.previewHeight)) ? Number(result.previewHeight) : undefined,
-                imageB64: legacyB64 || undefined,
-                imageBlob: legacyB64 ? base64ToBlob(legacyB64) : null,
-                previewUrl,
-              }],
+          sources: update.sources,
           mode: "edit",
           editSourceMode: editSourceModeAfterReferenceUpdate(currentState.editSourceMode),
           errorMessage: null,
           errorRawPath: null,
         });
-        void syncSharedEditAutoAspect(store);
-        store.getState().pushToast(alreadyIn ? "参考图已存在" : "已导入参考图", alreadyIn ? "warn" : "success", 2200);
+        if (update.outcome === "added" || update.outcome === "replaced") {
+          void syncSharedEditAutoAspect(store);
+        }
+        if (update.outcome === "stale") {
+          store.getState().pushToast("目标参考图已变化，未执行替换", "warn", 2800);
+        } else if (update.outcome === "duplicate") {
+          store.getState().pushToast("参考图已存在", "warn", 2200);
+        } else {
+          store.getState().pushToast(update.outcome === "replaced" ? "已替换参考图" : "已导入参考图", "success", 2200);
+        }
       } catch (error: any) {
         store.setState({ errorMessage: `导入参考图失败: ${error?.message ?? error}`, errorRawPath: null });
       }

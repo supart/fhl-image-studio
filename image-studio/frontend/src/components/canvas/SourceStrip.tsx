@@ -1,6 +1,7 @@
-import { Fragment, type DragEvent, useEffect, useRef, useState } from "react";
+import { Fragment, type CSSProperties, type DragEvent, type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, Images, Plus, X } from "lucide-react";
+import { ContextMenu } from "../common/ContextMenu";
 import { useStudioStore } from "../../state/studioStore";
 import { dataURLFromBase64, useBlobURL } from "../../lib/images";
 import { materializeCompareSourceAsHistoryItem } from "../../state/compareSourceSelection";
@@ -8,6 +9,18 @@ import { sourceToDataURL } from "../../lib/virtualHostStore";
 import { usePlatform } from "../../platform/context";
 import { ImportImagePath, ReadImageAsBase64, RegisterImportedImageAsset } from "../../platform/runtime/host";
 import type { BatchProcessConfig, BatchProcessSourceImage, HistoryItem, SourceImage } from "../../types/domain";
+import {
+  calculateWindowsSourceTileWidth,
+  clipboardImageReadMessage,
+  copySourceImageToClipboard,
+  readClipboardImageFile,
+} from "./sourceImageInteractions";
+
+type SourceContextMenuState = {
+  x: number;
+  y: number;
+  sourcePath?: string;
+};
 
 function clampBatchQueueSlotIndex(value: unknown, fixedSourceCount: number): number {
   const n = Number(value);
@@ -51,6 +64,7 @@ export function SourceStrip() {
   const [overIdx, setOverIdx] = useState<number | null>(null);
   const [fileDragActive, setFileDragActive] = useState(false);
   const [batchQueueOpen, setBatchQueueOpen] = useState(false);
+  const [sourceContextMenu, setSourceContextMenu] = useState<SourceContextMenuState | null>(null);
   const batchQueueTriggerRef = useRef<HTMLDivElement | null>(null);
 
   const batchMode = editSourceMode === "batch";
@@ -83,6 +97,57 @@ export function SourceStrip() {
       return;
     }
     void importSourceImageFile(file);
+  };
+
+  const openAddSourceContextMenu = (event: ReactMouseEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setSourceContextMenu({ x: event.clientX, y: event.clientY });
+  };
+
+  const openSourceContextMenu = (source: SourceImage, event: ReactMouseEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setSourceContextMenu({ x: event.clientX, y: event.clientY, sourcePath: source.path });
+  };
+
+  const pasteSourceImage = async (replaceSourcePath?: string) => {
+    setSourceContextMenu(null);
+    try {
+      const file = await readClipboardImageFile();
+      await importSourceImageFile(file, replaceSourcePath ? { replaceSourcePath } : undefined);
+    } catch (error) {
+      pushToast(clipboardImageReadMessage(error), "warn", 3400);
+    }
+  };
+
+  const copySourceImage = async (sourcePath: string) => {
+    setSourceContextMenu(null);
+    const source = useStudioStore.getState().sources.find((item) => item.path === sourcePath);
+    if (!source) {
+      pushToast("目标参考图已变化，无法复制", "warn", 2800);
+      return;
+    }
+    const result = await copySourceImageToClipboard(source);
+    if (result === "success") {
+      pushToast("已复制参考图原图", "success", 2200);
+    } else if (result === "unavailable") {
+      pushToast("当前环境无法复制图像到剪贴板", "warn", 3200);
+    } else if (result === "missing") {
+      pushToast("参考图原文件无法读取，请重新导入", "warn", 3200);
+    } else {
+      pushToast("复制图像失败，请检查剪贴板权限", "error", 3200);
+    }
+  };
+
+  const removeSourceByPath = (sourcePath: string) => {
+    setSourceContextMenu(null);
+    const index = useStudioStore.getState().sources.findIndex((source) => source.path === sourcePath);
+    if (index < 0) {
+      pushToast("目标参考图已变化，未执行删除", "warn", 2800);
+      return;
+    }
+    removeSource(index);
   };
 
   const updateBatchProcessSources = (
@@ -198,6 +263,7 @@ export function SourceStrip() {
                   reorderSources={reorderSources}
                   removeSource={removeSource}
                   onUseAsCompare={useSourceAsCompare}
+                  onOpenContextMenu={openSourceContextMenu}
                 />
               ) : null}
             </Fragment>
@@ -205,6 +271,7 @@ export function SourceStrip() {
           <button
             data-audit-id="select-fixed-source-image"
             onClick={selectSourceImage}
+            onContextMenu={openAddSourceContextMenu}
             title="添加固定参考图"
             className={`source-thumb add flex h-12 w-12 shrink-0 items-center justify-center border border-dashed border-zinc-300 text-zinc-500 transition-colors hover:border-[color:var(--accent)]/35 hover:text-[var(--accent)] dark:border-zinc-700 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}
           >
@@ -233,11 +300,13 @@ export function SourceStrip() {
               reorderSources={reorderSources}
               removeSource={removeSource}
               onUseAsCompare={useSourceAsCompare}
+              onOpenContextMenu={openSourceContextMenu}
             />
           ))}
           <button
             data-audit-id="select-source-image"
             onClick={selectSourceImage}
+            onContextMenu={openAddSourceContextMenu}
             title="添加参考图，或把图片拖入此区域"
             className={`source-thumb add flex h-12 w-12 shrink-0 items-center justify-center border border-dashed border-zinc-300 text-zinc-500 transition-colors hover:border-[color:var(--accent)]/35 hover:text-[var(--accent)] dark:border-zinc-700 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}
           >
@@ -257,6 +326,36 @@ export function SourceStrip() {
           triggerRef={batchQueueTriggerRef}
           onClose={() => setBatchQueueOpen(false)}
           usesFluentUI={usesFluentUI}
+        />
+      ) : null}
+      {sourceContextMenu ? (
+        <ContextMenu
+          x={sourceContextMenu.x}
+          y={sourceContextMenu.y}
+          onClose={() => setSourceContextMenu(null)}
+          items={sourceContextMenu.sourcePath
+            ? [
+                {
+                  label: "复制图像",
+                  onClick: () => void copySourceImage(sourceContextMenu.sourcePath!),
+                },
+                {
+                  label: "粘贴替换当前格",
+                  onClick: () => void pasteSourceImage(sourceContextMenu.sourcePath),
+                },
+                {
+                  label: "删除参考图",
+                  danger: true,
+                  separatorBefore: true,
+                  onClick: () => removeSourceByPath(sourceContextMenu.sourcePath!),
+                },
+              ]
+            : [
+                {
+                  label: "粘贴图像",
+                  onClick: () => void pasteSourceImage(),
+                },
+              ]}
         />
       ) : null}
     </div>
@@ -616,6 +715,7 @@ function SourceTile({
   reorderSources,
   removeSource,
   onUseAsCompare,
+  onOpenContextMenu,
 }: {
   source: SourceImage;
   index: number;
@@ -626,13 +726,45 @@ function SourceTile({
   reorderSources: (from: number, to: number) => void;
   removeSource: (index: number) => void;
   onUseAsCompare?: (source: SourceImage) => void | Promise<void>;
+  onOpenContextMenu: (source: SourceImage, event: ReactMouseEvent<HTMLElement>) => void;
 }) {
   const objectURL = useBlobURL(source.imageBlob ?? null, source.imageB64 ?? null);
   const immediatePreviewURL = source.previewUrl || objectURL;
   const [pathPreviewURL, setPathPreviewURL] = useState("");
   const [previewUrlFailed, setPreviewUrlFailed] = useState(false);
+  const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
+  const [hoverReady, setHoverReady] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [popoverStyle, setPopoverStyle] = useState<CSSProperties | null>(null);
   const previewURL = !previewUrlFailed && immediatePreviewURL ? immediatePreviewURL : pathPreviewURL;
   const { usesFluentUI } = usePlatform();
+  const tileRef = useRef<HTMLDivElement | null>(null);
+  const hoverTimerRef = useRef<number | null>(null);
+  const clickTimerRef = useRef<number | null>(null);
+  const hoverOpen = hoverReady || focused;
+  const tileWidth = calculateWindowsSourceTileWidth(
+    source.width,
+    source.height,
+    naturalSize?.width,
+    naturalSize?.height,
+  );
+
+  const clearHoverTimer = () => {
+    if (hoverTimerRef.current == null) return;
+    window.clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = null;
+  };
+
+  const clearClickTimer = () => {
+    if (clickTimerRef.current == null) return;
+    window.clearTimeout(clickTimerRef.current);
+    clickTimerRef.current = null;
+  };
+
+  const closeHoverPreview = () => {
+    clearHoverTimer();
+    setHoverReady(false);
+  };
 
   async function openSourceOnCanvas() {
     const state = useStudioStore.getState();
@@ -723,13 +855,103 @@ function SourceTile({
 
   useEffect(() => {
     setPreviewUrlFailed(false);
+    setNaturalSize(null);
+    if (hoverTimerRef.current != null) {
+      window.clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    setHoverReady(false);
   }, [immediatePreviewURL, source.path]);
+
+  useEffect(() => () => {
+    if (hoverTimerRef.current != null) window.clearTimeout(hoverTimerRef.current);
+    if (clickTimerRef.current != null) window.clearTimeout(clickTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (!hoverOpen) {
+      setPopoverStyle(null);
+      return;
+    }
+    const updatePosition = () => {
+      const rect = tileRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const margin = 12;
+      const gap = 10;
+      const width = Math.max(120, Math.min(360, window.innerWidth - margin * 2));
+      const maxHeight = Math.max(120, Math.min(296, window.innerHeight - margin * 2));
+      const left = Math.max(margin, Math.min(
+        window.innerWidth - width - margin,
+        rect.left + rect.width / 2 - width / 2,
+      ));
+      const proposedTop = rect.top >= maxHeight + gap + margin
+        ? rect.top - maxHeight - gap
+        : rect.bottom + gap;
+      const top = Math.max(margin, Math.min(window.innerHeight - maxHeight - margin, proposedTop));
+      setPopoverStyle({ left, top, width });
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [hoverOpen]);
+
+  const hoverPreview = hoverOpen && popoverStyle ? createPortal(
+    <div
+      className="source-image-hover-popover"
+      role="tooltip"
+      aria-label={`第 ${index + 1} 张参考图大预览`}
+      style={popoverStyle}
+    >
+      {previewURL ? (
+        <img
+          src={previewURL}
+          alt="参考图悬浮预览"
+          className="source-image-hover-image"
+          decoding="async"
+          draggable={false}
+        />
+      ) : (
+        <div className="source-image-hover-empty">正在读取参考图预览...</div>
+      )}
+    </div>,
+    document.body,
+  ) : null;
 
   return (
     <div
+      ref={tileRef}
       data-audit-id="source-image"
+      role="button"
+      tabIndex={0}
+      aria-label={`第 ${index + 1} 张参考图：${source.name}，双击查看大图`}
       draggable
-      onDragStart={() => setDragFrom(index)}
+      onMouseEnter={() => {
+        clearHoverTimer();
+        hoverTimerRef.current = window.setTimeout(() => {
+          hoverTimerRef.current = null;
+          setHoverReady(true);
+        }, 250);
+      }}
+      onMouseLeave={closeHoverPreview}
+      onFocus={(event) => setFocused(event.currentTarget.matches(":focus-visible"))}
+      onBlur={() => setFocused(false)}
+      onContextMenu={(event) => {
+        clearClickTimer();
+        closeHoverPreview();
+        setFocused(false);
+        tileRef.current?.blur();
+        onOpenContextMenu(source, event);
+      }}
+      onDragStart={() => {
+        clearClickTimer();
+        closeHoverPreview();
+        setFocused(false);
+        setDragFrom(index);
+      }}
       onDragOver={(e) => { e.preventDefault(); setOverIdx(index); }}
       onDragLeave={() => setOverIdx(null)}
       onDrop={(e) => {
@@ -738,15 +960,36 @@ function SourceTile({
         setDragFrom(null);
         setOverIdx(null);
       }}
-      onDragEnd={() => { setDragFrom(null); setOverIdx(null); }}
+      onDragEnd={() => { setDragFrom(null); setOverIdx(null); closeHoverPreview(); }}
       onClick={(event) => {
         if (!onUseAsCompare) return;
         event.stopPropagation();
-        void onUseAsCompare(source);
+        clearClickTimer();
+        clickTimerRef.current = window.setTimeout(() => {
+          clickTimerRef.current = null;
+          void onUseAsCompare(source);
+        }, 220);
       }}
-      onDoubleClick={() => void openSourceOnCanvas()}
-      title={`${index + 1}. ${source.name}\n${source.path}\n双击查看大图`}
-      className={`source-thumb relative group h-12 w-12 shrink-0 overflow-hidden border transition-all ${
+      onDoubleClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        clearClickTimer();
+        closeHoverPreview();
+        setFocused(false);
+        tileRef.current?.blur();
+        void openSourceOnCanvas();
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        event.stopPropagation();
+        clearClickTimer();
+        closeHoverPreview();
+        setFocused(false);
+        void openSourceOnCanvas();
+      }}
+      style={{ "--source-tile-width": `${tileWidth}px` } as CSSProperties}
+      className={`source-thumb source-image-tile relative group h-12 w-12 shrink-0 overflow-hidden border transition-all ${
         onUseAsCompare ? "cursor-pointer" : "cursor-grab"
       } ${
         overIdx === index
@@ -766,7 +1009,12 @@ function SourceTile({
           onError={() => {
             if (immediatePreviewURL && previewURL === immediatePreviewURL) setPreviewUrlFailed(true);
           }}
-          className="w-full h-full object-cover"
+          onLoad={(event) => {
+            const width = event.currentTarget.naturalWidth;
+            const height = event.currentTarget.naturalHeight;
+            if (width > 0 && height > 0) setNaturalSize({ width, height });
+          }}
+          className="h-full w-full bg-[var(--canvas-bg)] object-contain object-center"
         />
       ) : (
         <div className="w-full h-full flex items-center justify-center text-[10px] text-zinc-500 bg-zinc-100 dark:bg-zinc-800">
@@ -779,11 +1027,13 @@ function SourceTile({
         onPointerDown={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => { e.stopPropagation(); removeSource(index); }}
+        onDoubleClick={(e) => e.stopPropagation()}
         title="移除"
         className={`source-thumb-remove absolute right-0.5 top-0.5 z-20 hidden h-6 w-6 items-center justify-center border border-white bg-red-600 text-white shadow-[0_3px_10px_rgb(185_28_28)] group-hover:flex hover:bg-red-700 dark:border-zinc-950 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
       >
         <X className="h-3.5 w-3.5" strokeWidth={2.5} />
       </button>
+      {hoverPreview}
     </div>
   );
 }

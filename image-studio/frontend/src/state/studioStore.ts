@@ -4431,7 +4431,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   selectBatchInputFiles: async () => imageActions.selectBatchInputFiles(),
   refreshBatchInputDir: async () => imageActions.refreshBatchInputDir(),
   chooseBatchOutputDir: async () => imageActions.chooseBatchOutputDir(),
-  importSourceImageFile: async (file) => imageActions.importSourceImageFile(file),
+  importSourceImageFile: async (file, options) => imageActions.importSourceImageFile(file, options),
   selectReversePromptImage: async () => imageActions.selectReversePromptImage(),
   importReversePromptImageFile: async (file) => imageActions.importReversePromptImageFile(file),
   clearReversePromptImage: () => imageActions.clearReversePromptImage(),

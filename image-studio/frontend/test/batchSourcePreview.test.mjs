@@ -6,6 +6,7 @@ const gridSource = readFileSync(new URL("../src/components/canvas/BatchResultGri
 const stageSource = readFileSync(new URL("../src/components/canvas/CanvasStage.tsx", import.meta.url), "utf8");
 const sourceStripSource = readFileSync(new URL("../src/components/canvas/SourceStrip.tsx", import.meta.url), "utf8");
 const cssSource = readFileSync(new URL("../src/styles/_canvas.css", import.meta.url), "utf8");
+const windowsCSSSource = readFileSync(new URL("../src/styles/fluent/_windows-controls.css", import.meta.url), "utf8");
 
 test("batch task cards expose a hoverable source preview anchor", () => {
   assert.match(gridSource, /export type BatchGridSourcePreview/);
@@ -90,7 +91,7 @@ test("source strip shows fixed reference slots plus one movable batch queue tile
   assert.doesNotMatch(sourceStripSource, /\{source\.name\}\s*<\/div>/);
 });
 
-test("reference thumbnails can switch the compare source with a single click while compare is open", () => {
+test("reference thumbnails defer compare selection so double-click can open the source instead", () => {
   assert.ok(sourceStripSource.includes("const currentImage = useStudioStore((s) => s.currentImage);"));
   assert.ok(sourceStripSource.includes("const compareB = useStudioStore((s) => s.compareB);"));
   assert.ok(sourceStripSource.includes("const setCompareB = useStudioStore((s) => s.setCompareB);"));
@@ -99,7 +100,18 @@ test("reference thumbnails can switch the compare source with a single click whi
   assert.ok(sourceStripSource.includes("void setCompareB(compareItem);"));
   assert.equal((sourceStripSource.match(/onUseAsCompare=\{useSourceAsCompare\}/g) ?? []).length, 2);
   assert.ok(sourceStripSource.includes("void onUseAsCompare(source);"));
+  assert.ok(sourceStripSource.includes("clickTimerRef.current = window.setTimeout"));
+  assert.ok(sourceStripSource.includes("clearClickTimer();"));
   assert.ok(sourceStripSource.includes('onUseAsCompare ? "cursor-pointer" : "cursor-grab"'));
+});
+
+test("Windows reference thumbnails preserve the full image inside ratio-aware tiles", () => {
+  assert.match(sourceStripSource, /calculateWindowsSourceTileWidth/);
+  assert.match(sourceStripSource, /className="h-full w-full bg-\[var\(--canvas-bg\)\] object-contain object-center"/);
+  assert.match(
+    windowsCSSSource,
+    /\.source-thumb\.source-image-tile img \{\s*object-fit: contain;\s*\}/,
+  );
 });
 
 

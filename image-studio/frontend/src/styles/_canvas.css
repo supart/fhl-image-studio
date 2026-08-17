@@ -346,6 +346,41 @@ html.dark .source-thumb-remove {
 }
 .source-thumb.add:hover { color: var(--accent); border-color: var(--accent); }
 
+.source-image-hover-popover {
+  position: fixed;
+  z-index: 9500;
+  display: grid;
+  place-items: center;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  padding: 8px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 94%, #fff);
+  box-shadow: 0 18px 40px rgb(15 23 42 / 0.24);
+  pointer-events: none;
+}
+
+.source-image-hover-image {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: 280px;
+  object-fit: contain;
+  object-position: center;
+  background: var(--canvas-bg);
+}
+
+.source-image-hover-empty {
+  display: grid;
+  min-height: 96px;
+  place-items: center;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
 /* Konva stage host —— 棋盘格底,带斜向慢漂浮动画。
    动画原理:同时位移所有 4 个 linear-gradient 的 background-position,
    每 30s 走完一个 tile 周期(24px)。图存在时 Konva canvas 完全覆盖此层,

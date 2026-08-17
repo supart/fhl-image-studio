@@ -56,6 +56,10 @@ export type CompareMode = "curtain" | "sideBySide";
 
 export type FHLTransportMode = "images" | "responses";
 
+export interface SourceImageImportOptions {
+  replaceSourcePath?: string;
+}
+
 export interface PromptOptimizeRequest {
   apiKey: string;
   prompt: string;
@@ -223,7 +227,7 @@ export interface StudioState {
   selectBatchInputFiles: () => Promise<void>;
   refreshBatchInputDir: () => Promise<void>;
   chooseBatchOutputDir: () => Promise<void>;
-  importSourceImageFile: (file: File) => Promise<void>;
+  importSourceImageFile: (file: File, options?: SourceImageImportOptions) => Promise<void>;
   selectReversePromptImage: () => Promise<void>;
   importReversePromptImageFile: (file: File) => Promise<void>;
   clearReversePromptImage: () => void;
