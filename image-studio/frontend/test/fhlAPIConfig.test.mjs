@@ -74,13 +74,18 @@ test("desktop FHL setup uses ten independent Images slots while Android retains 
   assert.match(poolConfig, /const transportLabel = fhlTransportMode === "responses" \? "FHL Responses" : "FHL Images"/);
   assert.match(poolConfig, /槽位配置不会随接口切换而改变/);
   assert.match(poolConfig, /已填写 \{savedPoolSlotCount\}/);
-  assert.match(poolConfig, /旧配置未记录尾号；重新输入直接替换，无需删除/);
-  assert.match(poolConfig, /function displayKeyHint/);
-  assert.match(poolConfig, /sk-\.\.\.\$\{value\}/);
-  assert.match(poolConfig, /if \(profile\)[\s\S]{0,1400}await updateProfile\(profile\.id/);
+  assert.match(poolConfig, /批量配置 10 个 API/);
+  assert.match(poolConfig, /批量预填已就绪；输入新值才替换/);
+  assert.match(poolConfig, /profileHasCredential[\s\S]{0,600}已保存密钥/);
+  assert.doesNotMatch(poolConfig, /function displayKeyHint/);
+  assert.doesNotMatch(poolConfig, /sk-\.\.\.\$\{value\}/);
+  assert.match(poolConfig, /if \(profile\)[\s\S]{0,1800}await updateProfile\(profile\.id/);
   assert.doesNotMatch(poolConfig, /hasUpstreamProfileCapacity/);
   assert.doesNotMatch(poolConfig, /precedingEmptySlotCount/);
-  assert.doesNotMatch(poolConfig, /GetStoredAPIKey/);
+  assert.match(poolConfig, /GetStoredAPIKey/);
+  assert.match(poolConfig, /readFHLPoolStoredCredentials/);
+  assert.match(poolConfig, /executeFHLPoolSavePlan/);
+  assert.match(poolConfig, /profileHasActiveTasks/);
   assert.doesNotMatch(poolConfig, /apiMode:\s*"responses"/);
   assert.doesNotMatch(poolConfig, /verifyFHLImageCapability/);
   assert.match(poolConfig, /testProfileConnection/);
@@ -91,8 +96,9 @@ test("desktop FHL setup uses ten independent Images slots while Android retains 
   assert.match(poolConfig, /await setActiveProfile\(target\.id\)/);
   assert.match(poolConfig, /hasReadyActiveProfile/);
   assert.match(poolConfig, /连接测试成功，但设为当前 API 失败/);
-  assert.match(poolConfig, /handleSave\(\{ autoTest = true \}/);
-  assert.match(poolConfig, /handleSave\(\{ autoTest: false \}\)/);
+  assert.match(poolConfig, /async function handleSave\(\{/);
+  assert.match(poolConfig, /targetIndexes\?: readonly number\[\]/);
+  assert.match(poolConfig, /handleSave\(\{ autoTest: false, targetIndexes: \[index\] \}\)/);
   assert.match(poolConfig, /配置成功/);
   assert.match(poolConfig, /保存并测试 Images 池/);
   assert.match(poolConfig, /最大并发/);
@@ -100,7 +106,7 @@ test("desktop FHL setup uses ten independent Images slots while Android retains 
   assert.doesNotMatch(poolConfig, /共享并发设置控制全池总上限/);
   assert.match(poolConfig, /handleTest\(index: number\)/);
   assert.match(poolConfig, /当前普通生成 API/);
-  assert.match(poolConfig, /!profile && !slot\.apiKey\.trim\(\)/);
+  assert.match(poolConfig, /!profileHasCredential && !draftHasCredential/);
   assert.match(poolConfig, /保存并测试 API/);
 
   for (const rail of [historyRail, windowsHistoryRail]) {
@@ -121,6 +127,9 @@ test("desktop FHL setup uses ten independent Images slots while Android retains 
   assert.match(upstreamConfig, /isAndroid \? \(/);
   assert.match(upstreamConfig, /<FHLDesktopAPIConfig/);
   assert.match(upstreamConfig, /onOpenAdvanced=\{\(\) => setConfigView\("advanced"\)\}/);
+  assert.match(upstreamConfig, /const \[fhlBulkPasteOpen, setFHLBulkPasteOpen\] = useState\(false\)/);
+  assert.match(upstreamConfig, /function handleCloseTopLayer\(\)/);
+  assert.match(upstreamConfig, /bulkPasteOpen=\{fhlBulkPasteOpen\}/);
   assert.doesNotMatch(upstreamConfig, /FHLQuickConfigModal/);
 
   assert.match(textAPI, /FHL_TEXT_API_CREDENTIAL_ID = "fhl-text-assistant"/);

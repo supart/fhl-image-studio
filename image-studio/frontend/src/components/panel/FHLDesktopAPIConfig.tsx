@@ -6,10 +6,14 @@ export function FHLDesktopAPIConfig({
   active,
   onClose,
   onOpenAdvanced,
+  bulkPasteOpen,
+  onBulkPasteOpenChange,
 }: {
   active: boolean;
   onClose?: () => void;
   onOpenAdvanced?: () => void;
+  bulkPasteOpen?: boolean;
+  onBulkPasteOpenChange?: (open: boolean) => void;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -21,6 +25,8 @@ export function FHLDesktopAPIConfig({
         active={active}
         onClose={onClose}
         onOpenAdvanced={onOpenAdvanced}
+        bulkPasteOpen={bulkPasteOpen}
+        onBulkPasteOpenChange={onBulkPasteOpenChange}
       />
     </div>
   );

@@ -1,20 +1,36 @@
-import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, CheckCircle2, LoaderCircle, Save, Settings2, TestTube2, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent } from "react";
+import { AlertCircle, CheckCircle2, ClipboardPaste, LoaderCircle, Save, Settings2, TestTube2, Trash2 } from "lucide-react";
 import { validateAPIKeyForHeader } from "../../lib/apiKey";
+import { parseBulkAPIKeyLines, type BulkAPIKeyParseResult } from "../../lib/bulkAPIKeys";
+import {
+  createFHLPoolSavePlan,
+  executeFHLPoolSavePlan,
+  fhlPoolSaveConfirmation,
+  normalizeFHLPoolTargetKeys,
+  readFHLPoolStoredCredentials,
+} from "../../lib/fhlPoolSavePlan";
 import {
   FHL_BASE_URL,
   FHL_IMAGE_MODEL_ID,
   FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT,
   FHL_IMAGES_POOL_SLOT_COUNT,
   apiModeRequiresDirectAPIKey,
+  keyringUserFor,
   mapFHLImagesProfilesToPoolSlots,
+  normalizeFHLImagesPoolKeyHint,
 } from "../../lib/profiles";
 import { usePlatform } from "../../platform/context";
+import { DeleteStoredAPIKey, GetStoredAPIKey, SetStoredAPIKey } from "../../platform/runtime/host";
 import { useStudioStore } from "../../state/studioStore";
 import type { UpstreamProfile } from "../../types/domain";
+import {
+  FHLBulkAPIKeyPasteDialog,
+  type FHLBulkAPIKeyPasteDialogHandle,
+} from "./FHLBulkAPIKeyPasteDialog";
 
 type PoolSlotDraft = {
   apiKey: string;
+  isBulkStaged: boolean;
   continuousPoolEnabled: boolean;
   concurrencyLimit: number;
 };
@@ -32,6 +48,7 @@ type PoolTestSummary = {
 function createSlotDraft(profile: UpstreamProfile | null): PoolSlotDraft {
   return {
     apiKey: "",
+    isBulkStaged: false,
     continuousPoolEnabled: profile?.continuousPoolEnabled ?? true,
     concurrencyLimit: FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT,
   };
@@ -45,18 +62,33 @@ function poolProfileName(slot: number): string {
   return `FHL-${slot} Images`;
 }
 
-function displayKeyHint(value: string): string {
-  return value.includes("...") ? value : `sk-...${value}`;
+function bulkPasteSummary(result: BulkAPIKeyParseResult): string {
+  const parts = result.keys.length === 1
+    ? ["已预填 1 个 API 到槽 1"]
+    : [`已预填 ${result.keys.length} 个 API 到槽 1-${result.keys.length}`];
+  if (result.emptyLineCount > 0) parts.push(`空行 ${result.emptyLineCount}`);
+  if (result.duplicateCount > 0) parts.push(`重复 ${result.duplicateCount}`);
+  if (result.invalidLineNumbers.length > 0) {
+    const visible = result.invalidLineNumbers.slice(0, 8).join("、");
+    const suffix = result.invalidLineNumbers.length > 8 ? ` 等 ${result.invalidLineNumbers.length} 行` : "";
+    parts.push(`无效行 ${visible}${suffix}`);
+  }
+  if (result.overflowCount > 0) parts.push(`超过 10 个，忽略 ${result.overflowCount}`);
+  return `${parts.join("；")}。点击“保存并测试 Images 池”后才会更新凭据。`;
 }
 
 export function FHLImagesPoolConfig({
   active,
   onClose,
   onOpenAdvanced,
+  bulkPasteOpen = false,
+  onBulkPasteOpenChange,
 }: {
   active: boolean;
   onClose?: () => void;
   onOpenAdvanced?: () => void;
+  bulkPasteOpen?: boolean;
+  onBulkPasteOpenChange?: (open: boolean) => void;
 }) {
   const { usesFluentUI } = usePlatform();
   const {
@@ -78,13 +110,18 @@ export function FHLImagesPoolConfig({
   const [slotConnectionResults, setSlotConnectionResults] = useState<Record<number, SlotConnectionResult>>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [profilesWithStoredKeys, setProfilesWithStoredKeys] = useState<ReadonlySet<string>>(new Set());
+  const bulkPasteDialogRef = useRef<FHLBulkAPIKeyPasteDialogHandle>(null);
+  const saveInFlightRef = useRef(false);
 
   const mappedProfiles = useMemo(
     () => mapFHLImagesProfilesToPoolSlots(profiles),
     [profiles],
   );
-  const savedPoolSlotCount = mappedProfiles.filter((profile) => !!profile?.fhlImagesPoolKeyHint).length;
-  const legacyPoolProfileCount = mappedProfiles.filter((profile) => !!profile && !profile.fhlImagesPoolKeyHint).length;
+  const hasSavedCredential = (profile: UpstreamProfile | null | undefined): boolean => (
+    !!profile && (!!profile.fhlImagesPoolKeyHint || profilesWithStoredKeys.has(profile.id))
+  );
+  const savedPoolSlotCount = mappedProfiles.filter(hasSavedCredential).length;
 
   useEffect(() => {
     if (!active) {
@@ -93,6 +130,7 @@ export function FHLImagesPoolConfig({
       setErrorMessage(null);
       setSuccessMessage(null);
       setIsSaving(false);
+      setProfilesWithStoredKeys(new Set());
       return;
     }
     setSlotDrafts(createSlotDrafts(profiles));
@@ -104,9 +142,24 @@ export function FHLImagesPoolConfig({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    const targets = mappedProfiles.filter((profile): profile is UpstreamProfile => !!profile);
+    void Promise.all(targets.map(async (profile) => {
+      const storedKey = await GetStoredAPIKey(keyringUserFor(profile.id)).catch(() => "");
+      return storedKey.trim() ? profile.id : "";
+    })).then((profileIds) => {
+      if (!cancelled) setProfilesWithStoredKeys(new Set(profileIds.filter(Boolean)));
+    });
+    return () => { cancelled = true; };
+  }, [active, mappedProfiles]);
+
   function patchSlot(index: number, patch: Partial<PoolSlotDraft>) {
     setSlotDrafts((current) => current.map((slot, slotIndex) => (
-      slotIndex === index ? { ...slot, ...patch } : slot
+      slotIndex === index
+        ? { ...slot, ...patch, ...(patch.apiKey !== undefined ? { isBulkStaged: false } : {}) }
+        : slot
     )));
     setSlotConnectionResults((current) => {
       if (!current[index]) return current;
@@ -124,7 +177,55 @@ export function FHLImagesPoolConfig({
     setSlotDrafts((current) => refreshed.map((slot, index) => ({
       ...slot,
       apiKey: clearAllKeys ? "" : current[index]?.apiKey ?? "",
+      isBulkStaged: clearAllKeys ? false : current[index]?.isBulkStaged ?? false,
     })));
+  }
+
+  function openBulkPasteDialog() {
+    if (!onBulkPasteOpenChange || isSaving || isTestingKey) return;
+    onBulkPasteOpenChange(true);
+  }
+
+  function confirmBulkPaste(keys: readonly string[], result: BulkAPIKeyParseResult) {
+    const nextDrafts = createSlotDrafts(useStudioStore.getState().profiles);
+    keys.forEach((apiKey, index) => {
+      nextDrafts[index] = {
+        ...nextDrafts[index],
+        apiKey,
+        isBulkStaged: true,
+      };
+    });
+    setSlotDrafts(nextDrafts);
+    setSlotConnectionResults({});
+    setErrorMessage(null);
+    const message = bulkPasteSummary(result);
+    setSuccessMessage(message);
+    pushToast(message, "success", 5200);
+  }
+
+  function handleSlotPaste(event: ClipboardEvent<HTMLInputElement>) {
+    if (!onBulkPasteOpenChange) return;
+    let text = "";
+    try {
+      text = event.clipboardData.getData("text");
+      const parsed = parseBulkAPIKeyLines(text, FHL_IMAGES_POOL_SLOT_COUNT);
+      const tokenCount = (text.match(/sk-/g) ?? []).length;
+      if (parsed.inputTooLarge || /\r|\n/.test(text) || tokenCount > 1 || parsed.validUniqueCount > 1) {
+        event.preventDefault();
+        bulkPasteDialogRef.current?.stageParsedResult(parsed, text.length > 0);
+        openBulkPasteDialog();
+      }
+    } finally {
+      text = "";
+    }
+  }
+
+  function profileHasActiveTasks(profileId: string): boolean {
+    const tasks = useStudioStore.getState().batchTasksById ?? {};
+    return Object.values(tasks).some((task) => (
+      task.apiProfileId === profileId
+      && (task.status === "queued" || task.status === "running")
+    ));
   }
 
   async function testSavedPoolSlot(index: number, profile: UpstreamProfile): Promise<boolean> {
@@ -163,9 +264,13 @@ export function FHLImagesPoolConfig({
 
   async function autoTestSavedPoolSlots(): Promise<PoolTestSummary> {
     const savedSlots = mapFHLImagesProfilesToPoolSlots(useStudioStore.getState().profiles);
-    const targets = savedSlots
-      .map((profile, index) => (profile?.fhlImagesPoolKeyHint ? { profile, index } : null))
-      .filter((item): item is { profile: UpstreamProfile; index: number } => !!item);
+    const targets: Array<{ profile: UpstreamProfile; index: number }> = [];
+    for (let index = 0; index < savedSlots.length; index += 1) {
+      const profile = savedSlots[index];
+      if (!profile) continue;
+      const storedKey = await GetStoredAPIKey(keyringUserFor(profile.id)).catch(() => "");
+      if (storedKey.trim()) targets.push({ profile, index });
+    }
     let succeeded = 0;
     const successfulProfileIds: string[] = [];
     for (const { profile, index } of targets) {
@@ -177,68 +282,134 @@ export function FHLImagesPoolConfig({
     return { tested: targets.length, succeeded, successfulProfileIds };
   }
 
-  async function handleSave({ autoTest = true }: { autoTest?: boolean } = {}): Promise<boolean> {
+  async function handleSave({
+    autoTest = true,
+    targetIndexes,
+  }: {
+    autoTest?: boolean;
+    targetIndexes?: readonly number[];
+  } = {}): Promise<boolean> {
+    if (saveInFlightRef.current) return false;
+    saveInFlightRef.current = true;
     const currentProfiles = useStudioStore.getState().profiles;
     const currentSlots = mapFHLImagesProfilesToPoolSlots(currentProfiles);
     const drafts = slotDrafts.slice(0, FHL_IMAGES_POOL_SLOT_COUNT);
-    const validatedKeys = new Map<number, string>();
+    const selectedIndexes = Array.from(new Set(
+      (targetIndexes ?? drafts.map((_, index) => index))
+        .filter((index) => Number.isInteger(index) && index >= 0 && index < FHL_IMAGES_POOL_SLOT_COUNT),
+    )).sort((left, right) => left - right);
+    const rawValidatedKeys = new Map<number, string>();
 
-    for (const [index, slot] of drafts.entries()) {
+    for (const index of selectedIndexes) {
+      const slot = drafts[index];
       if (!slot.apiKey.trim()) continue;
       try {
-        validatedKeys.set(index, validateAPIKeyForHeader(slot.apiKey));
+        rawValidatedKeys.set(index, validateAPIKeyForHeader(slot.apiKey));
       } catch (error: any) {
         setErrorMessage(`第 ${index + 1} 个 API Key 无法保存：${error?.message ?? "格式不正确"}`);
+        saveInFlightRef.current = false;
         return false;
       }
     }
-
-    setIsSaving(true);
-    setErrorMessage(null);
-    setSuccessMessage(null);
+    const normalizedTargets = normalizeFHLPoolTargetKeys(rawValidatedKeys);
+    const validatedKeys = normalizedTargets.targetKeys;
     try {
-      for (const [index, slot] of drafts.entries()) {
-        const profile = currentSlots[index];
-        const apiKey = validatedKeys.get(index);
-        const profilePatch = {
-          name: profile ? profile.name : poolProfileName(index + 1),
-          apiMode: "images" as const,
-          requestPolicy: "openai" as const,
-          baseURL: FHL_BASE_URL,
-          textModelID: "",
-          imageModelID: FHL_IMAGE_MODEL_ID,
-          concurrencyLimit: FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT,
-          continuousPoolEnabled: slot.continuousPoolEnabled,
-          imagesNewAPICompat: true,
-          fhlImagesPoolSlot: index + 1,
-        };
-
-        if (profile) {
-          const needsUpdate = !!apiKey
-            || profile.requestPolicy !== "openai"
-            || profile.baseURL !== FHL_BASE_URL
-            || profile.textModelID !== ""
-            || profile.imageModelID !== FHL_IMAGE_MODEL_ID
-            || profile.concurrencyLimit !== FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT
-            || (profile.continuousPoolEnabled ?? true) !== slot.continuousPoolEnabled
-            || profile.imagesNewAPICompat !== true
-            || profile.fhlImagesPoolSlot !== index + 1;
-          if (needsUpdate) {
-            const updated = await updateProfile(profile.id, {
-              ...profilePatch,
-              ...(apiKey ? { apiKey } : {}),
-            });
-            if (!updated) throw new Error(`第 ${index + 1} 个 FHL API 槽配置已不存在。`);
-          }
-        } else if (apiKey) {
-          await createProfile({
-            ...profilePatch,
-            apiKey,
-            setActive: false,
-          });
+      if (validatedKeys.size > 0) {
+        const storedSnapshot = await readFHLPoolStoredCredentials(
+          currentSlots,
+          (profileId) => GetStoredAPIKey(keyringUserFor(profileId)),
+        );
+        if (storedSnapshot.readErrors.length > 0) {
+          const first = storedSnapshot.readErrors[0];
+          setErrorMessage(`API ${first.index + 1} 无法确认已有凭据，已停止保存。请重试或重新配置该槽位。`);
+          return false;
         }
+        const savePlan = createFHLPoolSavePlan(
+          validatedKeys,
+          storedSnapshot.credentials,
+          normalizedTargets.draftMerges,
+        );
+        const storedKeyByIndex = new Map(storedSnapshot.credentials.map((entry) => [entry.index, entry.apiKey]));
+        const affectedProfileIds = new Set(savePlan.cleanupProfileIds);
+        for (const [index, apiKey] of validatedKeys) {
+          const profile = currentSlots[index];
+          if (profile && storedKeyByIndex.get(index) !== apiKey) affectedProfileIds.add(profile.id);
+        }
+        const busyProfileId = [...affectedProfileIds].find(profileHasActiveTasks);
+        if (busyProfileId) {
+          const busyIndex = currentSlots.findIndex((profile) => profile?.id === busyProfileId);
+          setErrorMessage(`API ${busyIndex + 1} 正由排队或运行中的任务使用，任务结束前不会更新十槽配置。`);
+          return false;
+        }
+        const confirmation = fhlPoolSaveConfirmation(savePlan);
+        if (confirmation && !window.confirm(confirmation)) return false;
+
+        setIsSaving(true);
+        setErrorMessage(null);
+        setSuccessMessage(null);
+        await executeFHLPoolSavePlan(validatedKeys, savePlan, {
+          writeTarget: async (index, apiKey) => {
+            const slotNumber = index + 1;
+            const profile = currentSlots[index];
+            const profilePatch = {
+              name: profile?.name || poolProfileName(slotNumber),
+              apiMode: "images" as const,
+              requestPolicy: "openai" as const,
+              baseURL: FHL_BASE_URL,
+              textModelID: "",
+              imageModelID: FHL_IMAGE_MODEL_ID,
+              concurrencyLimit: FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT,
+              continuousPoolEnabled: drafts[index].continuousPoolEnabled,
+              imagesNewAPICompat: true,
+              fhlImagesPoolSlot: slotNumber,
+              fhlImagesPoolKeyHint: normalizeFHLImagesPoolKeyHint(apiKey),
+            };
+            if (profile) {
+              await SetStoredAPIKey(keyringUserFor(profile.id), apiKey);
+              const updated = await updateProfile(profile.id, { ...profilePatch, apiKey });
+              if (!updated) throw new Error("profile missing");
+              return profile.id;
+            }
+
+            const profileId = await createProfile({ ...profilePatch, setActive: false });
+            try {
+              await SetStoredAPIKey(keyringUserFor(profileId), apiKey);
+              const updated = await updateProfile(profileId, { ...profilePatch, apiKey });
+              if (!updated) throw new Error("profile missing");
+              return profileId;
+            } catch (error) {
+              await DeleteStoredAPIKey(keyringUserFor(profileId)).catch(() => undefined);
+              await deleteProfile(profileId).catch(() => false);
+              throw error;
+            }
+          },
+          readTarget: async (_index, profileId) => GetStoredAPIKey(keyringUserFor(profileId)),
+          cleanupSource: async (profileId) => {
+            if (profileHasActiveTasks(profileId)) throw new Error("profile busy");
+            const deleted = await deleteProfile(profileId);
+            if (!deleted || useStudioStore.getState().profiles.some((profile) => profile.id === profileId)) {
+              throw new Error("profile still present");
+            }
+            await DeleteStoredAPIKey(keyringUserFor(profileId));
+            if ((await GetStoredAPIKey(keyringUserFor(profileId))).trim()) {
+              throw new Error("credential still present");
+            }
+          },
+        });
+
+        const savedIndexes = new Set([
+          ...validatedKeys.keys(),
+          ...normalizedTargets.draftMerges.map((move) => move.fromIndex),
+        ]);
+        setSlotDrafts((current) => current.map((draft, index) => (
+          savedIndexes.has(index) ? { ...draft, apiKey: "", isBulkStaged: false } : draft
+        )));
       }
-      refreshAfterMutation({ clearAllKeys: true });
+
+      if (!autoTest) return true;
+      setIsSaving(true);
+      setErrorMessage(null);
+      setSuccessMessage(null);
       if (autoTest) {
         const pendingMessage = `${transportLabel} 连续池配置已保存，正在自动测试连接...`;
         setSuccessMessage(pendingMessage);
@@ -259,9 +430,6 @@ export function FHLImagesPoolConfig({
         }
         return true;
       }
-      const message = `${transportLabel} 连续池配置已保存。`;
-      setSuccessMessage(message);
-      pushToast(message, "success", 3200);
       return true;
     } catch (error: any) {
       setSuccessMessage(null);
@@ -269,6 +437,7 @@ export function FHLImagesPoolConfig({
       return false;
     } finally {
       setIsSaving(false);
+      saveInFlightRef.current = false;
     }
   }
 
@@ -277,7 +446,7 @@ export function FHLImagesPoolConfig({
     const slot = slotDrafts[index];
     let profile = mappedProfiles[index];
     if (slot?.apiKey.trim()) {
-      const saved = await handleSave({ autoTest: false });
+      const saved = await handleSave({ autoTest: false, targetIndexes: [index] });
       if (!saved) return;
       profile = mapFHLImagesProfilesToPoolSlots(useStudioStore.getState().profiles)[index];
     }
@@ -342,7 +511,10 @@ export function FHLImagesPoolConfig({
     }
   }
 
+  const pendingDraftCount = slotDrafts.filter((draft) => !!draft.apiKey.trim()).length;
+
   return (
+    <>
     <section className="fhl-images-pool-config flex min-w-0 flex-col gap-3">
       <div className={`flex flex-wrap items-start justify-between gap-3 border border-amber-300/70 bg-amber-50 px-3 py-2.5 text-amber-950 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-100 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}>
         <div className="min-w-0">
@@ -351,9 +523,20 @@ export function FHLImagesPoolConfig({
             当前新任务使用 {transportLabel}；固定显示 {FHL_IMAGES_POOL_SLOT_COUNT} 个独立 FHL API 槽。槽位配置不会随接口切换而改变。
           </p>
         </div>
-        <div className="shrink-0 text-right text-[11px] leading-5 opacity-85">
-          <div>已填写 {savedPoolSlotCount}/{FHL_IMAGES_POOL_SLOT_COUNT} 个 API</div>
-          {legacyPoolProfileCount ? <div>旧配置 {legacyPoolProfileCount} 条，尾号未记录</div> : null}
+        <div className="flex shrink-0 flex-col items-end gap-1.5 text-right text-[11px] leading-5">
+          <div className="opacity-85">已填写 {savedPoolSlotCount}/{FHL_IMAGES_POOL_SLOT_COUNT} 个 API</div>
+          {onBulkPasteOpenChange ? (
+            <button
+              type="button"
+              onClick={openBulkPasteDialog}
+              disabled={isSaving || isTestingKey}
+              className={`platform-action-btn inline-flex h-8 items-center gap-1.5 border border-amber-500/25 bg-white/65 px-2.5 text-[11px] font-medium text-amber-900 hover:bg-white disabled:opacity-55 dark:border-amber-300/20 dark:bg-black/10 dark:text-amber-100 dark:hover:bg-white/10 ${usesFluentUI ? "rounded-[7px]" : "rounded-[10px]"}`}
+              data-audit-id="fhl-bulk-config-open"
+            >
+              <ClipboardPaste className="h-3.5 w-3.5" />
+              批量配置 10 个 API
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -362,9 +545,9 @@ export function FHLImagesPoolConfig({
           const profile = mappedProfiles[index];
           const slotNumber = index + 1;
           const keyInputName = `fhl-images-pool-api-key-${slotNumber}`;
-          const keyHint = profile?.fhlImagesPoolKeyHint;
-          const redactedKeyHint = keyHint ? displayKeyHint(keyHint) : "";
-          const slotConnectionResult = profile || slot.apiKey.trim()
+          const profileHasCredential = hasSavedCredential(profile);
+          const draftHasCredential = !!slot.apiKey.trim();
+          const slotConnectionResult = profileHasCredential || draftHasCredential
             ? slotConnectionResults[index]
             : undefined;
           const rowStatus = slotConnectionResult?.status === "testing"
@@ -373,22 +556,30 @@ export function FHLImagesPoolConfig({
               ? "配置成功"
               : slotConnectionResult?.status === "error"
                 ? "连接失败"
-                : !profile ? "空槽" : keyHint ? "已保存" : "旧配置";
+                : draftHasCredential
+                  ? "待保存"
+                  : profileHasCredential
+                    ? "已保存密钥"
+                    : profile ? "未配置" : "空槽";
           const rowStatusClass = slotConnectionResult?.status === "testing"
             ? "text-sky-600 dark:text-sky-300"
             : slotConnectionResult?.status === "success"
               ? "text-emerald-600 dark:text-emerald-300"
               : slotConnectionResult?.status === "error"
                 ? "text-red-600 dark:text-red-300"
-                : keyHint
+                : draftHasCredential
+                  ? "text-amber-700 dark:text-amber-300"
+                : profileHasCredential
                   ? "text-emerald-600 dark:text-emerald-300"
                   : profile ? "text-amber-700 dark:text-amber-300" : "text-zinc-500 dark:text-zinc-400";
           const slotDisplayName = profile ? transportLabel : "待创建";
-          const keyPlaceholder = keyHint
-            ? `已保存：${redactedKeyHint}；重新输入直接替换，无需删除`
-            : profile
-              ? "旧配置未记录尾号；重新输入直接替换，无需删除"
-              : "粘贴 API Key";
+          const keyPlaceholder = slot.isBulkStaged
+            ? "批量预填已就绪；输入新值才替换"
+            : profileHasCredential
+              ? "已保存密钥；输入新值直接替换"
+              : profile
+                ? "该槽尚无可用密钥"
+                : "粘贴 API Key";
           return (
             <div
               key={slotNumber}
@@ -398,14 +589,15 @@ export function FHLImagesPoolConfig({
                 <div className="text-[12px] font-semibold text-zinc-900 dark:text-zinc-100">API {slotNumber}</div>
                 <div className="mt-0.5 truncate text-[10px] text-zinc-500 dark:text-zinc-400">{slotDisplayName}</div>
                 <div className={`mt-0.5 text-[10px] ${rowStatusClass}`}>
-                  {rowStatus}{keyHint ? ` ${redactedKeyHint}` : ""}
+                  {rowStatus}
                 </div>
               </div>
 
               <input
                 type="password"
-                value={slot.apiKey}
+                value={slot.isBulkStaged ? "" : slot.apiKey}
                 onChange={(event) => patchSlot(index, { apiKey: event.target.value })}
+                onPaste={handleSlotPaste}
                 placeholder={keyPlaceholder}
                 spellCheck={false}
                 autoComplete="new-password"
@@ -460,9 +652,9 @@ export function FHLImagesPoolConfig({
               <button
                 type="button"
                 onClick={() => void handleTest(index)}
-                disabled={(!profile && !slot.apiKey.trim()) || isSaving || isTestingKey}
-                title={profile ? `测试 API ${slotNumber}` : slot.apiKey.trim() ? `保存并测试 API ${slotNumber}` : "先填写 API 后再测试"}
-                aria-label={profile ? `测试 API ${slotNumber}` : slot.apiKey.trim() ? `保存并测试 API ${slotNumber}` : "先填写 API 后再测试"}
+                disabled={(!profileHasCredential && !draftHasCredential) || isSaving || isTestingKey}
+                title={profileHasCredential ? `测试 API ${slotNumber}` : draftHasCredential ? `保存并测试 API ${slotNumber}` : "先填写 API 后再测试"}
+                aria-label={profileHasCredential ? `测试 API ${slotNumber}` : draftHasCredential ? `保存并测试 API ${slotNumber}` : "先填写 API 后再测试"}
                 className={`inline-flex h-8 w-8 items-center justify-center text-zinc-500 transition-colors hover:bg-sky-50 hover:text-sky-700 disabled:cursor-not-allowed disabled:opacity-35 dark:hover:bg-sky-400/10 dark:hover:text-sky-300 ${usesFluentUI ? "rounded-[7px]" : "rounded-[10px]"}`}
               >
                 {testingSlotIndex === index || slotConnectionResult?.status === "testing" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <TestTube2 className="h-4 w-4" />}
@@ -542,5 +734,15 @@ export function FHLImagesPoolConfig({
         </button>
       </div>
     </section>
+    {onBulkPasteOpenChange ? (
+      <FHLBulkAPIKeyPasteDialog
+        ref={bulkPasteDialogRef}
+        open={active && bulkPasteOpen}
+        pendingDraftCount={pendingDraftCount}
+        onClose={() => onBulkPasteOpenChange(false)}
+        onConfirm={confirmBulkPaste}
+      />
+    ) : null}
+    </>
   );
 }

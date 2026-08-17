@@ -214,6 +214,31 @@ test("hostBindings ignores a legacy Service-only Wails binding", async () => {
   });
 });
 
+test("runtimeHost reads text from the Wails clipboard before browser fallback", async () => {
+  await withPatchedGlobals(async () => {
+    globalThis.window.runtime = {
+      ClipboardGetText: async () => "wails clipboard text",
+    };
+    globalThis.navigator.clipboard = {
+      readText: async () => "browser clipboard text",
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    assert.equal(await runtimeHost.ReadClipboardText(), "wails clipboard text");
+  });
+});
+
+test("runtimeHost falls back to the browser text clipboard", async () => {
+  await withPatchedGlobals(async () => {
+    globalThis.navigator.clipboard = {
+      readText: async () => "browser clipboard text",
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    assert.equal(await runtimeHost.ReadClipboardText(), "browser clipboard text");
+  });
+});
+
 test("runtimeHost remote mode emits job lifecycle events", async () => {
   await withPatchedGlobals(async () => {
     globalThis.fetch = async (url) => {

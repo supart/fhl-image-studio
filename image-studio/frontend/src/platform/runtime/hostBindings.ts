@@ -3,6 +3,7 @@ import { hasAndroidInvokeBridge, invokeAndroidNative } from "../android/nativeIn
 type AnyFn = (...args: any[]) => any;
 export type ServiceBinding = Record<string, AnyFn>;
 export type RuntimeBinding = {
+  ClipboardGetText?: () => Promise<string>;
   EventsOnMultiple?: (eventName: string, callback: (...args: any[]) => void, maxCallbacks?: number) => () => void;
   EventsOff?: (eventName: string, ...additionalEventNames: string[]) => void;
   WindowSetSystemDefaultTheme?: () => void;

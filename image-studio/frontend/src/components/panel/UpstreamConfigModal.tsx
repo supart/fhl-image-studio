@@ -53,6 +53,7 @@ export function UpstreamConfigModal({
   const [apimartChoiceOpen, setAPIMartChoiceOpen] = useState(false);
   const [runningHubChoiceOpen, setRunningHubChoiceOpen] = useState(false);
   const [runningHubQuickConfigOpen, setRunningHubQuickConfigOpen] = useState(false);
+  const [fhlBulkPasteOpen, setFHLBulkPasteOpen] = useState(false);
 
   // 打开 modal / 切 selected → 重新加载草稿与 keyring 里的 apiKey
   useEffect(() => {
@@ -92,11 +93,20 @@ export function UpstreamConfigModal({
 
   useEffect(() => {
     if (!open) {
+      setFHLBulkPasteOpen(false);
       setConfigView("pool");
       return;
     }
     setConfigView("pool");
   }, [open]);
+
+  function handleCloseTopLayer() {
+    if (fhlBulkPasteOpen) {
+      setFHLBulkPasteOpen(false);
+      return;
+    }
+    onClose();
+  }
 
   // 列表切换 selected
   function selectProfile(id: string) {
@@ -265,7 +275,7 @@ export function UpstreamConfigModal({
     return (
       <Modal
         open={open}
-        onClose={onClose}
+        onClose={handleCloseTopLayer}
         title="上游配置"
         width={920}
         cardClassName="upstream-config-modal"
@@ -274,14 +284,16 @@ export function UpstreamConfigModal({
         {isAndroid ? (
           <FHLImagesPoolConfig
             active={open}
-            onClose={onClose}
+            onClose={handleCloseTopLayer}
             onOpenAdvanced={() => setConfigView("advanced")}
           />
         ) : (
           <FHLDesktopAPIConfig
             active={open}
-            onClose={onClose}
+            onClose={handleCloseTopLayer}
             onOpenAdvanced={() => setConfigView("advanced")}
+            bulkPasteOpen={fhlBulkPasteOpen}
+            onBulkPasteOpenChange={setFHLBulkPasteOpen}
           />
         )}
       </Modal>

@@ -6,6 +6,7 @@ import ts from "typescript";
 const runtimeRoot = new URL("../src/platform/runtime/", import.meta.url);
 const capabilityModules = [
   "hostContext.ts",
+  "hostClipboard.ts",
   "hostTasks.ts",
   "hostFiles.ts",
   "hostMedia.ts",
@@ -13,6 +14,7 @@ const capabilityModules = [
 ];
 
 const expectedModuleEdges = [
+  "hostClipboard.ts->hostContext.ts",
   "hostCredentials.ts->hostContext.ts",
   "hostFiles.ts->hostContext.ts",
   "hostFiles.ts->hostCredentials.ts",
@@ -52,6 +54,7 @@ const expectedFacadeExports = [
   "OpenOutputDir",
   "OptimizePrompt",
   "ReadImageAsBase64",
+  "ReadClipboardText",
   "ReadTextFile",
   "RegisterImportedImageAsset",
   "RegisterMediaAsset",

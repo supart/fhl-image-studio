@@ -11,6 +11,9 @@ export {
   setKernelRuntimeMode,
 } from "./hostContext.ts";
 export {
+  ReadClipboardText,
+} from "./hostClipboard.ts";
+export {
   Cancel,
   Edit,
   Generate,

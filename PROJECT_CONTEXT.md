@@ -6,7 +6,18 @@
 - 正式基线：标签 `windows-v2.0.3-release`，提交 `814da3e64566cc2e7838378639a3c5e7b6e8b948`。
 - 当前本地分支：`codex/windows-v2.0.4-development`；未推送、未创建 PR、未修改 GitHub Release。
 - 活动版本：界面、Wails、桌面 Go、CLI、E2E、构建与发布链由 `product-version.json` 统一为 `V2.0.4`。
-- 初始化、Codex 浏览器入口和 15 个后续批次均已完成；批次 15 将 Windows 顶栏推广区改为根目录 TXT 配置。
+- 初始化、Codex 浏览器入口和 16 个后续批次均已完成；批次 16 为 FHL Images 十槽增加批量粘贴、内存预填和安全凭据迁移。
+
+## 批次 16 结果
+
+- 新增最大 64 KiB 的十槽解析器、固定掩码批量弹窗和 Wails/浏览器剪贴板能力；支持 BOM、三种换行、编号、Bearer、赋值语句、说明行、去重、无效行和十槽截断统计。
+- 批量确认只清除未保存草稿并预填槽 1-N；原文不进入 DOM，password value 保持空，关闭子/父弹窗或刷新立即丢弃内存 Key，已保存槽只显示“已保存密钥”。
+- 保存事务先读取全部现有凭据、检查活动任务和覆盖/迁移计划，再直接写入 Keyring 并逐槽回读；全部目标验证后才清理旧重复槽，失败信息只包含槽号。
+- 自动化通过：Node `624/624`、UI `76/76`、TypeScript、Lint `0/58`、Windows 1,974 modules、桌面/CLI Go test+vet、Worker `5/5`、版本、格式和 704 文件源码合规快照。
+- Codex 浏览器在 `1920x1080`、`1440x900`、`1024x768` 完成十个合成 Key 的真实粘贴、固定掩码、取消、Esc、确认、单槽多行转入和重载验收；控制台 warning/error 为 0，最终恢复 `1239x930`、文生图、历史 14 项和 Images 十槽 `10/10`。
+- 未点击保存、连接测试、生成、重试或注册链接，未读取完整 Key、调用真实 API、修改 Android、生成发布附件或推送 GitHub。
+
+详细记录：`docs/changes/2026-08-17-windows-v2.0.4-bulk-api-configuration.md`。
 
 ## 批次 15 结果
 

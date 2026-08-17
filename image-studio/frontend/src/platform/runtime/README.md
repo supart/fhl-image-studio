@@ -5,8 +5,10 @@
 ## 结构
 
 - `host.ts`
-  - 兼容门面，显式重导出现有 52 个宿主能力
+  - 兼容门面，显式重导出现有 53 个宿主能力
   - 业务调用方继续只依赖该入口
+- `hostClipboard.ts`
+  - Wails 原生文本剪贴板读取与浏览器标准 API 回退
 - `hostContext.ts`
   - 宿主识别、能力矩阵、事件、主题和 E2E bootstrap
 - `hostTasks.ts`
