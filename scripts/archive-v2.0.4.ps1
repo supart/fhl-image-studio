@@ -1,8 +1,7 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
-  [Parameter(Mandatory = $true)]
   [ValidatePattern('^windows-v2\.0\.4-(dev\.\d+|rc\.\d+)$')]
-  [string]$Tag
+  [string]$Tag = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,6 +20,15 @@ function Invoke-Git {
     throw "git $($Arguments -join ' ') failed: $($output.Trim())"
   }
   return $output.Trim()
+}
+
+if ([string]::IsNullOrWhiteSpace($Tag)) {
+  $headTags = @((Invoke-Git @("tag", "--points-at", "HEAD", "--list", "windows-v2.0.4-*")) -split "`r?`n" |
+    Where-Object { $_ -match '^windows-v2\.0\.4-(dev\.\d+|rc\.\d+)$' })
+  if ($headTags.Count -ne 1) {
+    throw "HEAD must have exactly one V2.0.4 development or release-candidate tag. Found: $($headTags -join ', ')"
+  }
+  $Tag = $headTags[0]
 }
 
 if (-not (Test-Path -LiteralPath (Join-Path $root ".git"))) {
