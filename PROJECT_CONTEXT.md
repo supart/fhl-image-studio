@@ -3,11 +3,12 @@
 ## 2026-08-18 批次 22：统一局部编辑工作台（开发中）
 
 - 已从 `110f698` 创建功能分支 `codex/windows-v2.0.4-feature/unified-local-edit-workbench`。
-- 实现提交：`aa822ef feat(local-edit): add unified local edit workbench`；当前工作区干净，未设置 upstream。
+- 实现提交：`aa822ef feat(local-edit): add unified local edit workbench`；几何修正提交：`32b1c38 fix(local-edit): align crop frame with source aspect`；当前工作区干净，未设置 upstream。
 - 新增普通图/360 双栏工作台入口、工作区轻量草稿持久化、比例/尺寸/质量/提示词/导入控件；普通图选区确认前不创建历史，取消不增加历史。
 - 普通图继续复用现有自然像素裁切、平面贴回和对齐器；360 模式继续进入既有球面查看/贴回链路。非 2:1 源图在全景模式显示保护提示并阻止全景生成。
 - `npm run typecheck`、`npm run lint`（0 errors/58 warnings）和 `npm run test:node`（634/634）通过。
 - Codex 浏览器真实验收已覆盖普通历史图、选区打开、普通/360 切换、非 2:1 保护、取消无历史副作用；视口 `1252x930`、`1440x900`、`1024x768` 无横向溢出，控制台 warning/error 为 0。
+- 第二轮复核确认裁切 frame 与原图实际显示比例一致，2048×1360 图像的 frame 与裁切框不再落入留白区；控制台仍为 0。
 - 尚未点击确认裁切、生成或导入，避免修改用户历史和真实 API；下一轮需用离线夹具验证工作台提交、PNG/JPEG/WebP 导入、对齐终态和刷新恢复。
 - 详细记录：[docs/changes/2026-08-18-windows-v2.0.4-local-edit-workbench.md](docs/changes/2026-08-18-windows-v2.0.4-local-edit-workbench.md)。
 
