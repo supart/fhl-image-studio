@@ -5,6 +5,25 @@ export function cleanBaseURL(value: string): string {
 }
 
 export function sanitizeHistoryForExport(item: HistoryItem): HistoryItem {
+  const localEditRoundtrip = item.localEditRoundtrip
+    ? item.localEditRoundtrip.kind === "planar"
+      ? { ...item.localEditRoundtrip, sourcePath: undefined }
+      : {
+          ...item.localEditRoundtrip,
+          sourcePath: undefined,
+          panoramaRoundtrip: {
+            ...item.localEditRoundtrip.panoramaRoundtrip,
+            sourcePath: undefined,
+            roundtripState: {
+              ...item.localEditRoundtrip.panoramaRoundtrip.roundtripState,
+              source_erp: {
+                ...item.localEditRoundtrip.panoramaRoundtrip.roundtripState.source_erp,
+                path: undefined,
+              },
+            },
+          },
+        }
+    : undefined;
   return {
     ...item,
     savedPath: undefined,
@@ -15,6 +34,7 @@ export function sanitizeHistoryForExport(item: HistoryItem): HistoryItem {
     previewBlob: null,
     sourceImages: undefined,
     panoramaRoundtrip: undefined,
+    localEditRoundtrip,
     previewOnly: true,
   };
 }

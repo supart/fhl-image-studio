@@ -200,9 +200,12 @@ export function CanvasStage() {
     applyHistoryParams,
     regenerateFromHistory,
     reuseAsSource,
+    openLocalPastebackAligner,
+    repasteLocalEditRoundtrip,
     repastePanoramaRoundtrip,
     openPanoramaPastebackAligner,
     importExternalPanoramaPastebackImage,
+    importExternalLocalPastebackImage,
     saveHistoryItemAs,
     shareHistoryItem,
     deleteHistoryItem,
@@ -278,9 +281,12 @@ export function CanvasStage() {
     applyHistoryParams: state.applyHistoryParams,
     regenerateFromHistory: state.regenerateFromHistory,
     reuseAsSource: state.reuseAsSource,
+    openLocalPastebackAligner: state.openLocalPastebackAligner,
+    repasteLocalEditRoundtrip: state.repasteLocalEditRoundtrip,
     repastePanoramaRoundtrip: state.repastePanoramaRoundtrip,
     openPanoramaPastebackAligner: state.openPanoramaPastebackAligner,
     importExternalPanoramaPastebackImage: state.importExternalPanoramaPastebackImage,
+    importExternalLocalPastebackImage: state.importExternalLocalPastebackImage,
     saveHistoryItemAs: state.saveHistoryItemAs,
     shareHistoryItem: state.shareHistoryItem,
     deleteHistoryItem: state.deleteHistoryItem,
@@ -908,6 +914,11 @@ export function CanvasStage() {
     && !isCurrentStreamPreview
     && !currentPanoramaPastebackItem.id.startsWith("source-preview-")
     && hasPanoramaRoundtripRef(currentPanoramaPastebackItem);
+  const canQuickLocalPasteback = !!currentPanoramaPastebackItem
+    && !!currentImageBounds
+    && !isCurrentStreamPreview
+    && !currentPanoramaPastebackItem.id.startsWith("source-preview-")
+    && currentPanoramaPastebackItem.localEditRoundtrip?.kind === "planar";
   const panoramaPastebackQuickBounds = canQuickPanoramaPasteback && currentImageBounds
     ? {
         left: clampCanvasOverlayValue(
@@ -917,6 +928,20 @@ export function CanvasStage() {
         ),
         top: clampCanvasOverlayValue(
           currentImageBounds.top + panoramaPastebackQuickInset,
+          panoramaPastebackQuickInset,
+          hostSize.h - panoramaPastebackQuickHeight - panoramaPastebackQuickInset,
+        ),
+      }
+    : null;
+  const localPastebackQuickBounds = canQuickLocalPasteback && currentImageBounds
+    ? {
+        left: clampCanvasOverlayValue(
+          currentImageBounds.left + currentImageBounds.width - panoramaPastebackQuickWidth - panoramaPastebackQuickInset,
+          panoramaPastebackQuickInset,
+          hostSize.w - panoramaPastebackQuickWidth - panoramaPastebackQuickInset,
+        ),
+        top: clampCanvasOverlayValue(
+          currentImageBounds.top + panoramaPastebackQuickHeight + panoramaPastebackQuickInset * 2,
           panoramaPastebackQuickInset,
           hostSize.h - panoramaPastebackQuickHeight - panoramaPastebackQuickInset,
         ),
@@ -975,6 +1000,14 @@ export function CanvasStage() {
     onRegenerate: (item) => void regenerateFromHistory(item),
     onReuseAsSource: (item) => void reuseAsSource(item),
     onRepastePanorama: (item) => openPanoramaPastebackAligner(item),
+    onRepasteLocalEdit: (item) => openLocalPastebackAligner(item),
+    onStartLocalEdit: (item) => {
+      void reuseAsSource(item).then(() => {
+        useStudioStore.getState().setField("tool", "annotate");
+        useStudioStore.getState().setField("annotationKind", "rect");
+        useStudioStore.getState().pushToast("已切换到该图片，请框选局部区域", "info", 3000);
+      });
+    },
     onSaveOriginal: (item) => void saveHistoryItemAs(item),
     onShare: (item) => void shareHistoryItem(item),
     onToggleCompare: (item) => setCompareB(compareB?.id === item.id ? null : item),
@@ -1094,6 +1127,16 @@ export function CanvasStage() {
     }
   }
 
+  async function autoPasteCurrentLocal(item: HistoryItem) {
+    if (panoramaQuickPastebackBusy) return;
+    setPanoramaQuickPastebackBusy(true);
+    try {
+      await repasteLocalEditRoundtrip(item, { selectAsCurrent: true });
+    } finally {
+      setPanoramaQuickPastebackBusy(false);
+    }
+  }
+
   function openExternalPanoramaPastebackPicker(anchor: HistoryItem) {
     setPanoramaPastebackImportAnchor(anchor);
     const input = panoramaPastebackImportInputRef.current;
@@ -1108,7 +1151,11 @@ export function CanvasStage() {
     event.currentTarget.value = "";
     setPanoramaPastebackImportAnchor(null);
     if (!file || !anchor) return;
-    await importExternalPanoramaPastebackImage(anchor, file);
+    if (anchor.localEditRoundtrip?.kind === "planar") {
+      await importExternalLocalPastebackImage(anchor, file);
+    } else {
+      await importExternalPanoramaPastebackImage(anchor, file);
+    }
   }
 
 
@@ -1289,6 +1336,58 @@ export function CanvasStage() {
         {streamPreview && currentImage && !showingLiveBatchGrid ? (
           <div className="stream-preview-overlay">
             <StreamPreviewBadge />
+          </div>
+        ) : null}
+        {localPastebackQuickBounds && currentPanoramaPastebackItem ? (
+          <div
+            className="canvas-panorama-pasteback-actions"
+            style={localPastebackQuickBounds}
+            onPointerDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="canvas-panorama-pasteback-button"
+              title="使用默认位置和羽化参数贴回普通原图"
+              disabled={panoramaQuickPastebackBusy}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void autoPasteCurrentLocal(currentPanoramaPastebackItem);
+              }}
+            >
+              <WandSparkles className="h-3.5 w-3.5" />
+              <span>{panoramaQuickPastebackBusy ? "贴回中" : "自动贴回"}</span>
+            </button>
+            <button
+              type="button"
+              className="canvas-panorama-pasteback-button"
+              title="手动对齐并贴回普通原图"
+              disabled={panoramaQuickPastebackBusy}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                openLocalPastebackAligner(currentPanoramaPastebackItem);
+              }}
+            >
+              <RotateCw className="h-3.5 w-3.5" />
+              <span>手动贴回</span>
+            </button>
+            <button
+              type="button"
+              className="canvas-panorama-pasteback-button"
+              title="导入外部编辑图并贴回普通原图"
+              disabled={panoramaQuickPastebackBusy}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                openExternalPanoramaPastebackPicker(currentPanoramaPastebackItem);
+              }}
+            >
+              <Upload className="h-3.5 w-3.5" />
+              <span>导入贴回</span>
+            </button>
           </div>
         ) : null}
         {showingResultGrid && (

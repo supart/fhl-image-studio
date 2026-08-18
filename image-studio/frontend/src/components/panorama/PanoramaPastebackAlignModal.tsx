@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { historyFullSrc } from "../../lib/images";
 import { ReadImageAsBase64 } from "../../platform/runtime/host";
 import {
@@ -6,6 +6,7 @@ import {
   panoramaShotFromRoundtripState,
   resolvePanoramaRoundtripRef,
 } from "../../panorama/core";
+import { exportPlanarCutoutBase64 } from "../../localEdit/core";
 import { useStudioStore } from "../../state/studioStore";
 import { tempDataURLFromB64 } from "../../state/studioStore.shared";
 import type { HistoryItem, PanoramaPastebackAlignment } from "../../types/domain";
@@ -149,7 +150,10 @@ export function PanoramaPastebackAlignModal() {
   const target = useStudioStore((state) => state.panoramaAlignTarget);
   const history = useStudioStore((state) => state.history);
   const close = useStudioStore((state) => state.closePanoramaPastebackAligner);
+  const repasteLocalEditRoundtrip = useStudioStore((state) => state.repasteLocalEditRoundtrip);
   const repastePanoramaRoundtrip = useStudioStore((state) => state.repastePanoramaRoundtrip);
+  const importExternalLocalPastebackImage = useStudioStore((state) => state.importExternalLocalPastebackImage);
+  const importExternalPanoramaPastebackImage = useStudioStore((state) => state.importExternalPanoramaPastebackImage);
   const pushToast = useStudioStore((state) => state.pushToast);
   const [alignment, setAlignment] = useState<PanoramaPastebackAlignment>(DEFAULT_ALIGNMENT);
   const [opacity, setOpacity] = useState(0.72);
@@ -189,6 +193,7 @@ export function PanoramaPastebackAlignModal() {
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const maskUndoRef = useRef<ImageData[]>([]);
   const maskRedoRef = useRef<ImageData[]>([]);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -220,8 +225,38 @@ export function PanoramaPastebackAlignModal() {
     setActivePanel("align");
     resetMaskState(true);
     void (async () => {
+      if (target.localEditRoundtrip?.kind === "planar") {
+        const roundtrip = target.localEditRoundtrip;
+        const sourceItem = roundtrip.sourceHistoryId
+          ? history.find((item) => item.id === roundtrip.sourceHistoryId) ?? null
+          : null;
+        const sourceLoaded = await loadHistoryImage(
+          sourceItem ?? ({
+            id: "local-edit-source",
+            prompt: target.prompt,
+            mode: "edit",
+            size: `${roundtrip.sourceWidth}x${roundtrip.sourceHeight}`,
+            quality: target.quality,
+            createdAt: target.createdAt,
+            savedPath: roundtrip.sourcePath,
+          } as HistoryItem),
+          roundtrip.sourcePath,
+        );
+        const original = exportPlanarCutoutBase64(sourceLoaded.image, roundtrip);
+        const edited = await loadHistoryImage(target);
+        if (cancelled) return;
+        setPreview({
+          originalSrc: tempDataURLFromB64(original.imageB64),
+          editedSrc: edited.src,
+          rectWidth: original.width,
+          rectHeight: original.height,
+          editedWidth: edited.image.naturalWidth || edited.image.width,
+          editedHeight: edited.image.naturalHeight || edited.image.height,
+        });
+        return;
+      }
       const roundtrip = resolvePanoramaRoundtripRef(target);
-      if (!roundtrip) throw new Error("这张图没有可用的 360 贴回信息");
+      if (!roundtrip) throw new Error("这张图没有可用的局部贴回信息");
       const sourceItem = roundtrip.sourceHistoryId
         ? history.find((item) => item.id === roundtrip.sourceHistoryId) ?? null
         : null;
@@ -534,16 +569,35 @@ export function PanoramaPastebackAlignModal() {
     }
     setBusy(true);
     try {
-      const result = await repastePanoramaRoundtrip(target, {
+      const pasteOptions = {
         alignment: usesFineMask ? { ...alignment, featherFraction: 0 } : alignment,
         pasteMask: usesFineMask
           ? { image: maskCanvas, featherPx: maskFeatherPx }
           : null,
         selectAsCurrent: true,
-      });
+      };
+      const result = target.localEditRoundtrip?.kind === "planar"
+        ? await repasteLocalEditRoundtrip(target, pasteOptions)
+        : await repastePanoramaRoundtrip(target, pasteOptions);
       if (result) close();
     } catch (err: any) {
       pushToast(`手动贴回失败: ${err?.message ?? err}`, "error", 4200);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleImportImage(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0] ?? null;
+    event.currentTarget.value = "";
+    if (!file || busy || loading || !target) return;
+    setBusy(true);
+    try {
+      if (target.localEditRoundtrip?.kind === "planar") {
+        await importExternalLocalPastebackImage(target, file);
+      } else {
+        await importExternalPanoramaPastebackImage(target, file);
+      }
     } finally {
       setBusy(false);
     }
@@ -623,7 +677,7 @@ export function PanoramaPastebackAlignModal() {
   }
 
   return (
-    <Modal open onClose={close} title="手动对齐贴回全景图" width={920} bodyClassName="pano-align-body">
+    <Modal open onClose={close} title={target.localEditRoundtrip?.kind === "planar" ? "手动对齐贴回原图" : "手动对齐贴回全景图"} width={920} bodyClassName="pano-align-body">
       <div className="pano-align-layout">
         <div className="pano-align-preview-wrap">
           {loading ? <div className="pano-align-status">正在重建镜头对比...</div> : null}
@@ -883,7 +937,7 @@ export function PanoramaPastebackAlignModal() {
                 {maskPreviewMode ? "继续编辑蒙版" : "预览蒙版效果"}
               </button>
               <p className="pano-align-hint">
-                开启后在左侧画黄色区域，只把黄色区域贴回全景图；预览蒙版效果可先检查实际贴回范围。启用精细蒙版时，羽化只作用于蒙版边缘。
+                开启后在左侧画黄色区域，只把黄色区域贴回原图；预览蒙版效果可先检查实际贴回范围。启用精细蒙版时，羽化只作用于蒙版边缘。
               </p>
             </div>
           ) : null}
@@ -897,6 +951,10 @@ export function PanoramaPastebackAlignModal() {
           ) : null}
 
           <div className="pano-align-actions">
+            <input ref={importInputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => void handleImportImage(event)} />
+            <button type="button" className="pano-align-secondary" onClick={() => importInputRef.current?.click()} disabled={busy || loading}>
+              导入编辑图
+            </button>
             <button
               type="button"
               className="pano-align-secondary"

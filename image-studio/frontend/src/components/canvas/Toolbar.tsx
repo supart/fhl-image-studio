@@ -34,6 +34,7 @@ export function Toolbar() {
     resetMask, clearAnnotations,
     undoStack, redoStack, undo, redo,
     rotateCurrent, flipCurrent, cropToRect,
+    startLocalEditRoundtrip,
     openResultDetail,
     openPanoramaViewer,
   } = useStudioStore();
@@ -98,6 +99,11 @@ export function Toolbar() {
   const showMaskTools = tool === "mask";
   const showViewReset = tool === "pan" && hasImage;
   const showTransformSection = !!currentImage;
+  const localEditAction = currentImage
+    ? () => void startLocalEditRoundtrip(selRect && selRect.width && selRect.height
+      ? { x: selRect.x, y: selRect.y, width: selRect.width, height: selRect.height }
+      : undefined)
+    : null;
   const showSecondaryBar = true;
   const hasViewContent = hasImage || resultGridOpen || historyGalleryOpen;
   const mergeViewTransformSection = isMac && showViewReset && !showMaskTools && !showAnnotationTools;
@@ -139,6 +145,7 @@ export function Toolbar() {
         cropAction={!isAndroidPhone && selRect && selRect.width && selRect.height
           ? () => cropToRect(selRect.x, selRect.y, selRect.width!, selRect.height!)
           : null}
+        localEditAction={localEditAction}
       />
     </ToolbarGroup>
   ) : hasTransformTools ? (
@@ -153,6 +160,7 @@ export function Toolbar() {
         cropAction={!isAndroidPhone && selRect && selRect.width && selRect.height
           ? () => cropToRect(selRect.x, selRect.y, selRect.width!, selRect.height!)
           : null}
+        localEditAction={localEditAction}
       />
     </ToolbarGroup>
   ) : null;
@@ -310,6 +318,7 @@ export function Toolbar() {
               cropAction={!isAndroidPhone && selRect && selRect.width && selRect.height
                 ? () => cropToRect(selRect.x, selRect.y, selRect.width!, selRect.height!)
                 : null}
+              localEditAction={localEditAction}
             />
           </>
         ) : null}

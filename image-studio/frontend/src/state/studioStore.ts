@@ -8,6 +8,7 @@ import {
   ReversePrompt as wailsReversePrompt,
   Cancel as wailsCancel,
   ImportImageFromB64,
+  CropImage,
   ReadImageAsBase64,
   GetOutputDir,
   SetOutputDir,
@@ -291,6 +292,11 @@ import {
   resolvePanoramaRoundtripRef,
   resolvePanoramaProjectRef,
 } from "../panorama/core";
+import {
+  pastePlanarRoundtripBase64,
+  validateLocalEditDimensions,
+  type LocalPastebackMaskInput,
+} from "../localEdit/core";
 import { loadMaterialGroups } from "./materialLibrary";
 import { sourceImagesForHistory, sourceImagesFromPaths } from "./historySourceImages";
 import {
@@ -319,6 +325,7 @@ type BrowserSourceIdentity = {
   size?: SizeValue;
   sourceImages?: SourceImage[];
   panoramaRoundtrip?: HistoryItem["panoramaRoundtrip"];
+  localEditRoundtrip?: HistoryItem["localEditRoundtrip"];
 };
 
 const ENABLE_LEGACY_PROFILE_MIGRATION = false;
@@ -635,6 +642,135 @@ function externalPanoramaPastebackItem(
   };
 }
 
+function resolveLocalEditRoundtripRef(
+  item: HistoryItem | null | undefined,
+  history: HistoryItem[] = [],
+): NonNullable<HistoryItem["localEditRoundtrip"]> | null {
+  if (item?.localEditRoundtrip) return item.localEditRoundtrip;
+  const panorama = resolvePanoramaRoundtripRef(item);
+  if (!panorama) return null;
+  const width = Number(panorama.roundtripState.source_erp.width || item?.width || 0);
+  const height = Number(panorama.roundtripState.source_erp.height || item?.height || 0);
+  const editWidth = Number(panorama.roundtripState.rect.width || item?.width || 0);
+  const editHeight = Number(panorama.roundtripState.rect.height || item?.height || 0);
+  const source = panorama.sourceHistoryId
+    ? history.find((entry) => entry.id === panorama.sourceHistoryId)
+    : null;
+  return {
+    version: 1,
+    kind: "panorama",
+    sourceHistoryId: panorama.sourceHistoryId,
+    sourcePath: panorama.sourcePath || panorama.roundtripState.source_erp.path || source?.savedPath,
+    sourceWidth: width,
+    sourceHeight: height,
+    editWidth,
+    editHeight,
+    panoramaRoundtrip: panorama,
+  };
+}
+
+function syntheticLocalPastebackResultItem(
+  imported: Awaited<ReturnType<typeof ImportImageFromB64>>,
+  imageB64: string,
+  source: HistoryItem,
+  sourceItem: HistoryItem,
+): HistoryItem {
+  const previewBacked = !!(imported.previewUrl || imported.imageId);
+  const width = Number.isFinite(Number(imported.width)) ? Number(imported.width) : sourceItem.width;
+  const height = Number.isFinite(Number(imported.height)) ? Number(imported.height) : sourceItem.height;
+  return {
+    id: cryptoIDFallback(),
+    imageId: imported.imageId || undefined,
+    previewUrl: imported.previewUrl || undefined,
+    fullUrl: imported.imageId ? `/media/full/${imported.imageId}` : undefined,
+    imageB64: previewBacked ? undefined : imageB64,
+    imageBlob: null,
+    previewBlob: null,
+    previewOnly: true,
+    prompt: `(局部贴回)${source.prompt || ""}`,
+    revisedPrompt: source.revisedPrompt,
+    mode: "edit",
+    apiMode: source.apiMode,
+    apiProfileId: source.apiProfileId,
+    apiProfileName: source.apiProfileName,
+    fhlImagesPoolSlot: normalizeFHLImagesPoolSlot(source.fhlImagesPoolSlot),
+    size: `${Math.max(1, Number(width || 0))}x${Math.max(1, Number(height || 0))}` as SizeValue,
+    quality: source.quality,
+    outputFormat: "png",
+    parentId: sourceItem.savedPath || source.parentId,
+    createdAt: Date.now(),
+    savedPath: imported.path,
+    sourceImages: sourceItem.savedPath
+      ? [{
+          path: sourceItem.savedPath,
+          name: sourceItem.savedPath.split(/[\\/]/).pop() || "source.png",
+          size: 0,
+          width: sourceItem.width,
+          height: sourceItem.height,
+          previewUrl: sourceItem.previewUrl,
+        }]
+      : undefined,
+    width,
+    height,
+    previewWidth: Number.isFinite(Number(imported.previewWidth)) ? Number(imported.previewWidth) : undefined,
+    previewHeight: Number.isFinite(Number(imported.previewHeight)) ? Number(imported.previewHeight) : undefined,
+  };
+}
+
+function externalLocalPastebackItem(
+  imported: Awaited<ReturnType<typeof ImportImageFromB64>>,
+  file: File,
+  imageB64: string,
+  anchor: HistoryItem,
+  roundtrip: NonNullable<HistoryItem["localEditRoundtrip"]>,
+  dimensions: { w: number; h: number },
+): HistoryItem {
+  const previewBacked = !!(imported.previewUrl || imported.imageId);
+  const legacyB64 = previewBacked ? "" : (imported.imageB64 || imageB64);
+  const legacyBlob = legacyB64 ? base64ToBlob(legacyB64, file.type || "image/png") : null;
+  const width = Number.isFinite(Number(imported.width)) ? Number(imported.width) : dimensions.w;
+  const height = Number.isFinite(Number(imported.height)) ? Number(imported.height) : dimensions.h;
+  const sourceImage: SourceImage = {
+    path: imported.path,
+    name: file.name,
+    size: file.size,
+    width,
+    height,
+    previewUrl: imported.previewUrl || undefined,
+    imageBlob: legacyBlob,
+    imageB64: legacyB64 || undefined,
+    localEditRoundtrip: roundtrip,
+  };
+  return {
+    id: cryptoIDFallback(),
+    imageId: imported.imageId || undefined,
+    previewUrl: imported.previewUrl || undefined,
+    fullUrl: imported.imageId ? `/media/full/${imported.imageId}` : undefined,
+    imageB64: legacyB64 || undefined,
+    imageBlob: null,
+    previewBlob: legacyBlob,
+    previewOnly: previewBacked,
+    prompt: `(外部局部贴回)${file.name}`,
+    mode: "edit",
+    apiMode: anchor.apiMode,
+    apiProfileId: anchor.apiProfileId,
+    apiProfileName: anchor.apiProfileName,
+    fhlImagesPoolSlot: normalizeFHLImagesPoolSlot(anchor.fhlImagesPoolSlot),
+    size: `${Math.max(1, width)}x${Math.max(1, height)}` as SizeValue,
+    quality: anchor.quality || "medium",
+    outputFormat: "png",
+    parentId: anchor.savedPath || anchor.parentId,
+    createdAt: Date.now(),
+    savedPath: imported.path,
+    sourceImages: [sourceImage],
+    localEditRoundtrip: roundtrip,
+    width,
+    height,
+    previewWidth: Number.isFinite(Number(imported.previewWidth)) ? Number(imported.previewWidth) : width,
+    previewHeight: Number.isFinite(Number(imported.previewHeight)) ? Number(imported.previewHeight) : height,
+  };
+}
+
 function runningHubRecoveryHistoryId(taskId: string): string {
   return `runninghub-recovered:${taskId}`;
 }
@@ -705,6 +841,7 @@ function recoveredRunningHubHistoryItem(
     savedPath: imported.path,
     sourceImages,
     panoramaRoundtrip,
+    localEditRoundtrip: localEditRoundtripFromSources(sourceImages),
     panoramaProject: panoramaProjectFromEditSources(sourceImages, panoramaRoundtrip),
     width,
     height,
@@ -755,6 +892,7 @@ function recoveredAPIMartHistoryItem(
     savedPath: imported.path,
     sourceImages,
     panoramaRoundtrip,
+    localEditRoundtrip: localEditRoundtripFromSources(sourceImages),
     panoramaProject: panoramaProjectFromEditSources(sourceImages, panoramaRoundtrip),
     width,
     height,
@@ -836,6 +974,84 @@ async function autoPastePanoramaRoundtripResult(
           resultGridOpen: false,
           historyGalleryOpen: false,
         }
+      : {};
+    return {
+      history,
+      workspaces: patchWorkspaceRuntime(state.workspaces, options.workspaceId, workspacePatch),
+      ...(options.selectAsCurrent && state.activeWorkspaceId === options.workspaceId
+        ? {
+            currentImage: nextItem,
+            resultGridOpen: false,
+            historyGalleryOpen: false,
+            historyGallerySinglePreviewId: null,
+            compareB: null,
+            maskDataURL: null,
+            annotations: [],
+            tool: "pan",
+          }
+        : {}),
+    } as Partial<StudioState>;
+  });
+  await persistHistoryItem(nextItem).catch(() => undefined);
+  if (options.isCurrent && !options.isCurrent()) return null;
+  persistTrimmedHistory(useStudioStore.getState().history);
+  return nextItem;
+}
+
+async function autoPasteLocalEditRoundtripResult(
+  item: HistoryItem,
+  options: {
+    workspaceId: string;
+    selectAsCurrent?: boolean;
+    alignment?: PanoramaPastebackAlignment | null;
+    pasteMask?: PanoramaPastebackMaskInput | null;
+    isCurrent?: () => boolean;
+  },
+): Promise<HistoryItem | null> {
+  if (options.isCurrent && !options.isCurrent()) return null;
+  const roundtrip = resolveLocalEditRoundtripRef(item, useStudioStore.getState().history);
+  if (!roundtrip || roundtrip.kind !== "planar") return null;
+  const sourceItem = roundtrip.sourceHistoryId
+    ? useStudioStore.getState().history.find((entry) => entry.id === roundtrip.sourceHistoryId) ?? null
+    : null;
+  const source = sourceItem ?? (roundtrip.sourcePath
+    ? {
+        id: `local-edit-source:${roundtrip.sourceHistoryId || roundtrip.sourcePath}`,
+        prompt: item.prompt,
+        mode: "edit" as const,
+        size: `${roundtrip.sourceWidth}x${roundtrip.sourceHeight}` as SizeValue,
+        quality: item.quality,
+        createdAt: item.createdAt,
+        savedPath: roundtrip.sourcePath,
+        width: roundtrip.sourceWidth,
+        height: roundtrip.sourceHeight,
+      }
+    : null);
+  if (!source) throw new Error("局部编辑原图已丢失");
+  const [sourceImage, editedImage] = await Promise.all([
+    source.savedPath ? loadSavedPathAsHtmlImage(source.savedPath) : loadHistoryItemAsHtmlImage(source),
+    loadHistoryItemAsHtmlImage(item),
+  ]);
+  if (options.isCurrent && !options.isCurrent()) return null;
+  const pasted = pastePlanarRoundtripBase64(
+    sourceImage,
+    editedImage,
+    roundtrip,
+    options.alignment,
+    options.pasteMask as LocalPastebackMaskInput | null,
+  );
+  const imported = await ImportImageFromB64(pasted.imageB64, `local-edit-roundtrip-${Date.now()}.png`);
+  if (options.isCurrent && !options.isCurrent()) return null;
+  const ref = await RegisterImportedImageAsset(imported.path).catch(() => null);
+  if (options.isCurrent && !options.isCurrent()) return null;
+  const nextItem = ref
+    ? withMediaAssetRef(syntheticLocalPastebackResultItem(imported, pasted.imageB64, item, source), ref)
+    : syntheticLocalPastebackResultItem(imported, pasted.imageB64, item, source);
+  useStudioStore.setState((state) => {
+    if (options.isCurrent && !options.isCurrent()) return {};
+    const history = trimHistory([nextItem, ...state.history.filter((entry) => entry.id !== nextItem.id)]);
+    const workspacePatch: WorkspacePatch = options.selectAsCurrent
+      ? { currentImageId: nextItem.id, resultGridOpen: false, historyGalleryOpen: false }
       : {};
     return {
       history,
@@ -3513,6 +3729,7 @@ async function buildHistoryItemFromBrowserSlot(
     previewHeight: mediaRef?.previewHeight || existing?.previewHeight,
     sourceImages,
     panoramaRoundtrip,
+    localEditRoundtrip: sourceIdentity?.localEditRoundtrip ?? localEditRoundtripFromSources(sourceImages),
     panoramaProject: panoramaProjectFromEditSources(sourceImages, panoramaRoundtrip),
     parentId: parentSourcePath || undefined,
     savedPath,
@@ -3611,6 +3828,10 @@ function panoramaRoundtripFromSources(sources: SourceImage[] | undefined): Histo
   return findPanoramaRoundtripRef(sources) ?? undefined;
 }
 
+function localEditRoundtripFromSources(sources: SourceImage[] | undefined): HistoryItem["localEditRoundtrip"] {
+  return (sources ?? []).find((source) => source.localEditRoundtrip)?.localEditRoundtrip;
+}
+
 function sourceIdentityForBrowserGroupSlot(group: JobGroupSnapshot, slot: JobGroupSnapshot["slots"][number]): BrowserSourceIdentity {
   const state = useStudioStore.getState();
   const workspace = state.workspaces.find((entry) => entry.id === group.workspaceId);
@@ -3629,6 +3850,7 @@ function sourceIdentityForBrowserGroupSlot(group: JobGroupSnapshot, slot: JobGro
     size: task?.size,
     sourceImages: sourceImages.length > 0 ? sourceImages : undefined,
     panoramaRoundtrip: task?.panoramaRoundtrip ?? panoramaRoundtripFromSources(sourceImages),
+    localEditRoundtrip: localEditRoundtripFromSources(sourceImages),
   };
 }
 
@@ -3769,6 +3991,7 @@ async function syncHistoryItemFromBrowserJobSlotCore(
     size: taskForOutputSync?.size,
     sourceImages: taskForOutputSync ? sourceImagesForTask(taskForOutputSync) : undefined,
     panoramaRoundtrip: taskForOutputSync?.panoramaRoundtrip,
+    localEditRoundtrip: taskForOutputSync ? localEditRoundtripFromSources(sourceImagesForTask(taskForOutputSync)) : undefined,
   });
   const isSyncCurrent = () => {
     const state = store.getState();
@@ -4963,6 +5186,191 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   applyHistoryParams: (item) => imageActions.applyHistoryParams(item),
   regenerateFromHistory: async (item) => imageActions.regenerateFromHistory(item),
   reuseAsSource: async (item) => imageActions.reuseAsSource(item),
+  startLocalEditRoundtrip: async (rect) => {
+    const state = get();
+    const workspaceId = state.activeWorkspaceId;
+    const current = state.currentImage;
+    if (!current) {
+      state.pushToast("当前没有图片", "warn", 2600);
+      return null;
+    }
+    if (!rect || rect.width <= 3 || rect.height <= 3) {
+      set({ tool: "annotate", annotationKind: "rect" });
+      state.pushToast("请先在图片上框选局部区域", "info", 3000);
+      return null;
+    }
+    try {
+      const source = await materializeHistoryItem(current);
+      if (!source?.savedPath) throw new Error("当前图片暂时无法读取原图");
+      let sourceWidth = Number(source.width || source.previewWidth || 0);
+      let sourceHeight = Number(source.height || source.previewHeight || 0);
+      if (!sourceWidth || !sourceHeight) {
+        const b64 = await ReadImageAsBase64(source.savedPath);
+        const dimensions = getImageDimensionsFromBase64(b64);
+        if (dimensions) {
+          sourceWidth = dimensions.w;
+          sourceHeight = dimensions.h;
+        }
+      }
+      validateLocalEditDimensions(sourceWidth, sourceHeight);
+      const previewWidth = Math.max(1, Number(source.previewWidth || sourceWidth));
+      const previewHeight = Math.max(1, Number(source.previewHeight || sourceHeight));
+      const scaleX = sourceWidth / previewWidth;
+      const scaleY = sourceHeight / previewHeight;
+      const x = Math.max(0, Math.min(sourceWidth - 1, Math.round(rect.x * scaleX)));
+      const y = Math.max(0, Math.min(sourceHeight - 1, Math.round(rect.y * scaleY)));
+      const width = Math.max(8, Math.min(sourceWidth - x, Math.round(rect.width * scaleX)));
+      const height = Math.max(8, Math.min(sourceHeight - y, Math.round(rect.height * scaleY)));
+      if (width < 8 || height < 8) throw new Error("选择区域太小，请扩大矩形后重试");
+      const cropped = await CropImage(source.savedPath, x, y, width, height);
+      const ref = await RegisterImportedImageAsset(cropped.path).catch(() => null);
+      const localEditRoundtrip = {
+        version: 1 as const,
+        kind: "planar" as const,
+        sourceHistoryId: source.id,
+        sourcePath: source.savedPath,
+        sourceWidth,
+        sourceHeight,
+        cropRect: { x, y, width, height },
+        editWidth: width,
+        editHeight: height,
+      };
+      const cropItem: HistoryItem = {
+        id: cryptoIDFallback(),
+        imageId: ref?.imageId,
+        previewUrl: ref?.previewUrl,
+        fullUrl: ref?.fullUrl,
+        previewOnly: !!ref,
+        prompt: `(局部裁切)${source.prompt || ""}`,
+        revisedPrompt: source.revisedPrompt,
+        mode: "edit",
+        apiMode: source.apiMode,
+        apiProfileId: source.apiProfileId,
+        apiProfileName: source.apiProfileName,
+        fhlImagesPoolSlot: normalizeFHLImagesPoolSlot(source.fhlImagesPoolSlot),
+        size: `${width}x${height}` as SizeValue,
+        quality: source.quality,
+        outputFormat: "png",
+        parentId: source.savedPath,
+        createdAt: Date.now(),
+        savedPath: cropped.path,
+        sourceImages: [{
+          path: cropped.path,
+          name: cropped.path.split(/[\\/]/).pop() || "local-edit-crop.png",
+          size: 0,
+          width,
+          height,
+          previewUrl: ref?.previewUrl,
+          localEditRoundtrip,
+        }],
+        localEditRoundtrip,
+        width,
+        height,
+        previewWidth: ref?.previewWidth || width,
+        previewHeight: ref?.previewHeight || height,
+      };
+      const next = ref ? withMediaAssetRef(cropItem, ref) : cropItem;
+      set((currentState) => ({
+        history: trimHistory([next, ...currentState.history.filter((item) => item.id !== next.id)]),
+        currentImage: next,
+        mode: "edit",
+        editSourceMode: "manual",
+        sources: next.sourceImages || [],
+        resultGridOpen: false,
+        historyGalleryOpen: false,
+        historyGallerySinglePreviewId: null,
+        compareB: null,
+        maskDataURL: null,
+        strokes: [],
+        annotations: [],
+        selectedAnnotationId: null,
+        tool: "pan",
+        workspaces: patchWorkspaceRuntime(currentState.workspaces, workspaceId, {
+          currentImageId: next.id,
+          resultGridOpen: false,
+          historyGalleryOpen: false,
+          sources: next.sourceImages || [],
+          mode: "edit",
+          editSourceMode: "manual",
+        }),
+      } as Partial<StudioState>));
+      await persistHistoryItem(next).catch(() => undefined);
+      persistTrimmedHistory(get().history);
+      state.pushToast(`已创建 ${width}×${height} 局部编辑副本`, "success", 3200);
+      return next;
+    } catch (error: any) {
+      state.pushToast(`局部裁切失败: ${error?.message ?? error}`, "warn", 4600);
+      return null;
+    }
+  },
+  openLocalPastebackAligner: (item) => set({ panoramaAlignTarget: item }),
+  repasteLocalEditRoundtrip: async (item, options) => {
+    const workspaceId = get().activeWorkspaceId;
+    if (!workspaceId) return null;
+    try {
+      const repasted = await autoPasteLocalEditRoundtripResult(item, {
+        workspaceId,
+        selectAsCurrent: options?.selectAsCurrent ?? true,
+        alignment: options?.alignment ?? null,
+        pasteMask: options?.pasteMask ?? null,
+      });
+      if (!repasted) {
+        get().pushToast("这张图没有可用的局部贴回信息", "warn", 3200);
+        return null;
+      }
+      get().pushToast("已贴回原图", "success", 3200);
+      return repasted;
+    } catch (error: any) {
+      get().pushToast(`局部贴回失败: ${error?.message ?? error}`, "warn", 4600);
+      return null;
+    }
+  },
+  importExternalLocalPastebackImage: async (anchorItem, file) => {
+    const workspaceId = get().activeWorkspaceId;
+    if (!workspaceId) return null;
+    if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) {
+      get().pushToast(`不支持的图片类型: ${file.type || "(未知)"}，请用 PNG/JPG/WebP`, "warn", 3600);
+      return null;
+    }
+    const roundtrip = resolveLocalEditRoundtripRef(anchorItem, get().history);
+    if (!roundtrip || roundtrip.kind !== "planar") {
+      get().pushToast("当前图片没有可用的普通图片局部贴回信息", "warn", 3400);
+      return null;
+    }
+    try {
+      const imageB64 = await fileToBase64(file);
+      const dimensions = getImageDimensionsFromBase64(imageB64);
+      if (!dimensions) throw new Error("无法读取导入图片尺寸");
+      validateLocalEditDimensions(dimensions.w, dimensions.h);
+      const imported = await ImportImageFromB64(imageB64, file.name);
+      const ref = await RegisterImportedImageAsset(imported.path).catch(() => null);
+      const item = ref
+        ? withMediaAssetRef(externalLocalPastebackItem(imported, file, imageB64, anchorItem, roundtrip, dimensions), ref)
+        : externalLocalPastebackItem(imported, file, imageB64, anchorItem, roundtrip, dimensions);
+      set((currentState) => ({
+        history: trimHistory([item, ...currentState.history.filter((entry) => entry.id !== item.id)]),
+        currentImage: item,
+        resultGridOpen: false,
+        historyGalleryOpen: false,
+        historyGallerySinglePreviewId: null,
+        panoramaAlignTarget: item,
+        errorMessage: null,
+        errorRawPath: null,
+        workspaces: patchWorkspaceRuntime(currentState.workspaces, workspaceId, {
+          currentImageId: item.id,
+          resultGridOpen: false,
+          historyGalleryOpen: false,
+        }),
+      } as Partial<StudioState>));
+      await persistHistoryItem(item).catch(() => undefined);
+      persistTrimmedHistory(get().history);
+      get().pushToast("已导入外部局部编辑图，进入手动对齐", "success", 3400);
+      return item;
+    } catch (error: any) {
+      get().pushToast(`导入局部贴回图失败: ${error?.message ?? error}`, "warn", 4600);
+      return null;
+    }
+  },
   repastePanoramaRoundtrip: async (item, options) => {
     const workspaceId = get().activeWorkspaceId;
     if (!workspaceId) {
@@ -7170,6 +7578,7 @@ async function launchOneJob(
             elapsedSec: Number(elapsedSec.toFixed(1)),
             sourceImages,
             panoramaRoundtrip,
+            localEditRoundtrip: localEditRoundtripFromSources(sourceImages),
             panoramaProject,
             savedPath: r.savedPath,
             rawPath: r.rawPath,

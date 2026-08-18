@@ -13,6 +13,8 @@ type HistoryContextMenuArgs = {
   onOpenDetail: (item: HistoryItem) => void;
   onOpenPanorama: (item: HistoryItem) => void;
   onRepastePanorama: (item: HistoryItem) => void;
+  onRepasteLocalEdit?: (item: HistoryItem) => void;
+  onStartLocalEdit?: (item: HistoryItem) => void;
   onRegenerate: (item: HistoryItem) => void;
   onReuseAsSource: (item: HistoryItem) => void;
   onSaveOriginal: (item: HistoryItem) => void;
@@ -35,6 +37,8 @@ export function useHistoryContextMenu({
   onOpenDetail,
   onOpenPanorama,
   onRepastePanorama,
+  onRepasteLocalEdit,
+  onStartLocalEdit,
   onRegenerate,
   onReuseAsSource,
   onSaveOriginal,
@@ -83,6 +87,8 @@ export function useHistoryContextMenu({
       onRegenerate: () => onRegenerate(item),
       onReuseAsSource: () => onReuseAsSource(item),
       onRepastePanorama: () => onRepastePanorama(item),
+      onRepasteLocalEdit: () => onRepasteLocalEdit?.(item),
+      onStartLocalEdit: () => onStartLocalEdit?.(item),
       onOpenPanorama: () => onOpenPanorama(item),
       onToggleCompare: () => onToggleCompare(item),
       onDelete: () => onDelete(item),
