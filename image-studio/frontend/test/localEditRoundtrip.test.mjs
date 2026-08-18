@@ -21,6 +21,7 @@ test("Windows UI exposes local edit and keeps panorama entry points", async () =
   const menus = await read("components/history/historyMenus.ts");
   assert.match(toolbar, /startLocalEditRoundtrip/);
   assert.match(toolbar, /localEditAction/);
+  assert.match(toolbar, /newest rectangle|reverse\(\)\.find\(\(a\) => a\.kind === "rect"\)/);
   assert.match(aligner, /repasteLocalEditRoundtrip/);
   assert.match(aligner, /importExternalLocalPastebackImage/);
   assert.match(aligner, /手动对齐贴回原图/);

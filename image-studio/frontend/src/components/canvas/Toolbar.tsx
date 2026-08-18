@@ -38,7 +38,11 @@ export function Toolbar() {
     openResultDetail,
     openPanoramaViewer,
   } = useStudioStore();
-  const selRect = annotations.find((a) => a.id === selectedAnnotationId && a.kind === "rect");
+  // A newly drawn rectangle is visible immediately but may not yet have a
+  // selectedAnnotationId. Prefer an explicit selection, then the newest
+  // rectangle so the local-edit action can use the just-created region.
+  const selRect = annotations.find((a) => a.id === selectedAnnotationId && a.kind === "rect")
+    ?? [...annotations].reverse().find((a) => a.kind === "rect");
   const { isAndroidPhone, isMac, usesAppleUI } = usePlatform();
   const [mobileAdjustOpen, setMobileAdjustOpen] = useState(false);
   const [panoramaOutputManagerOpen, setPanoramaOutputManagerOpen] = useState(false);
