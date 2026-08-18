@@ -9,6 +9,7 @@ import type {
   BatchProcessSourceImage,
   BatchTaskRecord,
   HistoryItem,
+  LocalEditLens,
   LocalEditWorkbenchDraft,
   OutputFormatValue,
   ProgressInfo,
@@ -321,6 +322,31 @@ function normalizeLocalEditWorkbenchDraft(value: unknown): LocalEditWorkbenchDra
   const cropWidth = Number((rect as any).width);
   const cropHeight = Number((rect as any).height);
   if (![x, y, cropWidth, cropHeight].every(Number.isFinite) || cropWidth <= 0 || cropHeight <= 0) return null;
+  const rawLens = raw.lens && typeof raw.lens === "object" ? raw.lens : null;
+  const lensX = Number((rawLens as any)?.x);
+  const lensY = Number((rawLens as any)?.y);
+  const lensWidth = Number((rawLens as any)?.width);
+  const lensHeight = Number((rawLens as any)?.height);
+  const normalizedLensWidth = Number.isFinite(lensWidth) && lensWidth > 0 ? Math.min(Math.floor(width), Math.floor(lensWidth)) : Math.max(1, Math.floor(cropWidth));
+  const normalizedLensHeight = Number.isFinite(lensHeight) && lensHeight > 0 ? Math.min(Math.floor(height), Math.floor(lensHeight)) : Math.max(1, Math.floor(cropHeight));
+  const lens: LocalEditLens = {
+    id: typeof (rawLens as any)?.id === "string" && (rawLens as any).id.trim()
+      ? (rawLens as any).id.trim()
+      : "local-edit-lens-1",
+    aspect: typeof (rawLens as any)?.aspect === "string" && (rawLens as any).aspect.trim()
+      ? (rawLens as any).aspect.trim()
+      : (typeof raw.aspect === "string" && raw.aspect.trim() ? raw.aspect.trim() : "free"),
+    x: Math.max(0, Math.min(Math.floor(width - normalizedLensWidth), Number.isFinite(lensX) ? Math.floor(lensX) : Math.floor(x))),
+    y: Math.max(0, Math.min(Math.floor(height - normalizedLensHeight), Number.isFinite(lensY) ? Math.floor(lensY) : Math.floor(y))),
+    width: normalizedLensWidth,
+    height: normalizedLensHeight,
+    outputWidth: Number.isFinite(Number((rawLens as any)?.outputWidth))
+      ? Math.max(1, Math.floor(Number((rawLens as any).outputWidth)))
+      : Math.max(1, Math.floor(cropWidth)),
+    outputHeight: Number.isFinite(Number((rawLens as any)?.outputHeight))
+      ? Math.max(1, Math.floor(Number((rawLens as any).outputHeight)))
+      : Math.max(1, Math.floor(cropHeight)),
+  };
   return {
     mode: raw.mode === "panorama" ? "panorama" : "planar",
     phase: raw.phase === "edit" || raw.phase === "align" ? raw.phase : "crop",
@@ -334,6 +360,7 @@ function normalizeLocalEditWorkbenchDraft(value: unknown): LocalEditWorkbenchDra
       width: Math.max(1, Math.floor(cropWidth)),
       height: Math.max(1, Math.floor(cropHeight)),
     },
+    lens,
     aspect: typeof raw.aspect === "string" && raw.aspect.trim() ? raw.aspect.trim() : "free",
     size: normalizeWorkspaceSize(raw.size),
     quality: normalizeWorkspaceQuality(raw.quality),

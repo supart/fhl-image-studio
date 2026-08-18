@@ -56,6 +56,7 @@ import {
   BatchTaskRecord,
   type EditSourceMode,
   HistoryItem,
+  LocalEditLens,
   JobGroupSnapshot,
   Mode,
   OutputFormatValue,
@@ -4196,6 +4197,56 @@ function isE2EOnlyBootstrap(): boolean {
   }).__IMAGE_STUDIO_E2E_BOOTSTRAP?.e2eOnly === true;
 }
 
+const PLANAR_LOCAL_EDIT_ASPECTS = [
+  { value: "1:1", ratio: 1 },
+  { value: "4:3", ratio: 4 / 3 },
+  { value: "3:2", ratio: 3 / 2 },
+  { value: "16:9", ratio: 16 / 9 },
+  { value: "2:1", ratio: 2 },
+] as const;
+
+function nearestPlanarLocalEditAspect(width: number, height: number): string {
+  const ratio = Math.max(0.01, width / Math.max(1, height));
+  return PLANAR_LOCAL_EDIT_ASPECTS.reduce((best, current) => (
+    Math.abs(Math.log(ratio / current.ratio)) < Math.abs(Math.log(ratio / best.ratio)) ? current : best
+  )).value;
+}
+
+function clampLocalEditLens(lens: LocalEditLens, sourceWidth: number, sourceHeight: number): LocalEditLens {
+  const width = Math.max(8, Math.min(sourceWidth, Math.round(lens.width)));
+  const height = Math.max(8, Math.min(sourceHeight, Math.round(lens.height)));
+  return {
+    ...lens,
+    x: Math.max(0, Math.min(sourceWidth - width, Math.round(lens.x))),
+    y: Math.max(0, Math.min(sourceHeight - height, Math.round(lens.y))),
+    width,
+    height,
+    outputWidth: Math.max(1, Math.round(lens.outputWidth || width)),
+    outputHeight: Math.max(1, Math.round(lens.outputHeight || height)),
+  };
+}
+
+function createPlanarLocalEditLens(sourceWidth: number, sourceHeight: number, rect?: { x: number; y: number; width: number; height: number }): LocalEditLens {
+  const hasRect = !!rect && rect.width > 3 && rect.height > 3;
+  const aspect = nearestPlanarLocalEditAspect(hasRect ? rect!.width : 1, hasRect ? rect!.height : 1);
+  const ratio = PLANAR_LOCAL_EDIT_ASPECTS.find((item) => item.value === aspect)?.ratio ?? 1;
+  const baseWidth = hasRect
+    ? Math.max(8, Math.min(sourceWidth, Math.round(rect!.width)))
+    : Math.max(8, Math.min(sourceWidth, Math.round(Math.min(sourceWidth, sourceHeight) * 0.6)));
+  const width = Math.max(8, Math.min(sourceWidth, baseWidth));
+  const height = Math.max(8, Math.min(sourceHeight, Math.round(width / ratio)));
+  return clampLocalEditLens({
+    id: "local-edit-lens-1",
+    aspect,
+    x: hasRect ? rect!.x : (sourceWidth - width) / 2,
+    y: hasRect ? rect!.y : (sourceHeight - height) / 2,
+    width,
+    height,
+    outputWidth: width,
+    outputHeight: height,
+  }, sourceWidth, sourceHeight);
+}
+
 export const useStudioStore = create<StudioState>((set, get) => ({
   apiKey: "",
   mode: "generate",
@@ -5194,11 +5245,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       state.pushToast("当前没有图片", "warn", 2600);
       return null;
     }
-    if (!rect || rect.width <= 3 || rect.height <= 3) {
-      set({ tool: "annotate", annotationKind: "rect" });
-      state.pushToast("请先在图片上框选局部区域", "info", 3000);
-      return null;
-    }
     try {
       const source = await materializeHistoryItem(current);
       if (!source?.savedPath) throw new Error("当前图片暂时无法读取原图");
@@ -5217,11 +5263,15 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       const previewHeight = Math.max(1, Number(source.previewHeight || sourceHeight));
       const scaleX = sourceWidth / previewWidth;
       const scaleY = sourceHeight / previewHeight;
-      const x = Math.max(0, Math.min(sourceWidth - 1, Math.round(rect.x * scaleX)));
-      const y = Math.max(0, Math.min(sourceHeight - 1, Math.round(rect.y * scaleY)));
-      const width = Math.max(8, Math.min(sourceWidth - x, Math.round(rect.width * scaleX)));
-      const height = Math.max(8, Math.min(sourceHeight - y, Math.round(rect.height * scaleY)));
-      if (width < 8 || height < 8) throw new Error("选择区域太小，请扩大矩形后重试");
+      const naturalRect = rect && rect.width > 3 && rect.height > 3
+        ? {
+            x: Math.max(0, Math.min(sourceWidth - 1, Math.round(rect.x * scaleX))),
+            y: Math.max(0, Math.min(sourceHeight - 1, Math.round(rect.y * scaleY))),
+            width: Math.max(8, Math.min(sourceWidth, Math.round(rect.width * scaleX))),
+            height: Math.max(8, Math.min(sourceHeight, Math.round(rect.height * scaleY))),
+          }
+        : undefined;
+      const lens = createPlanarLocalEditLens(sourceWidth, sourceHeight, naturalRect);
       const draft = {
         mode: "planar" as const,
         phase: "crop" as const,
@@ -5229,8 +5279,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         sourcePath: source.savedPath,
         sourceWidth,
         sourceHeight,
-        cropRect: { x, y, width, height },
-        aspect: `${width}:${height}`,
+        cropRect: { x: lens.x, y: lens.y, width: lens.width, height: lens.height },
+        lens,
+        aspect: lens.aspect,
         size: state.size,
         quality: state.quality,
         promptPrefix: state.promptPrefix,
@@ -5247,7 +5298,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         }),
       } as Partial<StudioState>));
       scheduleWorkspaceSessionPersistence(get(), true);
-      state.pushToast("已打开局部编辑工作台，请确认裁切区域", "info", 3000);
+      state.pushToast("已打开局部编辑工作台，请拖动镜头框定位区域", "info", 3000);
       return null;
     } catch (error: any) {
       state.pushToast(`局部编辑工作台无法打开: ${error?.message ?? error}`, "warn", 4600);
@@ -5260,7 +5311,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       get().pushToast("没有可提交的局部编辑草稿", "warn", 2800);
       return null;
     }
-    const rect = draft.cropRect;
+    const rect = draft.lens
+      ? { x: draft.lens.x, y: draft.lens.y, width: draft.lens.width, height: draft.lens.height }
+      : draft.cropRect;
     const state = get();
     const workspaceId = state.activeWorkspaceId;
     const current = state.currentImage;
@@ -5269,8 +5322,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       return null;
     }
     if (!rect || rect.width <= 3 || rect.height <= 3) {
-      set({ tool: "annotate", annotationKind: "rect" });
-      state.pushToast("请先在图片上框选局部区域", "info", 3000);
+      state.pushToast("镜头框尺寸过小，请扩大选择区域", "warn", 3000);
       return null;
     }
     try {
@@ -5355,7 +5407,13 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         annotations: [],
         selectedAnnotationId: null,
         tool: "pan",
-        localEditWorkbenchDraft: { ...draft, phase: "edit", dirty: false },
+        localEditWorkbenchDraft: {
+          ...draft,
+          phase: "edit",
+          cropRect: { x, y, width, height },
+          lens: { ...(draft.lens ?? createPlanarLocalEditLens(sourceWidth, sourceHeight, rect)), x, y, width, height },
+          dirty: false,
+        },
         workspaces: patchWorkspaceRuntime(currentState.workspaces, workspaceId, {
           currentImageId: next.id,
           resultGridOpen: false,
@@ -5363,7 +5421,13 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           sources: next.sourceImages || [],
           mode: "edit",
           editSourceMode: "manual",
-          localEditWorkbenchDraft: { ...draft, phase: "edit", dirty: false },
+          localEditWorkbenchDraft: {
+            ...draft,
+            phase: "edit",
+            cropRect: { x, y, width, height },
+            lens: { ...(draft.lens ?? createPlanarLocalEditLens(sourceWidth, sourceHeight, rect)), x, y, width, height },
+            dirty: false,
+          },
         }),
       } as Partial<StudioState>));
       await persistHistoryItem(next).catch(() => undefined);

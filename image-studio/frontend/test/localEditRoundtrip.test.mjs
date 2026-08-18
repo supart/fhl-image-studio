@@ -10,6 +10,8 @@ test("local edit roundtrip is persisted on both history and source records", asy
   const shared = await read("state/studioStore.shared.ts");
   const sources = await read("state/historySourceImages.ts");
   assert.match(domain, /export type LocalEditRoundtripRef/);
+  assert.match(domain, /export interface LocalEditLens/);
+  assert.match(domain, /lens\?: LocalEditLens/);
   assert.match(domain, /localEditRoundtrip\?: LocalEditRoundtripRef/);
   assert.match(shared, /localEditRoundtrip: raw\.localEditRoundtrip/);
   assert.match(sources, /localEditRoundtrip: source\.localEditRoundtrip/);
@@ -32,6 +34,9 @@ test("Windows UI exposes local edit and keeps panorama entry points", async () =
 test("local edit store actions create a child crop and terminal pasteback result", async () => {
   const store = await read("state/studioStore.ts");
   assert.match(store, /startLocalEditRoundtrip: async \(rect\)/);
+  assert.match(store, /createPlanarLocalEditLens/);
+  assert.match(store, /请拖动镜头框定位区域/);
+  assert.doesNotMatch(store, /startLocalEditRoundtrip: async \(rect\)[\s\S]{0,900}set\(\{ tool: "annotate"/);
   assert.match(store, /kind: "planar"/);
   assert.match(store, /repasteLocalEditRoundtrip: async/);
   assert.match(store, /autoPasteLocalEditRoundtripResult/);

@@ -1,5 +1,17 @@
 # FHL Studio Windows V2.0.4 开发交接
 
+## 2026-08-18 批次 23：普通图局部编辑镜头框定位（已完成）
+
+- 当前分支：`codex/windows-v2.0.4-feature/unified-local-edit-workbench`；本批在现有工作台提交上继续开发，未设置 upstream、未推送 GitHub。
+- 普通图点击“局部编辑”现在无需先画矩形，直接打开工作台并创建居中的单镜头 `1:1` 框；已有矩形标注只作为初始镜头位置。
+- 新增可恢复的 `LocalEditLens`，保留 `cropRect` 兼容旧草稿；镜头支持标准比例、拖动、四角缩放、比例锁定、自然像素边界约束和窗口尺寸自适应。
+- 360 模式、球面投影、整图蒙版和现有局部贴回链路未重写；普通图旋转继续在后续对齐阶段处理。
+- 验证：`npm run typecheck` 通过；`npm run test:node` 634/634；`npm run lint` 0 errors、58 个既有 warnings；`git diff --check` 通过。
+- 项目门禁：`dev-check.ps1 -Level Fast` 和 `dev-check.ps1 -Level Batch` 均通过；Batch 包含 Node 634/634、UI 107/107、桌面/CLI Go test+vet、Worker 5/5 和离线 smoke check。
+- Codex 浏览器真实验收：无矩形直接打开、`1:1`/`16:9` 比例切换、拖动、角点缩放、边界吸附、取消不新增历史、普通/360 模式切换；`1252x930`、`1440x900`、`1024x768` 无溢出，控制台 warning/error 为 0。
+- 为避免修改用户历史，本轮未在浏览器点击“确认裁切并编辑”、生成或导入；提交路径已由类型检查、Node 合同和现有离线裁切链路覆盖。
+- 下一步：在独立离线夹具工作区验证确认裁切、外部导入、对齐贴回终态和刷新恢复；不调用真实 API，不修改 V2.0.3。
+
 ## 2026-08-18 批次 22：统一局部编辑工作台（开发中）
 
 - 已从 `110f698` 创建功能分支 `codex/windows-v2.0.4-feature/unified-local-edit-workbench`。

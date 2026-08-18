@@ -152,6 +152,17 @@ export type LocalEditRoundtripRef =
 export type LocalEditWorkbenchMode = "planar" | "panorama";
 export type LocalEditWorkbenchPhase = "crop" | "edit" | "align";
 
+export interface LocalEditLens {
+  id: string;
+  aspect: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  outputWidth: number;
+  outputHeight: number;
+}
+
 /** Lightweight workspace draft. Image pixels remain in managed media paths. */
 export interface LocalEditWorkbenchDraft {
   mode: LocalEditWorkbenchMode;
@@ -161,6 +172,8 @@ export interface LocalEditWorkbenchDraft {
   sourceWidth: number;
   sourceHeight: number;
   cropRect: { x: number; y: number; width: number; height: number };
+  /** Current single lens frame; cropRect remains for old drafts and history compatibility. */
+  lens?: LocalEditLens;
   aspect: string;
   size: SizeValue;
   quality: QualityValue;

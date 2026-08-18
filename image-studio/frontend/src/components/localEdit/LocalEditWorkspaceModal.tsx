@@ -4,7 +4,7 @@ import { historyFullSrc } from "../../lib/images";
 import { tempDataURLFromB64 } from "../../state/studioStore.shared";
 import { useStudioStore } from "../../state/studioStore";
 import { ReadImageAsBase64 } from "../../platform/runtime/host";
-import { SIZE_OPTIONS, QUALITY_OPTIONS, type HistoryItem, type LocalEditWorkbenchDraft } from "../../types/domain";
+import { SIZE_OPTIONS, QUALITY_OPTIONS, type HistoryItem, type LocalEditLens, type LocalEditWorkbenchDraft } from "../../types/domain";
 import "./localEditWorkbench.css";
 
 const ASPECTS = [
@@ -35,6 +35,44 @@ function clampRect(rect: LocalEditWorkbenchDraft["cropRect"], sourceWidth: numbe
   };
 }
 
+function lensFromDraft(draft: LocalEditWorkbenchDraft): LocalEditLens {
+  return draft.lens ?? {
+    id: "local-edit-lens-1",
+    aspect: draft.aspect,
+    x: draft.cropRect.x,
+    y: draft.cropRect.y,
+    width: draft.cropRect.width,
+    height: draft.cropRect.height,
+    outputWidth: draft.cropRect.width,
+    outputHeight: draft.cropRect.height,
+  };
+}
+
+function centeredAspectLens(lens: LocalEditLens, aspect: string, sourceWidth: number, sourceHeight: number): LocalEditLens {
+  const ratio = ratioValue(aspect);
+  if (!ratio) return { ...lens, aspect };
+  const centerX = lens.x + lens.width / 2;
+  const centerY = lens.y + lens.height / 2;
+  let width = Math.min(lens.width, lens.height * ratio, sourceWidth);
+  let height = width / ratio;
+  if (height > sourceHeight) {
+    height = sourceHeight;
+    width = height * ratio;
+  }
+  width = Math.max(8, Math.min(sourceWidth, Math.round(width)));
+  height = Math.max(8, Math.min(sourceHeight, Math.round(height)));
+  return {
+    ...lens,
+    aspect,
+    x: Math.max(0, Math.min(sourceWidth - width, Math.round(centerX - width / 2))),
+    y: Math.max(0, Math.min(sourceHeight - height, Math.round(centerY - height / 2))),
+    width,
+    height,
+    outputWidth: width,
+    outputHeight: height,
+  };
+}
+
 function sourceUrl(item: HistoryItem | null, path?: string) {
   if (!item) return "";
   return item.previewUrl || item.fullUrl || (item.imageB64 ? tempDataURLFromB64(item.imageB64) : "") || historyFullSrc(item, path ?? null);
@@ -55,10 +93,14 @@ export function LocalEditWorkspaceModal() {
   const setField = useStudioStore((state) => state.setField);
   const pushToast = useStudioStore((state) => state.pushToast);
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const imageFrameRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState>(null);
   const importRef = useRef<HTMLInputElement | null>(null);
   const [sourceSrc, setSourceSrc] = useState("");
+  const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(null);
   const [busy, setBusy] = useState(false);
+  const sourceWidth = draft?.sourceWidth ?? 0;
+  const sourceHeight = draft?.sourceHeight ?? 0;
   const sourceItem = useMemo(() => draft ? history.find((item) => item.id === draft.sourceHistoryId) ?? currentImage : currentImage, [currentImage, draft, history]);
   const isPanorama = draft?.mode === "panorama";
   const isRatioCompatible = draft ? Math.abs((draft.sourceWidth / Math.max(1, draft.sourceHeight)) - 2) < 0.02 : false;
@@ -83,6 +125,26 @@ export function LocalEditWorkspaceModal() {
   }, [draft, sourceItem]);
 
   useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage || !sourceWidth || !sourceHeight) return;
+    const updateFrameSize = () => {
+      const bounds = stage.getBoundingClientRect();
+      const scale = Math.min(
+        bounds.width / sourceWidth,
+        bounds.height / sourceHeight,
+      );
+      setFrameSize({
+        width: Math.max(1, Math.floor(sourceWidth * scale)),
+        height: Math.max(1, Math.floor(sourceHeight * scale)),
+      });
+    };
+    updateFrameSize();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateFrameSize) : null;
+    observer?.observe(stage);
+    return () => observer?.disconnect();
+  }, [sourceWidth, sourceHeight, sourceSrc]);
+
+  useEffect(() => {
     if (!draft) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") close();
@@ -99,7 +161,21 @@ export function LocalEditWorkspaceModal() {
   if (!draft) return null;
 
   const updateRect = (next: LocalEditWorkbenchDraft["cropRect"]) => {
-    updateDraft({ cropRect: clampRect(next, draft.sourceWidth, draft.sourceHeight), aspect: draft.aspect });
+    const rect = clampRect(next, draft.sourceWidth, draft.sourceHeight);
+    const currentLens = lensFromDraft(draft);
+    updateDraft({
+      cropRect: rect,
+      lens: {
+        ...currentLens,
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        outputWidth: rect.width,
+        outputHeight: rect.height,
+      },
+      aspect: draft.aspect,
+    });
   };
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLElement>, kind: DragKind) => {
@@ -115,8 +191,8 @@ export function LocalEditWorkspaceModal() {
   const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
     const stage = stageRef.current;
-    if (!drag || !stage || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
-    const bounds = stage.getBoundingClientRect();
+    if (!drag || !stage) return;
+    const bounds = imageFrameRef.current?.getBoundingClientRect() ?? stage.getBoundingClientRect();
     const dx = ((event.clientX - drag.startX) / Math.max(1, bounds.width)) * draft.sourceWidth;
     const dy = ((event.clientY - drag.startY) / Math.max(1, bounds.height)) * draft.sourceHeight;
     const rect = { ...drag.rect };
@@ -130,9 +206,18 @@ export function LocalEditWorkspaceModal() {
       if (drag.kind.includes("s")) rect.height += dy;
       const ratio = ratioValue(draft.aspect);
       if (ratio) {
-        const nextHeight = Math.max(8, rect.width / ratio);
-        if (drag.kind.includes("n")) rect.y += rect.height - nextHeight;
+        const anchorX = drag.kind.includes("w") ? drag.rect.x + drag.rect.width : drag.rect.x;
+        const anchorY = drag.kind.includes("n") ? drag.rect.y + drag.rect.height : drag.rect.y;
+        let nextWidth = Math.max(8, rect.width);
+        let nextHeight = Math.max(8, nextWidth / ratio);
+        if (nextHeight > draft.sourceHeight) {
+          nextHeight = draft.sourceHeight;
+          nextWidth = nextHeight * ratio;
+        }
+        rect.width = nextWidth;
         rect.height = nextHeight;
+        if (drag.kind.includes("w")) rect.x = anchorX - nextWidth;
+        if (drag.kind.includes("n")) rect.y = anchorY - nextHeight;
       }
     }
     updateRect(rect);
@@ -144,14 +229,9 @@ export function LocalEditWorkspaceModal() {
   };
 
   const chooseAspect = (aspect: string) => {
-    const ratio = ratioValue(aspect);
-    if (!ratio) {
-      updateDraft({ aspect, dirty: true });
-      return;
-    }
-    const width = Math.min(draft.cropRect.width, draft.cropRect.height * ratio, draft.sourceWidth);
-    const height = Math.min(draft.cropRect.height, width / ratio, draft.sourceHeight);
-    updateDraft({ aspect, cropRect: clampRect({ ...draft.cropRect, width, height }, draft.sourceWidth, draft.sourceHeight), dirty: true });
+    const nextLens = centeredAspectLens(lensFromDraft(draft), aspect, draft.sourceWidth, draft.sourceHeight);
+    const nextRect = clampRect({ x: nextLens.x, y: nextLens.y, width: nextLens.width, height: nextLens.height }, draft.sourceWidth, draft.sourceHeight);
+    updateDraft({ aspect, cropRect: nextRect, lens: { ...nextLens, ...nextRect }, dirty: true });
   };
 
   const confirmCrop = async () => {
@@ -193,7 +273,8 @@ export function LocalEditWorkspaceModal() {
     close();
   };
 
-  const crop = draft.cropRect;
+  const lens = lensFromDraft(draft);
+  const crop = { x: lens.x, y: lens.y, width: lens.width, height: lens.height };
   return (
     <div className="lew-overlay" role="dialog" aria-modal="true" aria-label="局部编辑工作台">
       <div className="lew-shell">
@@ -215,7 +296,15 @@ export function LocalEditWorkspaceModal() {
             <div className="lew-stage-toolbar"><span>{isPanorama ? "360 源图" : "原图裁切"}</span><strong>{draft.sourceWidth} × {draft.sourceHeight}</strong></div>
             <div ref={stageRef} className={`lew-stage${isPanorama ? " is-pano" : ""}`} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerCancel={handlePointerUp}>
               {sourceSrc ? (
-                <div className="lew-image-frame" style={{ aspectRatio: `${draft.sourceWidth} / ${draft.sourceHeight}` }}>
+                <div
+                  ref={imageFrameRef}
+                  className="lew-image-frame"
+                  style={{
+                    width: frameSize?.width ?? "100%",
+                    height: frameSize?.height ?? "100%",
+                    aspectRatio: `${draft.sourceWidth} / ${draft.sourceHeight}`,
+                  }}
+                >
                   <img src={sourceSrc} alt="局部编辑原图" draggable={false} />
                   {!isPanorama && draft.phase === "crop" ? (
                     <div className="lew-crop-box" style={{ left: `${crop.x / draft.sourceWidth * 100}%`, top: `${crop.y / draft.sourceHeight * 100}%`, width: `${crop.width / draft.sourceWidth * 100}%`, height: `${crop.height / draft.sourceHeight * 100}%` }} onPointerDown={(event) => handlePointerDown(event, "move")}>
@@ -227,7 +316,7 @@ export function LocalEditWorkspaceModal() {
               ) : <div className="lew-empty">正在加载原图…</div>}
               {isPanorama ? <div className="lew-pano-note">全景模式保留现有 360 球面查看、镜头和贴回流程。</div> : null}
             </div>
-            <div className="lew-stage-footer"><span>拖动裁切框定位，四角调整大小</span><span className="lew-status-dot">离线工作流</span></div>
+            <div className="lew-stage-footer"><span>选择比例后拖动镜头框定位，四角调整大小</span><span className="lew-status-dot">离线工作流</span></div>
           </section>
 
           <aside className="lew-panel">
