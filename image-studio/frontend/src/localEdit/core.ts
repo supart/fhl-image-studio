@@ -107,8 +107,12 @@ export function mapPlanarPastebackSample(
   alignment?: PanoramaPastebackAlignment | null,
 ) {
   const normalized = alignment ?? { offsetXRatio: 0, offsetYRatio: 0, scale: 1, rotationDeg: 0 };
-  const baseWidth = crop.width * (editedWidth / Math.max(1, expectedWidth));
-  const baseHeight = crop.height * (editedHeight / Math.max(1, expectedHeight));
+  // The crop rectangle defines the physical pasteback bounds.  Edited output
+  // dimensions only affect which source pixels are sampled, just like the
+  // panorama pasteback mapper; a high-resolution result must not enlarge the
+  // selected region on the source image.
+  const baseWidth = Math.max(1, Number(crop.width || expectedWidth || 1));
+  const baseHeight = Math.max(1, Number(crop.height || expectedHeight || 1));
   const centerX = crop.x + crop.width * (0.5 + normalized.offsetXRatio);
   const centerY = crop.y + crop.height * (0.5 + normalized.offsetYRatio);
   const dx = destinationX - centerX;
@@ -144,8 +148,11 @@ export function composePlanarRoundtripPixels(
   const output = new Uint8ClampedArray(source.data);
   const crop = roundtrip.cropRect;
   const normalized = alignment ?? { offsetXRatio: 0, offsetYRatio: 0, scale: 1 };
-  const overlayWidth = crop.width * (edited.width / Math.max(1, roundtrip.editWidth)) * Math.max(0.05, Number(normalized.scale) || 1);
-  const overlayHeight = crop.height * (edited.height / Math.max(1, roundtrip.editHeight)) * Math.max(0.05, Number(normalized.scale) || 1);
+  // Bound the work loop to the crop-sized overlay.  The edited bitmap may be
+  // any resolution or aspect, but its default physical footprint is exactly
+  // the original crop; explicit alignment scale/translation can expand it.
+  const overlayWidth = Math.max(1, crop.width) * Math.max(0.05, Number(normalized.scale) || 1);
+  const overlayHeight = Math.max(1, crop.height) * Math.max(0.05, Number(normalized.scale) || 1);
   const centerX = crop.x + crop.width * (0.5 + (Number(normalized.offsetXRatio) || 0));
   const centerY = crop.y + crop.height * (0.5 + (Number(normalized.offsetYRatio) || 0));
   const radius = Math.hypot(overlayWidth, overlayHeight) * 0.5 + 2;

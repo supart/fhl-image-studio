@@ -51,6 +51,41 @@ test("planar alignment supports translation and arbitrary edited dimensions", ()
   assert.ok(mapped.v >= 0 && mapped.v <= 1);
 });
 
+test("planar automatic pasteback keeps high-resolution results inside the crop bounds", () => {
+  const source = solid(8, 8, [0, 0, 255, 255]);
+  const edited = solid(8, 8, [255, 0, 0, 255]);
+  const highResolutionRoundtrip = {
+    ...roundtrip,
+    sourceWidth: 8,
+    sourceHeight: 8,
+    cropRect: { x: 2, y: 2, width: 2, height: 2 },
+    editWidth: 2,
+    editHeight: 2,
+  };
+  const output = localEdit.composePlanarRoundtripPixels(
+    source,
+    edited,
+    highResolutionRoundtrip,
+    { offsetXRatio: 0, offsetYRatio: 0, scale: 1, rotationDeg: 0, featherFraction: 0 },
+  );
+
+  assert.deepEqual(Array.from(output.data.slice((1 * 8 + 1) * 4, (1 * 8 + 1) * 4 + 4)), [0, 0, 255, 255]);
+  assert.deepEqual(Array.from(output.data.slice((2 * 8 + 2) * 4, (2 * 8 + 2) * 4 + 4)), [255, 0, 0, 255]);
+  assert.deepEqual(Array.from(output.data.slice((3 * 8 + 3) * 4, (3 * 8 + 3) * 4 + 4)), [255, 0, 0, 255]);
+  assert.deepEqual(Array.from(output.data.slice((4 * 8 + 4) * 4, (4 * 8 + 4) * 4 + 4)), [0, 0, 255, 255]);
+
+  const outside = localEdit.mapPlanarPastebackSample(
+    4.5,
+    3.5,
+    highResolutionRoundtrip.cropRect,
+    edited.width,
+    edited.height,
+    highResolutionRoundtrip.editWidth,
+    highResolutionRoundtrip.editHeight,
+  );
+  assert.equal(outside.inside, false);
+});
+
 test("planar size guard blocks oversized sources", () => {
   assert.throws(
     () => localEdit.validateLocalEditDimensions(16_385, 100),
