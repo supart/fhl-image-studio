@@ -149,6 +149,29 @@ export type LocalEditRoundtripRef =
   | LocalEditPlanarRoundtripRef
   | LocalEditPanoramaRoundtripRef;
 
+export type LocalEditWorkbenchMode = "planar" | "panorama";
+export type LocalEditWorkbenchPhase = "crop" | "edit" | "align";
+
+/** Lightweight workspace draft. Image pixels remain in managed media paths. */
+export interface LocalEditWorkbenchDraft {
+  mode: LocalEditWorkbenchMode;
+  phase: LocalEditWorkbenchPhase;
+  sourceHistoryId: string;
+  sourcePath?: string;
+  sourceWidth: number;
+  sourceHeight: number;
+  cropRect: { x: number; y: number; width: number; height: number };
+  aspect: string;
+  size: SizeValue;
+  quality: QualityValue;
+  promptPrefix: string;
+  prompt: string;
+  optimizationGuidance: string;
+  styleTag: string;
+  selectedResultId?: string | null;
+  dirty: boolean;
+}
+
 export const SIZE_OPTIONS: SizeOption[] = [
   { value: "auto",      label: "自适应 auto" },
   { value: "1024x1024", label: "1K 方形 1024×1024" },
@@ -519,6 +542,7 @@ export interface Workspace {
   // 此字段为 null。跟 errorMessage 一对,workspace 隔离,切 tab 各自保持。
   errorRawPath?: string | null;
   lastPayload?: import("../../wailsjs/go/models").backend.GenerateOptions | null;
+  localEditWorkbenchDraft?: LocalEditWorkbenchDraft | null;
 }
 
 export interface Preset {

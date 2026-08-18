@@ -4245,6 +4245,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   sourcePreviewReturnImage: null,
   panoramaViewerItem: null,
   panoramaAlignTarget: null,
+  localEditWorkbenchDraft: null,
   history: [],
   historyHasMore: false,
   historyLoading: false,
@@ -5188,7 +5189,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   reuseAsSource: async (item) => imageActions.reuseAsSource(item),
   startLocalEditRoundtrip: async (rect) => {
     const state = get();
-    const workspaceId = state.activeWorkspaceId;
     const current = state.currentImage;
     if (!current) {
       state.pushToast("当前没有图片", "warn", 2600);
@@ -5221,6 +5221,76 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       const y = Math.max(0, Math.min(sourceHeight - 1, Math.round(rect.y * scaleY)));
       const width = Math.max(8, Math.min(sourceWidth - x, Math.round(rect.width * scaleX)));
       const height = Math.max(8, Math.min(sourceHeight - y, Math.round(rect.height * scaleY)));
+      if (width < 8 || height < 8) throw new Error("选择区域太小，请扩大矩形后重试");
+      const draft = {
+        mode: "planar" as const,
+        phase: "crop" as const,
+        sourceHistoryId: source.id,
+        sourcePath: source.savedPath,
+        sourceWidth,
+        sourceHeight,
+        cropRect: { x, y, width, height },
+        aspect: `${width}:${height}`,
+        size: state.size,
+        quality: state.quality,
+        promptPrefix: state.promptPrefix,
+        prompt: state.prompt,
+        optimizationGuidance: state.optimizationGuidance,
+        styleTag: state.styleTag,
+        selectedResultId: null,
+        dirty: false,
+      };
+      set((currentState) => ({
+        localEditWorkbenchDraft: draft,
+        workspaces: patchWorkspaceRuntime(currentState.workspaces, currentState.activeWorkspaceId, {
+          localEditWorkbenchDraft: draft,
+        }),
+      } as Partial<StudioState>));
+      scheduleWorkspaceSessionPersistence(get(), true);
+      state.pushToast("已打开局部编辑工作台，请确认裁切区域", "info", 3000);
+      return null;
+    } catch (error: any) {
+      state.pushToast(`局部编辑工作台无法打开: ${error?.message ?? error}`, "warn", 4600);
+      return null;
+    }
+  },
+  commitLocalEditWorkbenchCrop: async () => {
+    const draft = get().localEditWorkbenchDraft;
+    if (!draft) {
+      get().pushToast("没有可提交的局部编辑草稿", "warn", 2800);
+      return null;
+    }
+    const rect = draft.cropRect;
+    const state = get();
+    const workspaceId = state.activeWorkspaceId;
+    const current = state.currentImage;
+    if (!current) {
+      state.pushToast("当前没有图片", "warn", 2600);
+      return null;
+    }
+    if (!rect || rect.width <= 3 || rect.height <= 3) {
+      set({ tool: "annotate", annotationKind: "rect" });
+      state.pushToast("请先在图片上框选局部区域", "info", 3000);
+      return null;
+    }
+    try {
+      const source = await materializeHistoryItem(current);
+      if (!source?.savedPath) throw new Error("当前图片暂时无法读取原图");
+      let sourceWidth = Number(source.width || source.previewWidth || 0);
+      let sourceHeight = Number(source.height || source.previewHeight || 0);
+      if (!sourceWidth || !sourceHeight) {
+        const b64 = await ReadImageAsBase64(source.savedPath);
+        const dimensions = getImageDimensionsFromBase64(b64);
+        if (dimensions) {
+          sourceWidth = dimensions.w;
+          sourceHeight = dimensions.h;
+        }
+      }
+      validateLocalEditDimensions(sourceWidth, sourceHeight);
+      const x = Math.max(0, Math.min(sourceWidth - 1, Math.round(rect.x)));
+      const y = Math.max(0, Math.min(sourceHeight - 1, Math.round(rect.y)));
+      const width = Math.max(8, Math.min(sourceWidth - x, Math.round(rect.width)));
+      const height = Math.max(8, Math.min(sourceHeight - y, Math.round(rect.height)));
       if (width < 8 || height < 8) throw new Error("选择区域太小，请扩大矩形后重试");
       const cropped = await CropImage(source.savedPath, x, y, width, height);
       const ref = await RegisterImportedImageAsset(cropped.path).catch(() => null);
@@ -5285,6 +5355,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         annotations: [],
         selectedAnnotationId: null,
         tool: "pan",
+        localEditWorkbenchDraft: { ...draft, phase: "edit", dirty: false },
         workspaces: patchWorkspaceRuntime(currentState.workspaces, workspaceId, {
           currentImageId: next.id,
           resultGridOpen: false,
@@ -5292,6 +5363,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           sources: next.sourceImages || [],
           mode: "edit",
           editSourceMode: "manual",
+          localEditWorkbenchDraft: { ...draft, phase: "edit", dirty: false },
         }),
       } as Partial<StudioState>));
       await persistHistoryItem(next).catch(() => undefined);
@@ -5301,6 +5373,46 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     } catch (error: any) {
       state.pushToast(`局部裁切失败: ${error?.message ?? error}`, "warn", 4600);
       return null;
+    }
+  },
+  updateLocalEditWorkbenchDraft: (patch) => {
+    const state = get();
+    const current = state.localEditWorkbenchDraft;
+    if (!current) return;
+    const next = { ...current, ...patch, dirty: patch.dirty ?? true };
+    set((currentState) => ({
+      localEditWorkbenchDraft: next,
+      workspaces: patchWorkspaceRuntime(currentState.workspaces, currentState.activeWorkspaceId, {
+        localEditWorkbenchDraft: next,
+      }),
+    } as Partial<StudioState>));
+    scheduleWorkspaceSessionPersistence(get());
+  },
+  switchLocalEditWorkbenchMode: (mode) => {
+    const state = get();
+    const current = state.localEditWorkbenchDraft;
+    if (!current || current.mode === mode) return;
+    if (current.dirty && typeof window !== "undefined" && !window.confirm("当前工作台有未保存内容，切换模式会重置本轮编辑。继续吗？")) return;
+    const next = { ...current, mode, phase: "crop" as const, selectedResultId: null, dirty: false };
+    set((currentState) => ({
+      localEditWorkbenchDraft: next,
+      workspaces: patchWorkspaceRuntime(currentState.workspaces, currentState.activeWorkspaceId, {
+        localEditWorkbenchDraft: next,
+      }),
+    } as Partial<StudioState>));
+    scheduleWorkspaceSessionPersistence(get(), true);
+  },
+  closeLocalEditWorkbench: () => {
+    const state = get();
+    set((currentState) => ({
+      localEditWorkbenchDraft: null,
+      workspaces: patchWorkspaceRuntime(currentState.workspaces, currentState.activeWorkspaceId, {
+        localEditWorkbenchDraft: null,
+      }),
+    } as Partial<StudioState>));
+    scheduleWorkspaceSessionPersistence(get(), true);
+    if (state.localEditWorkbenchDraft?.dirty) {
+      state.pushToast("已取消本轮局部编辑，未创建新的历史记录", "info", 2600);
     }
   },
   openLocalPastebackAligner: (item) => set({ panoramaAlignTarget: item }),
@@ -6110,6 +6222,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       materialManagerOpen: false,
       materialGroups,
       currentImage: restoredCurrentImage,
+      localEditWorkbenchDraft: restoredActiveWorkspace.localEditWorkbenchDraft ?? null,
       compareB: null,
       compareMode: "curtain",
       compareSplit: 0.5,

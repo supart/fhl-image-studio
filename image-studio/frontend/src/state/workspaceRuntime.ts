@@ -212,6 +212,7 @@ export function patchWorkspaceRuntime(workspaces: Workspace[], workspaceId: stri
     if (patch.errorMessage !== undefined) next.errorMessage = patch.errorMessage;
     if (patch.errorRawPath !== undefined) next.errorRawPath = patch.errorRawPath;
     if (patch.lastPayload !== undefined) next.lastPayload = patch.lastPayload;
+    if (patch.localEditWorkbenchDraft !== undefined) next.localEditWorkbenchDraft = patch.localEditWorkbenchDraft;
     return next;
   });
 }

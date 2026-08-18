@@ -114,6 +114,7 @@ export function workspaceSelectionPatch(
     errorRawPath: target.errorRawPath ?? null,
     isRunning: runningJobs.length > 0,
     lastPayload: target.lastPayload ?? null,
+    localEditWorkbenchDraft: target.localEditWorkbenchDraft ?? null,
   };
 }
 export function createWorkspaceActions(store: StateAdapter, runtime: WorkspaceActionRuntime) {

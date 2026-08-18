@@ -36,6 +36,7 @@ import { useHistoryContextMenu } from "../history/useHistoryContextMenu";
 import { sortBatchGridSlotsForDisplay } from "./batchGridDisplayOrder";
 import { PanoramaViewerModal } from "../panorama/PanoramaViewerModal";
 import { PanoramaPastebackAlignModal } from "../panorama/PanoramaPastebackAlignModal";
+import { LocalEditWorkspaceModal } from "../localEdit/LocalEditWorkspaceModal";
 import { hasPanoramaRoundtripRef } from "../../panorama/core";
 import { recoverPanoramaItemMetadataFromTask } from "../../state/panoramaRoundtripRecovery";
 import { ImportImagePath, ReadImageAsBase64 } from "../../platform/runtime/host";
@@ -1706,6 +1707,7 @@ export function CanvasStage() {
         />
       ) : null}
       <PanoramaViewerModal />
+      <LocalEditWorkspaceModal />
       <PanoramaPastebackAlignModal />
       {rawPath ? <RawResponseModal path={rawPath} onClose={closeRaw} /> : null}
     </>

@@ -9,6 +9,7 @@ import type {
   BatchProcessSourceImage,
   BatchTaskRecord,
   HistoryItem,
+  LocalEditWorkbenchDraft,
   OutputFormatValue,
   ProgressInfo,
   QualityValue,
@@ -306,6 +307,45 @@ function normalizeWorkspaceStyleTag(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+function normalizeLocalEditWorkbenchDraft(value: unknown): LocalEditWorkbenchDraft | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Partial<LocalEditWorkbenchDraft>;
+  const sourceHistoryId = typeof raw.sourceHistoryId === "string" ? raw.sourceHistoryId.trim() : "";
+  const sourcePath = typeof raw.sourcePath === "string" ? raw.sourcePath.trim() : "";
+  const width = Number(raw.sourceWidth);
+  const height = Number(raw.sourceHeight);
+  const rect = raw.cropRect && typeof raw.cropRect === "object" ? raw.cropRect : null;
+  if (!sourceHistoryId || !Number.isFinite(width) || !Number.isFinite(height) || !rect) return null;
+  const x = Number((rect as any).x);
+  const y = Number((rect as any).y);
+  const cropWidth = Number((rect as any).width);
+  const cropHeight = Number((rect as any).height);
+  if (![x, y, cropWidth, cropHeight].every(Number.isFinite) || cropWidth <= 0 || cropHeight <= 0) return null;
+  return {
+    mode: raw.mode === "panorama" ? "panorama" : "planar",
+    phase: raw.phase === "edit" || raw.phase === "align" ? raw.phase : "crop",
+    sourceHistoryId,
+    sourcePath: sourcePath || undefined,
+    sourceWidth: Math.max(1, Math.floor(width)),
+    sourceHeight: Math.max(1, Math.floor(height)),
+    cropRect: {
+      x: Math.max(0, Math.floor(x)),
+      y: Math.max(0, Math.floor(y)),
+      width: Math.max(1, Math.floor(cropWidth)),
+      height: Math.max(1, Math.floor(cropHeight)),
+    },
+    aspect: typeof raw.aspect === "string" && raw.aspect.trim() ? raw.aspect.trim() : "free",
+    size: normalizeWorkspaceSize(raw.size),
+    quality: normalizeWorkspaceQuality(raw.quality),
+    promptPrefix: typeof raw.promptPrefix === "string" ? raw.promptPrefix : "",
+    prompt: typeof raw.prompt === "string" ? raw.prompt : "",
+    optimizationGuidance: typeof raw.optimizationGuidance === "string" ? raw.optimizationGuidance : "",
+    styleTag: typeof raw.styleTag === "string" ? raw.styleTag : "",
+    selectedResultId: typeof raw.selectedResultId === "string" ? raw.selectedResultId : null,
+    dirty: raw.dirty === true,
+  };
+}
+
 function sanitizeStoredPreviewUrl(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -468,6 +508,7 @@ function toPersistedWorkspace(workspace: Workspace): Workspace {
     selectedBatchTaskId: null,
     errorRawPath: workspace.errorRawPath ?? null,
     lastPayload: null,
+    localEditWorkbenchDraft: workspace.localEditWorkbenchDraft ?? null,
   };
 }
 
@@ -570,6 +611,7 @@ function normalizeWorkspace(
       ? null
       : (typeof raw.errorRawPath === "string" && raw.errorRawPath.trim() ? raw.errorRawPath.trim() : null),
     lastPayload: null,
+    localEditWorkbenchDraft: normalizeLocalEditWorkbenchDraft(raw.localEditWorkbenchDraft),
   };
 }
 

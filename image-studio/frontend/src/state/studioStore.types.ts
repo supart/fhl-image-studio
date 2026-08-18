@@ -8,6 +8,8 @@ import type {
   EditSourceMode,
   HistoryGallerySort,
   HistoryItem,
+  LocalEditWorkbenchDraft,
+  LocalEditWorkbenchMode,
   JobGroupSnapshot,
   KernelRuntimeMode,
   MaterialGroup,
@@ -227,6 +229,7 @@ export interface StudioState {
   activeWorkspaceId: string;
   workspaceCanvasRuntime: Record<string, WorkspaceCanvasRuntime>;
   workspaceCloseRequest: WorkspaceCloseRequest | null;
+  localEditWorkbenchDraft: LocalEditWorkbenchDraft | null;
   styleTag: string;
   undoStack: UndoEntry[];
   redoStack: UndoEntry[];
@@ -281,6 +284,10 @@ export interface StudioState {
   recoverAPIMartTaskResult: (apimartTaskId: string, options?: { rawPath?: string }) => Promise<HistoryItem | null>;
   reuseAsSource: (item: HistoryItem) => Promise<void>;
   startLocalEditRoundtrip: (rect?: { x: number; y: number; width: number; height: number }) => Promise<HistoryItem | null>;
+  commitLocalEditWorkbenchCrop: () => Promise<HistoryItem | null>;
+  updateLocalEditWorkbenchDraft: (patch: Partial<LocalEditWorkbenchDraft>) => void;
+  switchLocalEditWorkbenchMode: (mode: LocalEditWorkbenchMode) => void;
+  closeLocalEditWorkbench: () => void;
   openLocalPastebackAligner: (item: HistoryItem) => void;
   repasteLocalEditRoundtrip: (item: HistoryItem, options?: { selectAsCurrent?: boolean; alignment?: PanoramaPastebackAlignment | null; pasteMask?: PanoramaPastebackMaskInput | null }) => Promise<HistoryItem | null>;
   importExternalLocalPastebackImage: (anchorItem: HistoryItem, file: File) => Promise<HistoryItem | null>;

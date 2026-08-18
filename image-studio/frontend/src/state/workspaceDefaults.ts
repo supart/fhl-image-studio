@@ -18,6 +18,7 @@ export const WORKSPACE_DEFAULT_FIELD_KEYS = [
   "historyGallerySinglePreviewId", "historyGallerySort", "runningJobIds",
   "jobsTotal", "jobsCompleted", "jobsFailed", "progress", "streamPreview",
   "streamPreviews", "lastLogLine", "errorMessage", "errorRawPath", "lastPayload",
+  "localEditWorkbenchDraft",
 ] as const satisfies readonly (keyof Workspace)[];
 
 export function createDefaultWorkspace(
@@ -68,5 +69,6 @@ export function createDefaultWorkspace(
     errorMessage: null,
     errorRawPath: null,
     lastPayload: null,
+    localEditWorkbenchDraft: null,
   };
 }
