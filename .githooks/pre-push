@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+if [ "${FHL_V2_0_4_ALLOW_PUSH:-}" != "1" ]; then
+  echo "V2.0.4 local-first policy blocked this push."
+  echo "Only an explicitly authorized push may set FHL_V2_0_4_ALLOW_PUSH=1."
+  exit 1
+fi
+
+ROOT=$(git rev-parse --show-toplevel)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$ROOT/scripts/dev-check.ps1" -Level Batch

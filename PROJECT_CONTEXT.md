@@ -1,5 +1,15 @@
 # FHL Studio Windows V2.0.4 开发交接
 
+## 批次 20：专业本地开发环境
+
+- 只治理 V2.0.4 源码仓库；V2.0.3 及更早版本、正式附件和历史证据未修改。
+- 当前分支继续为 `codex/windows-v2.0.4-development`；当前 HEAD 在实施前为 `e29d40f`，首次初始化后建立本地标签 `windows-v2.0.4-dev.0`。
+- 新增本地优先 Git 规范、版本化 `.githooks`、`dev-setup.ps1`、分层 `dev-check.ps1` 和 `archive-v2.0.4.ps1`；`origin` 保留为只读参考，无 upstream，未授权推送会被 hook 阻止。
+- V2.0.4 外层新增 `开发归档` 用途约束；归档只包含 Git bundle、跟踪源码快照、SHA-256 清单和恢复说明，不进入源码 Git。
+- 新增中文开发工作流、批次模板和三个外层双击入口：初始化、批次检查、里程碑归档。
+- 本批不调用真实或付费 API，不修改 API/Profile，不生成正式发布附件，不创建 `windows-v2.0.4-release`。
+- 恢复点：先运行 `一键初始化V2.0.4开发环境.cmd`，再按 [docs/development-workflow.md](docs/development-workflow.md) 进行批次开发；不要修改旧版本目录。
+
 ## 批次 19 完成状态
 
 - 修复 Codex 内置浏览器参考图右键粘贴因 `navigator.clipboard.read()` 权限被拒绝而无法导入的问题。

@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(git rev-parse --show-toplevel)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$ROOT/scripts/dev-check.ps1" -Level Fast

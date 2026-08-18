@@ -10,6 +10,10 @@
 - Preserve the Wails stability contract: imported external images must be materialized into managed package paths, and packaged E2E verification must cover reference previews, batch images, and result previews.
 - Record each meaningful batch in `docs/changes`, update `CHANGELOG.md` for user-visible changes, and keep `PROJECT_CONTEXT.md` as the concise current handoff.
 - Do not run real or paid image-generation requests unless the user explicitly authorizes that separate verification.
+- This V2.0.4 repository uses a local-first Git workflow. Keep `origin` as read-only reference, do not configure a branch upstream, and do not push without explicit authorization.
+- Run `scripts\dev-setup.ps1` once after checkout or environment changes. Use `scripts\dev-check.ps1 -Level Fast|Batch|Milestone` for the layered gates.
+- Use `codex/windows-v2.0.4-development` for ordinary work and `codex/windows-v2.0.4-feature/<short-topic>` for high-risk cross-module work. Do not rewrite history; use `git revert` for rollback.
+- Milestone archives belong outside the repository in the sibling `V2.0.4-开发版\开发归档` directory and must be produced by `scripts\archive-v2.0.4.ps1` from a clean, verified tag.
 
 You are working in the source root for the Windows V2.0.4 development track.
 

@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-  [switch]$Json
+  [switch]$Json,
+  [switch]$RequireClean
 )
 
 $ErrorActionPreference = "Stop"
@@ -78,10 +79,36 @@ try {
   $gitRoot = (Resolve-Path -LiteralPath $gitRoot).Path
   Add-Check "independent-git-root" ($gitRoot -eq $root) $gitRoot
 
-  $remotes = Invoke-TextCommand "git" @("-C", $root, "remote")
-  Add-Check "no-git-remote" ([string]::IsNullOrWhiteSpace($remotes)) $(
-    if ([string]::IsNullOrWhiteSpace($remotes)) { "none" } else { $remotes }
+  $originUrl = Invoke-TextCommand "git" @("-C", $root, "remote", "get-url", "origin")
+  $expectedOrigin = "https://github.com/supart/fhl-image-studio.git"
+  Add-Check "origin-read-only-policy" ($originUrl -eq $expectedOrigin) $originUrl
+
+  $upstream = ""
+  try {
+    $upstream = Invoke-TextCommand "git" @("-C", $root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+  } catch {
+    $upstream = ""
+  }
+  Add-Check "no-branch-upstream" ([string]::IsNullOrWhiteSpace($upstream)) $(
+    if ([string]::IsNullOrWhiteSpace($upstream)) { "none" } else { $upstream }
   )
+
+  $pushUrl = ""
+  try {
+    $pushUrl = Invoke-TextCommand "git" @("-C", $root, "config", "--get", "remote.origin.pushurl")
+  } catch {
+    $pushUrl = ""
+  }
+  Add-Check "no-configured-pushurl" ([string]::IsNullOrWhiteSpace($pushUrl)) $(
+    if ([string]::IsNullOrWhiteSpace($pushUrl)) { "none" } else { $pushUrl }
+  )
+
+  if ($RequireClean) {
+    $status = Invoke-TextCommand "git" @("-C", $root, "status", "--porcelain")
+    Add-Check "clean-working-tree" ([string]::IsNullOrWhiteSpace($status)) $(
+      if ([string]::IsNullOrWhiteSpace($status)) { "clean" } else { $status }
+    )
+  }
 
   $tracked = @(git -C $root ls-files)
   $forbiddenTracked = @($tracked | Where-Object {

@@ -11,6 +11,7 @@
 | [功能说明](./features.md) | 桌面工作台、画布、历史、工作区和平台能力 |
 | [数据位置与故障排除](./troubleshooting.md) | 数据目录、常见上游错误、恢复和诊断 |
 | [构建与发布](./build.md) | 开发环境、Portable 构建、验证入口和 CI |
+| [V2.0.4 开发工作流](./development-workflow.md) | 本地 Git、分层检查、批次提交和里程碑归档 |
 | [项目结构](./project-structure.md) | 当前源码目录、模块职责和维护边界 |
 | [现阶段项目整理](./current-stage-2026-07-28.md) | 桌面端、Portable、Photoshop 插件、Codex 开发入口和最终收尾断点 |
 | [Photoshop 插件兼容说明](./photoshop-plugin-compatibility.md) | 独立销售项目边界、桌面 Bridge 支持范围和兼容版本 |
