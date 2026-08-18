@@ -27,6 +27,18 @@ function Invoke-Git {
   return $output.Trim()
 }
 
+function Get-FileSha256 {
+  param([string]$Path)
+  $stream = [IO.File]::OpenRead($Path)
+  $sha256 = [Security.Cryptography.SHA256]::Create()
+  try {
+    return ([BitConverter]::ToString($sha256.ComputeHash($stream))).Replace("-", "")
+  } finally {
+    $sha256.Dispose()
+    $stream.Dispose()
+  }
+}
+
 if (-not (Test-Path -LiteralPath (Join-Path $root ".git"))) {
   throw "The V2.0.4 source root is not a Git repository."
 }
@@ -104,8 +116,8 @@ Invoke-Git @("bundle", "create", $bundlePath, "--all") | Out-Null
 Invoke-Git @("bundle", "verify", $bundlePath) | Out-Null
 Invoke-Git @("archive", "--format=zip", "--prefix=$Tag/", "--output=$sourceZipPath", $Tag) | Out-Null
 
-$bundleHash = (Get-FileHash -LiteralPath $bundlePath -Algorithm SHA256).Hash
-$sourceHash = (Get-FileHash -LiteralPath $sourceZipPath -Algorithm SHA256).Hash
+$bundleHash = Get-FileSha256 $bundlePath
+$sourceHash = Get-FileSha256 $sourceZipPath
 $manifest = [ordered]@{
   generatedAt = (Get-Date).ToUniversalTime().ToString("o")
   product = "Windows desktop V2.0.4"
