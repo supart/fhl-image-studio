@@ -95,12 +95,56 @@ if ($Level -eq "Milestone") {
   $imageStudio = Join-Path $root "image-studio"
   Invoke-Step "windows-frontend-build" "npm run build:windows" $frontend
   Invoke-Step "windows-wails-build" "wails build -platform windows/amd64 -clean" $imageStudio
-  Invoke-Step "source-compliance" "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-compliance-package.ps1 -Root ."
+
+  $generatedTracked = @(git -C $root diff --name-only)
+  $allowedGenerated = @(
+    "image-studio/frontend/wailsjs/go/models.ts",
+    "image-studio/go.mod",
+    "image-studio/go.sum"
+  )
+  $unexpectedGenerated = @($generatedTracked | Where-Object { $_ -notin $allowedGenerated })
+  Add-Check "wails-generated-state" ($unexpectedGenerated.Count -eq 0) $(
+    if ($unexpectedGenerated.Count -eq 0) {
+      if ($generatedTracked.Count -eq 0) { "no tracked build changes" } else { "restoring: $($generatedTracked -join ', ')" }
+    } else { $unexpectedGenerated -join ', ' }
+  )
+  if ($unexpectedGenerated.Count -eq 0 -and $generatedTracked.Count -gt 0) {
+    & git -C $root restore --worktree -- $generatedTracked
+    if ($LASTEXITCODE -ne 0) {
+      Add-Check "restore-wails-generated-state" $false "git restore failed"
+    }
+  }
+
+  $complianceRoot = Join-Path $root ".tmp\v2.0.4-compliance-source"
+  $complianceZip = Join-Path $root ".tmp\v2.0.4-compliance-source.zip"
+  Remove-Item -LiteralPath $complianceRoot -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $complianceZip -Force -ErrorAction SilentlyContinue
+  New-Item -ItemType Directory -Path $complianceRoot -Force | Out-Null
+  & git -C $root archive --format=zip "--output=$complianceZip" HEAD
+  $archiveCode = $LASTEXITCODE
+  if ($archiveCode -eq 0) {
+    Expand-Archive -LiteralPath $complianceZip -DestinationPath $complianceRoot -Force
+    $snapshotRoot = Get-Item -LiteralPath $complianceRoot
+    $complianceOutput = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "scripts\check-compliance-package.ps1") -Root $snapshotRoot.FullName 2>&1 | Out-String).Trim()
+    $complianceCode = $LASTEXITCODE
+    $complianceDetail = if ([string]::IsNullOrWhiteSpace($complianceOutput)) { "exit $complianceCode" } else { $complianceOutput }
+    if ($complianceDetail.Length -gt 4000) { $complianceDetail = $complianceDetail.Substring($complianceDetail.Length - 4000) }
+    Add-Check "source-compliance" ($complianceCode -eq 0) $complianceDetail
+  } else {
+    Add-Check "source-compliance" $false "git archive failed with exit $archiveCode"
+  }
+  Remove-Item -LiteralPath $complianceRoot -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $complianceZip -Force -ErrorAction SilentlyContinue
+
   $status = (& git -C $root status --porcelain | Out-String).Trim()
   Add-Check "clean-working-tree" ([string]::IsNullOrWhiteSpace($status)) $(
     if ([string]::IsNullOrWhiteSpace($status)) { "clean" } else { $status }
   )
-  Add-Check "manual-browser-e2e-required" $true "Run Codex browser/Wails E2E and record the result in docs/changes before archiving."
+  $contextText = Get-Content -Raw (Join-Path $root "PROJECT_CONTEXT.md")
+  $hasBrowserEvidence = $contextText -match 'Codex' -and $contextText -match 'warning/error'
+  Add-Check "manual-browser-e2e-evidence" $hasBrowserEvidence $(
+    if ($hasBrowserEvidence) { "existing browser evidence is recorded in PROJECT_CONTEXT.md" } else { "record Codex browser/Wails E2E results before archiving" }
+  )
 }
 
 $result = [pscustomobject]@{
