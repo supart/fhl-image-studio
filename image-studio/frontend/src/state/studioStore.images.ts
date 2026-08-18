@@ -558,6 +558,7 @@ export function createImageActions(store: StateAdapter) {
             previewUrl: localItem.previewUrl,
             panoramaRoundtrip: localItem.panoramaRoundtrip,
             panoramaProject: localItem.panoramaProject,
+            localEditRoundtrip: localItem.localEditRoundtrip,
           }];
       const currentImage = toPreviewOnlyHistoryItem(localItem);
       store.setState((state) => ({

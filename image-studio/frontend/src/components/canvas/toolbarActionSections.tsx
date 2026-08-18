@@ -1,5 +1,5 @@
 import {
-  Brush, Crop, Eraser, FlipHorizontal, FlipVertical, Hand,
+  Brush, Crop, Eraser, FlipHorizontal, FlipVertical, Hand, WandSparkles,
   ArrowLeft, Compass, FolderOpen, Info, MoveRight, Pencil, RotateCcw, RotateCw, Save, Share2, Square,
   Trash2, Maximize, Minimize, Type as TypeIcon,
 } from "lucide-react";
@@ -168,6 +168,7 @@ export function TransformSection({
   onRotate,
   onFlip,
   cropAction,
+  localEditAction,
 }: {
   currentImageSavedPath?: string;
   isAndroidPhone: boolean;
@@ -176,6 +177,7 @@ export function TransformSection({
   onRotate: (degrees: number) => void;
   onFlip: (horizontal: boolean) => void;
   cropAction: null | (() => void);
+  localEditAction?: null | (() => void);
 }) {
   const { isMac, usesFluentUI } = usePlatform();
   return (
@@ -207,6 +209,11 @@ export function TransformSection({
       {cropAction ? (
         <ToolbarTextButton onClick={cropAction} title="裁出选中矩形" tone="accent">
           <Crop className="w-3.5 h-3.5" /> 裁出
+        </ToolbarTextButton>
+      ) : null}
+      {localEditAction ? (
+        <ToolbarTextButton onClick={localEditAction} title="局部裁切编辑并贴回原图" tone="accent">
+          <WandSparkles className="w-3.5 h-3.5" /> 局部编辑
         </ToolbarTextButton>
       ) : null}
     </>

@@ -15,6 +15,8 @@ type SharedHistoryMenuActions = {
   onRegenerate: () => void;
   onReuseAsSource: () => void;
   onRepastePanorama: () => void;
+  onRepasteLocalEdit: () => void;
+  onStartLocalEdit: () => void;
   onOpenPanorama: () => void;
   onToggleCompare: () => void;
   onDelete: () => void;
@@ -78,10 +80,19 @@ export function buildSharedHistoryMenu(
     label: "进入360查看",
     onClick: actions.onOpenPanorama,
   });
+  items.push({
+    label: "局部裁切编辑",
+    onClick: actions.onStartLocalEdit,
+  });
   if (hasPanoramaRoundtripRef(item)) {
     items.push({
       label: "手动对齐贴回全景图",
       onClick: actions.onRepastePanorama,
+    });
+  } else if (item.localEditRoundtrip?.kind === "planar") {
+    items.push({
+      label: "手动对齐贴回原图",
+      onClick: actions.onRepasteLocalEdit,
     });
   }
   items.push(

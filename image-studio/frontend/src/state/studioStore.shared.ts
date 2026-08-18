@@ -351,6 +351,7 @@ function normalizeSourceImage(value: unknown): SourceImage | null {
     imageBlob: null,
     panoramaRoundtrip: raw.panoramaRoundtrip,
     panoramaProject: raw.panoramaProject,
+    localEditRoundtrip: raw.localEditRoundtrip,
   };
 }
 
@@ -460,6 +461,7 @@ function toPersistedWorkspace(workspace: Workspace): Workspace {
           imageBlob: null,
           panoramaRoundtrip: source.panoramaRoundtrip,
           panoramaProject: source.panoramaProject,
+          localEditRoundtrip: source.localEditRoundtrip,
         })),
     reversePromptImage: normalizeReversePromptImage(workspace.reversePromptImage),
     editAutoAspectUserLocked: workspace.editAutoAspectUserLocked === true,

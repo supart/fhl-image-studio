@@ -280,6 +280,10 @@ export interface StudioState {
   recoverAPIMartResult: (taskId: string) => Promise<HistoryItem | null>;
   recoverAPIMartTaskResult: (apimartTaskId: string, options?: { rawPath?: string }) => Promise<HistoryItem | null>;
   reuseAsSource: (item: HistoryItem) => Promise<void>;
+  startLocalEditRoundtrip: (rect?: { x: number; y: number; width: number; height: number }) => Promise<HistoryItem | null>;
+  openLocalPastebackAligner: (item: HistoryItem) => void;
+  repasteLocalEditRoundtrip: (item: HistoryItem, options?: { selectAsCurrent?: boolean; alignment?: PanoramaPastebackAlignment | null; pasteMask?: PanoramaPastebackMaskInput | null }) => Promise<HistoryItem | null>;
+  importExternalLocalPastebackImage: (anchorItem: HistoryItem, file: File) => Promise<HistoryItem | null>;
   repastePanoramaRoundtrip: (item: HistoryItem, options?: { selectAsCurrent?: boolean; alignment?: PanoramaPastebackAlignment | null; pasteMask?: PanoramaPastebackMaskInput | null }) => Promise<HistoryItem | null>;
   importExternalPanoramaPastebackImage: (anchorItem: HistoryItem, file: File) => Promise<HistoryItem | null>;
   applyHistoryParams: (item: HistoryItem) => void;

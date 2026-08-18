@@ -63,6 +63,13 @@ export function HistoryTimelineModal() {
     onRegenerate: (item) => void regenerateFromHistory(item),
     onReuseAsSource: (item) => void reuseAsSource(item),
     onRepastePanorama: (item) => openPanoramaPastebackAligner(item),
+    onRepasteLocalEdit: (item) => useStudioStore.getState().openLocalPastebackAligner(item),
+    onStartLocalEdit: (item) => {
+      void useStudioStore.getState().reuseAsSource(item).then(() => {
+        useStudioStore.getState().setField("tool", "annotate");
+        useStudioStore.getState().setField("annotationKind", "rect");
+      });
+    },
     onSaveOriginal: (item) => void saveHistoryItemAs(item),
     onShare: (item) => void shareHistoryItem(item),
     onToggleCompare: (item) => setCompareB(compareB?.id === item.id ? null : item),

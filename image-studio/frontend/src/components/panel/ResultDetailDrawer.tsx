@@ -90,6 +90,13 @@ export function ResultDetailDrawer() {
     onRegenerate: (target) => void regenerateFromHistory(target),
     onReuseAsSource: (target) => void reuseAsSource(target),
     onRepastePanorama: (target) => openPanoramaPastebackAligner(target),
+    onRepasteLocalEdit: (target) => useStudioStore.getState().openLocalPastebackAligner(target),
+    onStartLocalEdit: (target) => {
+      void useStudioStore.getState().reuseAsSource(target).then(() => {
+        useStudioStore.getState().setField("tool", "annotate");
+        useStudioStore.getState().setField("annotationKind", "rect");
+      });
+    },
     onSaveOriginal: (target) => void saveHistoryItemAs(target),
     onShare: (target) => void shareHistoryItem(target),
     onToggleCompare: (target) => setCompareB(compareB?.id === target.id ? null : target),

@@ -121,6 +121,34 @@ export interface PanoramaPastebackAlignment {
   hueRotationDeg?: number;
 }
 
+export interface LocalEditPlanarRoundtripRef {
+  version: 1;
+  kind: "planar";
+  sourceHistoryId: string;
+  sourcePath?: string;
+  sourceWidth: number;
+  sourceHeight: number;
+  cropRect: { x: number; y: number; width: number; height: number };
+  editWidth: number;
+  editHeight: number;
+}
+
+export interface LocalEditPanoramaRoundtripRef {
+  version: 1;
+  kind: "panorama";
+  sourceHistoryId?: string;
+  sourcePath?: string;
+  sourceWidth: number;
+  sourceHeight: number;
+  editWidth: number;
+  editHeight: number;
+  panoramaRoundtrip: PanoramaRoundtripRef;
+}
+
+export type LocalEditRoundtripRef =
+  | LocalEditPlanarRoundtripRef
+  | LocalEditPanoramaRoundtripRef;
+
 export const SIZE_OPTIONS: SizeOption[] = [
   { value: "auto",      label: "自适应 auto" },
   { value: "1024x1024", label: "1K 方形 1024×1024" },
@@ -167,6 +195,7 @@ export interface SourceImage {
   imageB64?: string;
   panoramaRoundtrip?: PanoramaRoundtripRef;
   panoramaProject?: PanoramaProjectRef;
+  localEditRoundtrip?: LocalEditRoundtripRef;
 }
 
 export interface ReversePromptImage {
@@ -282,6 +311,7 @@ export interface HistoryItem {
   psBridge?: PSBridgeHistoryMetadata;
   panoramaRoundtrip?: PanoramaRoundtripRef;
   panoramaProject?: PanoramaProjectRef;
+  localEditRoundtrip?: LocalEditRoundtripRef;
 }
 
 export interface ProgressInfo {

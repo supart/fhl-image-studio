@@ -18,6 +18,7 @@ function cloneSourceImage(source: SourceImage, keepBlob: boolean): SourceImage |
     imageBlob: keepBlob ? source.imageBlob ?? null : null,
     panoramaRoundtrip: source.panoramaRoundtrip,
     panoramaProject: source.panoramaProject,
+    localEditRoundtrip: source.localEditRoundtrip,
   };
 }
 

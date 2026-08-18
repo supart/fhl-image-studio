@@ -1,5 +1,14 @@
 # FHL Studio Windows V2.0.4 开发交接
 
+## 2026-08-18 批次 21：通用局部编辑往返
+
+- 本批从 `4042440` 创建分支 `codex/windows-v2.0.4-feature/planar-local-edit-roundtrip`，新增普通图片局部裁切、编辑/外部导入、对齐和贴回原图能力；全景球面模式保持不变。
+- 实现提交：`d9cf356`（`feat(local-edit): support planar crop roundtrip pasteback`）；工作区当前应保持干净，后续可从该提交继续人工验收。
+- 新增 `LocalEditRoundtripRef`、平面贴回核心和统一对齐器分支；普通图入口已接入工具栏、画布快捷操作、历史栏、时间线和结果详情；整图蒙版编辑保留。
+- 自动化通过：TypeScript、Node `634/634`、UI `107/107`、Lint `0/58`、Windows 前端构建 `1,980 modules`、`git diff --check`；全部离线，无真实 API。
+- 新增详细记录：[docs/changes/2026-08-18-windows-v2.0.4-local-edit-roundtrip.md](docs/changes/2026-08-18-windows-v2.0.4-local-edit-roundtrip.md)。
+- 当前恢复点：继续检查本批分支的桌面人工验收和 Fast/Batch 门禁；不要修改 Android、V2.0.3、正式附件或推送 GitHub。
+
 ## 2026-08-18 收口状态：专业本地开发环境
 
 - V2.0.4 本地开发环境已完成：主线为 `codex/windows-v2.0.4-development`，`origin` 仅作只读参考，无 upstream，未授权 push 会被版本化 hook 阻止。
