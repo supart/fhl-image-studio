@@ -6,6 +6,8 @@ import {
   clipboardImageReadMessage,
   copySourceImageToClipboard,
   readClipboardImageFile,
+  readClipboardImageFileFromPasteEvent,
+  shouldUseClipboardPasteFallback,
 } from "../src/components/canvas/sourceImageInteractions";
 import { applySourceImageImport } from "../src/state/sourceImageImport";
 import type { SourceImage } from "../src/types/domain";
@@ -98,6 +100,19 @@ describe("source image clipboard", () => {
     setClipboard({ read: vi.fn(async () => { throw new Error("secret clipboard detail"); }) });
     await expect(readClipboardImageFile()).rejects.toMatchObject({ code: "denied" });
     expect(clipboardImageReadMessage(new ClipboardImageError("denied"))).not.toContain("secret");
+  });
+
+  it("reads supported image files from a user-initiated paste event", () => {
+    const file = new File(["png"], "pasted.png", { type: "image/png" });
+    const event = {
+      clipboardData: {
+        items: [{ kind: "file", type: "image/png", getAsFile: () => file }],
+      },
+    } as unknown as ClipboardEvent;
+
+    expect(readClipboardImageFileFromPasteEvent(event)).toBe(file);
+    expect(shouldUseClipboardPasteFallback(new ClipboardImageError("denied"))).toBe(true);
+    expect(shouldUseClipboardPasteFallback(new ClipboardImageError("empty"))).toBe(false);
   });
 
   it("copies a full PNG source without exposing its payload", async () => {

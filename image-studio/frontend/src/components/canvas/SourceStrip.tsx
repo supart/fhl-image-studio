@@ -1,7 +1,8 @@
-import { Fragment, type CSSProperties, type DragEvent, type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from "react";
+import { Fragment, type ChangeEvent, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type DragEvent, type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, Images, Plus, X } from "lucide-react";
 import { ContextMenu } from "../common/ContextMenu";
+import { Modal } from "../common/Modal";
 import { useStudioStore } from "../../state/studioStore";
 import { dataURLFromBase64, useBlobURL } from "../../lib/images";
 import { materializeCompareSourceAsHistoryItem } from "../../state/compareSourceSelection";
@@ -14,12 +15,18 @@ import {
   clipboardImageReadMessage,
   copySourceImageToClipboard,
   readClipboardImageFile,
+  readClipboardImageFileFromPasteEvent,
+  shouldUseClipboardPasteFallback,
 } from "./sourceImageInteractions";
 
 type SourceContextMenuState = {
   x: number;
   y: number;
   sourcePath?: string;
+};
+
+type ManualPasteState = {
+  replaceSourcePath?: string;
 };
 
 function clampBatchQueueSlotIndex(value: unknown, fixedSourceCount: number): number {
@@ -65,7 +72,10 @@ export function SourceStrip() {
   const [fileDragActive, setFileDragActive] = useState(false);
   const [batchQueueOpen, setBatchQueueOpen] = useState(false);
   const [sourceContextMenu, setSourceContextMenu] = useState<SourceContextMenuState | null>(null);
+  const [manualPaste, setManualPaste] = useState<ManualPasteState | null>(null);
   const batchQueueTriggerRef = useRef<HTMLDivElement | null>(null);
+  const manualPasteInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const manualPasteFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const batchMode = editSourceMode === "batch";
   const selectedBatchCount = batchProcess.discoveredSources.filter((source) => source.selected !== false).length;
@@ -117,8 +127,46 @@ export function SourceStrip() {
       const file = await readClipboardImageFile();
       await importSourceImageFile(file, replaceSourcePath ? { replaceSourcePath } : undefined);
     } catch (error) {
+      if (shouldUseClipboardPasteFallback(error)) {
+        setManualPaste({ replaceSourcePath });
+        return;
+      }
       pushToast(clipboardImageReadMessage(error), "warn", 3400);
     }
+  };
+
+  useEffect(() => {
+    if (!manualPaste) return;
+    const timer = window.setTimeout(() => manualPasteInputRef.current?.focus(), 0);
+    return () => window.clearTimeout(timer);
+  }, [manualPaste]);
+
+  const importManualPasteFile = async (file: File) => {
+    const replaceSourcePath = manualPaste?.replaceSourcePath;
+    setManualPaste(null);
+    await importSourceImageFile(file, replaceSourcePath ? { replaceSourcePath } : undefined);
+  };
+
+  const handleManualPaste = async (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      await importManualPasteFile(readClipboardImageFileFromPasteEvent(event.nativeEvent));
+    } catch (error) {
+      pushToast(clipboardImageReadMessage(error), "warn", 3400);
+    }
+  };
+
+  const handleManualPasteFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = Array.from(event.currentTarget.files ?? []).find((item) => (
+      item.type === "image/png" || item.type === "image/jpeg" || item.type === "image/webp"
+    ));
+    event.currentTarget.value = "";
+    if (!file) {
+      pushToast("请选择 PNG、JPG 或 WebP 图片", "warn", 3000);
+      return;
+    }
+    void importManualPasteFile(file);
   };
 
   const copySourceImage = async (sourcePath: string) => {
@@ -357,6 +405,47 @@ export function SourceStrip() {
                 },
               ]}
         />
+      ) : null}
+      {manualPaste ? (
+        <Modal open onClose={() => setManualPaste(null)} title="粘贴参考图" width={430}>
+          <div className="space-y-3">
+            <p className="m-0 text-[13px] text-zinc-700 dark:text-zinc-200">
+              当前浏览器不允许网页直接读取剪贴板。
+            </p>
+            <textarea
+              ref={manualPasteInputRef}
+              aria-label="按 Ctrl+V 粘贴图片"
+              readOnly
+              value=""
+              onPaste={(event) => { void handleManualPaste(event); }}
+              placeholder="请在这里按 Ctrl+V 粘贴图片"
+              className={`focus-ring h-24 w-full resize-none border border-dashed border-[color:var(--accent)]/45 bg-[var(--accent-soft)]/40 px-3 py-3 text-[12px] text-zinc-700 placeholder:text-zinc-500 dark:text-zinc-200 dark:placeholder:text-zinc-400 ${usesFluentUI ? "rounded-[10px]" : "rounded-[14px]"}`}
+            />
+            <input
+              ref={manualPasteFileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={handleManualPasteFile}
+            />
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setManualPaste(null)}
+                className={`border border-black/[0.08] px-3 py-2 text-[12px] text-zinc-600 hover:bg-black/[0.04] dark:border-white/[0.1] dark:text-zinc-300 dark:hover:bg-white/[0.06] ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => manualPasteFileInputRef.current?.click()}
+                className={`bg-[var(--accent)] px-3 py-2 text-[12px] font-medium text-white hover:brightness-105 ${usesFluentUI ? "rounded-[8px]" : "rounded-full"}`}
+              >
+                选择图片
+              </button>
+            </div>
+          </div>
+        </Modal>
       ) : null}
     </div>
   );

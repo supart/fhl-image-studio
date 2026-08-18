@@ -19,6 +19,10 @@ export class ClipboardImageError extends Error {
   }
 }
 
+export function shouldUseClipboardPasteFallback(error: unknown): boolean {
+  return error instanceof ClipboardImageError && (error.code === "unavailable" || error.code === "denied");
+}
+
 export function calculateWindowsSourceTileWidth(
   width?: number,
   height?: number,
@@ -60,6 +64,23 @@ export async function readClipboardImageFile(): Promise<File> {
       );
     }
     if (item.types.some((type) => type.startsWith("image/"))) hasUnsupportedImage = true;
+  }
+
+  throw new ClipboardImageError(hasUnsupportedImage ? "unsupported" : "empty");
+}
+
+export function readClipboardImageFileFromPasteEvent(event: ClipboardEvent): File {
+  const items = event.clipboardData?.items;
+  if (!items) throw new ClipboardImageError("empty");
+
+  let hasUnsupportedImage = false;
+  for (const item of Array.from(items)) {
+    const supportedType = CLIPBOARD_IMAGE_TYPES.find((type) => type === item.type);
+    if (supportedType) {
+      const file = item.getAsFile();
+      if (file) return file;
+    }
+    if (item.kind === "file" && item.type.startsWith("image/")) hasUnsupportedImage = true;
   }
 
   throw new ClipboardImageError(hasUnsupportedImage ? "unsupported" : "empty");

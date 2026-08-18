@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   pushToast: vi.fn(),
   openSourcePreview: vi.fn(),
   readClipboardImageFile: vi.fn(),
+  readClipboardImageFileFromPasteEvent: vi.fn(),
+  shouldUseClipboardPasteFallback: vi.fn(),
   copySourceImageToClipboard: vi.fn(),
   materializeCompareSource: vi.fn(),
   state: {} as Record<string, any>,
@@ -50,6 +52,8 @@ vi.mock("../src/components/canvas/sourceImageInteractions", () => ({
   clipboardImageReadMessage: () => "clipboard error",
   copySourceImageToClipboard: mocks.copySourceImageToClipboard,
   readClipboardImageFile: mocks.readClipboardImageFile,
+  readClipboardImageFileFromPasteEvent: mocks.readClipboardImageFileFromPasteEvent,
+  shouldUseClipboardPasteFallback: mocks.shouldUseClipboardPasteFallback,
 }));
 
 import { SourceStrip } from "../src/components/canvas/SourceStrip";
@@ -100,10 +104,14 @@ describe("SourceStrip reference interactions", () => {
     mocks.pushToast.mockReset();
     mocks.openSourcePreview.mockReset();
     mocks.readClipboardImageFile.mockReset();
+    mocks.readClipboardImageFileFromPasteEvent.mockReset();
+    mocks.shouldUseClipboardPasteFallback.mockReset();
     mocks.copySourceImageToClipboard.mockReset();
     mocks.materializeCompareSource.mockReset();
     mocks.materializeCompareSource.mockResolvedValue(historyItem);
     mocks.readClipboardImageFile.mockResolvedValue(new File(["png"], "clipboard.png", { type: "image/png" }));
+    mocks.readClipboardImageFileFromPasteEvent.mockReturnValue(new File(["png"], "pasted.png", { type: "image/png" }));
+    mocks.shouldUseClipboardPasteFallback.mockReturnValue(false);
     mocks.copySourceImageToClipboard.mockResolvedValue("success");
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
       width: 100,
@@ -223,5 +231,30 @@ describe("SourceStrip reference interactions", () => {
     fireEvent.contextMenu(tile, { clientX: 500, clientY: 220 });
     fireEvent.click(screen.getByRole("button", { name: "删除参考图" }));
     expect(mocks.removeSource).toHaveBeenCalledWith(0);
+  });
+
+  it("falls back to a user-initiated Ctrl+V paste when clipboard permission is denied", async () => {
+    const view = render(<SourceStrip />);
+    const add = view.container.querySelector<HTMLElement>('[data-audit-id="select-source-image"]')!;
+    mocks.readClipboardImageFile.mockRejectedValue(new Error("permission denied"));
+    mocks.shouldUseClipboardPasteFallback.mockReturnValue(true);
+
+    fireEvent.contextMenu(add, { clientX: 700, clientY: 200 });
+    fireEvent.click(screen.getByRole("button", { name: "粘贴图像" }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("dialog", { name: "粘贴参考图" })).toBeInTheDocument();
+
+    fireEvent.paste(screen.getByRole("textbox", { name: "按 Ctrl+V 粘贴图片" }), {
+      clipboardData: { items: [{ kind: "file", type: "image/png" }] },
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mocks.importSourceImageFile).toHaveBeenCalledWith(expect.any(File), undefined);
+    expect(screen.queryByRole("dialog", { name: "粘贴参考图" })).not.toBeInTheDocument();
   });
 });
