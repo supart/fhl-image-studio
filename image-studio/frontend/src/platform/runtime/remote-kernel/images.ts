@@ -121,7 +121,7 @@ export async function requestImagesOnce(
   attempt: number,
   callbacks: RemoteJobCallbacks,
 ): Promise<RemoteJobResult> {
-  const sourceDataURLs = await resolveSourceDataURLs(request.sourceImages, request.payload);
+  const sourceDataURLs = await resolveSourceDataURLs(request.sourceImages, request.payload, callbacks);
   const built = await buildImagesRequestBody(request, sourceDataURLs);
   const apiKey = normalizeAPIKeyForHeader(request.payload.apiKey);
   const startedAt = Date.now();

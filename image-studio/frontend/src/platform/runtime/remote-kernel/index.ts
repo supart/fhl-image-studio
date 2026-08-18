@@ -1,6 +1,7 @@
 import { buildPromptOptimizePayload, buildPromptReversePayload } from "../../../../../../shared/kernel/requestModel.js";
 import {
   compressSourceDataURLForUpload,
+  addFHLEditValidationHint,
   describeProblem,
   extractResponseErrorMessage,
   extractResponseText,
@@ -201,7 +202,6 @@ export async function runRemoteImageJob(
       const typed = error instanceof RemoteKernelError
         ? error
         : new RemoteKernelError(String((error as any)?.message || error));
-      lastError = typed;
       let rawText = "";
       let retryableRaw = false;
       if (typed.rawPath) {
@@ -212,6 +212,9 @@ export async function runRemoteImageJob(
           retryableRaw = false;
         }
       }
+      const explained = addFHLEditValidationHint(typed, attemptRequest.payload, rawText);
+      lastError = explained;
+      if (explained !== typed) throw explained;
       const rateLimited = isRateLimitOrConcurrencyError(typed, rawText);
       const retryable = retryableRaw
         || isTransportishError(typed)
@@ -337,4 +340,3 @@ export {
   MAX_ATTEMPTS,
   RETRY_BACKOFF_MS,
 };
-

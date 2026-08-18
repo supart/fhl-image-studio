@@ -16,7 +16,12 @@ import {
   repairSizeForOpenAI,
   normalizeTextModel as normalizeSharedTextModel,
 } from "../../../../../../shared/kernel/requestModel.js";
-import type { KernelImageSource, RemoteGeneratePayload } from "./types.ts";
+import {
+  RemoteKernelError,
+  type KernelImageSource,
+  type RemoteGeneratePayload,
+  type RemoteJobCallbacks,
+} from "./types.ts";
 
 const FHL_BASE_URL = ProviderPolicy.fhl.baseURL;
 const FHL_LOCAL_PROXY_PREFIX = "/__image-studio-fhl";
@@ -27,6 +32,7 @@ const APIMART_LEGACY_LOCAL_PROXY_PREFIX = "/__image-studio-apimart-legacy";
 const SINGLE_SOURCE_UPLOAD_COMPRESS_THRESHOLD = 2.5 * 1024 * 1024;
 const MULTI_SOURCE_UPLOAD_COMPRESS_THRESHOLD = 512 * 1024;
 const UPLOAD_COPY_JPEG_QUALITY = 0.82;
+export const FHL_EDIT_UPLOAD_MAX_LONG_SIDE = 8192;
 const FHL_IMAGES_SAFE_EXACT_SIZES = new Set([
   "1024x1024",
   "1536x1024",
@@ -74,6 +80,7 @@ export function fileNameFromPath(path: string | undefined): string {
 export async function resolveSourceDataURLs(
   sourceImages: KernelImageSource[] | undefined,
   payload: RemoteGeneratePayload,
+  callbacks?: Pick<RemoteJobCallbacks, "onLog" | "onProgress">,
 ): Promise<string[]> {
   const ordered: KernelImageSource[] = sourceImages?.length
     ? sourceImages
@@ -83,9 +90,18 @@ export async function resolveSourceDataURLs(
     const source = ordered[index];
     const dataURL = await sourceToDataURL(source);
     if (!dataURL) continue;
-    out.push(index === 0 && source.preparedBase === true
-      ? dataURL
-      : await compressSourceDataURLForUpload(dataURL, ordered.length));
+    const preparedBase = index === 0 && source.preparedBase === true;
+    if (shouldGuardFHLEditUpload(payload)) {
+      const prepared = await prepareFHLEditSourceDataURLForUpload(dataURL);
+      if (prepared.resized) {
+        const message = `参考图 ${index + 1} 最长边 ${Math.max(prepared.originalWidth, prepared.originalHeight)}px，已生成 ${Math.max(prepared.uploadWidth, prepared.uploadHeight)}px 上传副本，原图未修改`;
+        callbacks?.onLog?.(`${message}（${prepared.originalWidth}x${prepared.originalHeight} -> ${prepared.uploadWidth}x${prepared.uploadHeight}）`);
+        callbacks?.onProgress?.(message, 0, 0);
+        out.push(prepared.dataURL);
+        continue;
+      }
+    }
+    out.push(preparedBase ? dataURL : await compressSourceDataURLForUpload(dataURL, ordered.length));
   }
   return out;
 }
@@ -173,6 +189,113 @@ function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, quality: numb
       resolve(null);
     }
   });
+}
+
+export type FHLEditUploadPreparation = {
+  dataURL: string;
+  originalWidth: number;
+  originalHeight: number;
+  uploadWidth: number;
+  uploadHeight: number;
+  resized: boolean;
+};
+
+export function shouldGuardFHLEditUpload(
+  payload: Pick<RemoteGeneratePayload, "apiMode" | "baseURL" | "mode">,
+): boolean {
+  if (payload.mode !== "edit") return false;
+  if (shouldUseAndroidNativeHTTP()) return false;
+  if (normalizeBaseURLForRouting(payload.baseURL) !== FHL_BASE_URL) return false;
+  const apiMode = normalizeSharedAPIMode(payload.apiMode);
+  return apiMode === "images" || apiMode === "responses";
+}
+
+export async function prepareFHLEditSourceDataURLForUpload(
+  dataURL: string,
+): Promise<FHLEditUploadPreparation> {
+  let blob: Blob | null = null;
+  try {
+    blob = dataURLToBlob(dataURL);
+  } catch {
+    throw new RemoteKernelError("参考图无法解码为有效图片，已在上传前停止请求");
+  }
+  if (!blob) {
+    throw new RemoteKernelError("参考图无法解析为有效图片，已在上传前停止请求");
+  }
+
+  let loaded: LoadedUploadImage | null = null;
+  try {
+    loaded = await loadUploadImage(blob);
+    const originalWidth = Math.round(loaded.width || 0);
+    const originalHeight = Math.round(loaded.height || 0);
+    if (originalWidth <= 0 || originalHeight <= 0) {
+      throw new RemoteKernelError("参考图无法读取有效像素尺寸，已在上传前停止请求");
+    }
+
+    const originalLongSide = Math.max(originalWidth, originalHeight);
+    if (originalLongSide <= FHL_EDIT_UPLOAD_MAX_LONG_SIDE) {
+      return {
+        dataURL,
+        originalWidth,
+        originalHeight,
+        uploadWidth: originalWidth,
+        uploadHeight: originalHeight,
+        resized: false,
+      };
+    }
+    if (typeof document === "undefined" || typeof document.createElement !== "function") {
+      throw new RemoteKernelError("当前环境无法生成 FHL 参考图上传副本，已停止请求");
+    }
+
+    const scale = FHL_EDIT_UPLOAD_MAX_LONG_SIDE / originalLongSide;
+    const uploadWidth = Math.max(1, Math.round(originalWidth * scale));
+    const uploadHeight = Math.max(1, Math.round(originalHeight * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = uploadWidth;
+    canvas.height = uploadHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      throw new RemoteKernelError("无法创建 FHL 参考图上传副本，已停止请求");
+    }
+
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, uploadWidth, uploadHeight);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(loaded.image, 0, 0, uploadWidth, uploadHeight);
+    const uploadBlob = await canvasToBlob(canvas, "image/jpeg", UPLOAD_COPY_JPEG_QUALITY);
+    if (!uploadBlob) {
+      throw new RemoteKernelError("无法编码 FHL 参考图上传副本，已停止请求");
+    }
+    return {
+      dataURL: dataURLFromBase64(await blobToBase64(uploadBlob), "image/jpeg"),
+      originalWidth,
+      originalHeight,
+      uploadWidth,
+      uploadHeight,
+      resized: true,
+    };
+  } catch (error) {
+    if (error instanceof RemoteKernelError) throw error;
+    throw new RemoteKernelError(`参考图解码失败，已在上传前停止请求：${String((error as any)?.message || error)}`);
+  } finally {
+    loaded?.close?.();
+  }
+}
+
+export function addFHLEditValidationHint(
+  error: RemoteKernelError,
+  payload: Pick<RemoteGeneratePayload, "apiMode" | "baseURL" | "mode">,
+  rawText = "",
+): RemoteKernelError {
+  if (!shouldGuardFHLEditUpload(payload)) return error;
+  const text = `${error.message}\n${rawText}`;
+  if (!/invalid image file or mode|invalid image|unsupported image|image.*mode/i.test(text)) return error;
+  if (/参考图已限制在/.test(error.message)) return error;
+  return new RemoteKernelError(
+    `${error.message}\n参考图已限制在 ${FHL_EDIT_UPLOAD_MAX_LONG_SIDE}px 以内；该错误也可能来自图片格式、透明通道、模型或 Images 编辑兼容性，系统不会继续盲目缩小。`,
+    error.rawPath,
+  );
 }
 
 export async function compressSourceDataURLForUpload(dataURL: string, sourceCount: number): Promise<string> {

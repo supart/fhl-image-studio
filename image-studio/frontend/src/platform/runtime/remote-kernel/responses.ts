@@ -161,7 +161,7 @@ export async function requestResponsesOnce(
   attempt: number,
   callbacks: RemoteJobCallbacks,
 ): Promise<RemoteJobResult> {
-  const sourceDataURLs = await resolveSourceDataURLs(request.sourceImages, request.payload);
+  const sourceDataURLs = await resolveSourceDataURLs(request.sourceImages, request.payload, callbacks);
   const body = JSON.stringify(buildResponsesPayload(request.payload, sourceDataURLs));
   const url = `${normalizeBaseURL(request.payload.baseURL)}/v1/responses`;
   const apiKey = normalizeAPIKeyForHeader(request.payload.apiKey);

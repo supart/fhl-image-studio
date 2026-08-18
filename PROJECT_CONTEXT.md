@@ -1,5 +1,15 @@
 # FHL Studio Windows V2.0.4 开发交接
 
+## 2026-08-19 批次 27：FHL 图生图参考图长边保护（已完成）
+
+- 已在同一 FHL Images 配置下顺序真实测试 `7999 / 8000 / 8192 / 8193px` 四张同源 JPEG，四次均返回完整 `b64_json`；原 400 不能认定为单纯 8K 尺寸边界。按批准规则，浏览器安全上限固定为 `8192px`。
+- Windows 浏览器 FHL Images / Responses 图生图现在先读取每张参考图真实尺寸；超过 `8192px` 时生成等比例白底 JPEG 上传副本，`preparedBase` 不能绕过。原图、历史和受管媒体不修改。
+- 解码/编码失败在请求前阻断；安全尺寸内出现同类 400 时明确提示格式、透明通道、模型或 Images 编辑兼容性，不继续盲目缩小。APIMart、RunningHub、提示词服务和 Android 原生链路保持原行为。
+- 新增 FHL 上传预处理和请求链回归；TypeScript、Node `642/642`、UI `107/107`、Lint `0 errors/58 warnings`、Fast、Batch 全通过，Batch 含桌面/CLI Go test+vet、Worker `5/5` 和离线 smoke。
+- Codex 浏览器真实执行 `9000x100 PNG -> 8192x91 JPEG`，副本可解码、原 data URL 不变；主应用保持 1 个工作区和 37 项历史，控制台 warning/error 为 `0`。
+- 分支：`codex/windows-v2.0.4-feature/fhl-upload-dimension-guard`；未设置 upstream、未推送 GitHub。详细记录：[docs/changes/2026-08-18-windows-v2.0.4-fhl-upload-dimension-guard.md](docs/changes/2026-08-18-windows-v2.0.4-fhl-upload-dimension-guard.md)。
+- 下一步：若真实图片在 `8192px` 内仍复现相同 400，另开格式/透明通道/模式兼容性批次，不扩大本批 provider 范围。
+
 ## 2026-08-18 批次 26：局部贴回像素边界与 2K 默认修复（已完成）
 
 - 已读取 360 `image-studio/frontend/src/panorama/core.ts` 的 `mapPanoramaPastebackSample` / `pastePanoramaRoundtripBase64`。其规则是：原始镜头矩形定义物理贴回范围，编辑图尺寸只影响采样；普通图现已遵循同一规则。

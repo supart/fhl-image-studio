@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {
+  FHL_EDIT_UPLOAD_MAX_LONG_SIDE,
+  prepareFHLEditSourceDataURLForUpload,
+  resolveSourceDataURLs,
+} from "../src/platform/runtime/remote-kernel/common.ts";
 
 const realFetch = globalThis.fetch;
 const realSetTimeout = globalThis.setTimeout;
@@ -139,6 +144,224 @@ async function withPatchedGlobals(setup, run) {
 function loadRemoteKernel() {
   return import(`../src/platform/runtime/remoteKernel.ts?test=${Date.now()}-${Math.random().toString(36).slice(2)}`);
 }
+
+function fhlEditPayload(apiMode = "images") {
+  return {
+    apiKey: "key",
+    mode: "edit",
+    prompt: "safe edit",
+    size: "1024x1024",
+    quality: "medium",
+    outputFormat: "png",
+    imagePaths: [],
+    imagePath: "",
+    maskB64: "",
+    seed: 0,
+    negativePrompt: "",
+    baseURL: "https://www.fhl.mom",
+    textModelID: "gpt-5.5",
+    imageModelID: "gpt-image-2",
+    apiMode,
+    requestPolicy: "openai",
+    noPromptRevision: false,
+  };
+}
+
+function installFHLEditResizeCanvas(copyText = "fhl-jpeg-copy") {
+  let canvas = null;
+  globalThis.document.createElement = (tag) => {
+    if (tag !== "canvas") return {};
+    canvas = {
+      width: 0,
+      height: 0,
+      getContext() {
+        return {
+          fillStyle: "",
+          fillRect() {},
+          drawImage() {},
+          imageSmoothingEnabled: false,
+          imageSmoothingQuality: "",
+        };
+      },
+      toBlob(callback, mimeType) {
+        callback(new Blob([copyText], { type: mimeType }));
+      },
+    };
+    return canvas;
+  };
+  return () => canvas;
+}
+
+test("FHL edit upload guard keeps an 8192px reference unchanged", async () => {
+  let closed = false;
+  const original = "data:image/jpeg;base64," + Buffer.from("safe-reference").toString("base64");
+  await withPatchedGlobals(async () => {
+    globalThis.createImageBitmap = async () => ({
+      width: FHL_EDIT_UPLOAD_MAX_LONG_SIDE,
+      height: 4096,
+      close() { closed = true; },
+    });
+  }, async () => {
+    const prepared = await prepareFHLEditSourceDataURLForUpload(original);
+    assert.equal(prepared.dataURL, original);
+    assert.equal(prepared.resized, false);
+    assert.equal(prepared.uploadWidth, 8192);
+    assert.equal(prepared.uploadHeight, 4096);
+    assert.equal(closed, true);
+  });
+});
+
+test("FHL edit upload guard creates an aspect-preserving JPEG copy above 8192px", async () => {
+  let closed = false;
+  let readCanvas = null;
+  const original = "data:image/png;base64," + Buffer.from("oversized-reference").toString("base64");
+  await withPatchedGlobals(async () => {
+    globalThis.createImageBitmap = async () => ({
+      width: 12000,
+      height: 6000,
+      close() { closed = true; },
+    });
+    readCanvas = installFHLEditResizeCanvas();
+  }, async () => {
+    const prepared = await prepareFHLEditSourceDataURLForUpload(original);
+    assert.equal(prepared.resized, true);
+    assert.equal(prepared.originalWidth, 12000);
+    assert.equal(prepared.originalHeight, 6000);
+    assert.equal(prepared.uploadWidth, 8192);
+    assert.equal(prepared.uploadHeight, 4096);
+    assert.equal(readCanvas().width, 8192);
+    assert.equal(readCanvas().height, 4096);
+    assert.match(prepared.dataURL, /^data:image\/jpeg;base64,/);
+    assert.equal(Buffer.from(prepared.dataURL.split(",")[1], "base64").toString(), "fhl-jpeg-copy");
+    assert.equal(original.endsWith(Buffer.from("oversized-reference").toString("base64")), true);
+    assert.equal(closed, true);
+  });
+});
+
+test("FHL browser upload guard does not change Android native or other provider sources", async () => {
+  const original = "data:image/png;base64," + Buffer.from("provider-source").toString("base64");
+  let decoded = 0;
+  await withPatchedGlobals(async () => {
+    globalThis.createImageBitmap = async () => {
+      decoded += 1;
+      return { width: 12000, height: 6000, close() {} };
+    };
+  }, async () => {
+    const otherProvider = await resolveSourceDataURLs([
+      { imageB64: Buffer.from("provider-source").toString("base64"), mimeType: "image/png", preparedBase: true },
+    ], { ...fhlEditPayload("images"), baseURL: "https://api.apimart.ai" });
+    assert.deepEqual(otherProvider, [original]);
+    assert.equal(decoded, 0);
+
+    globalThis.window.AndroidImageStudio = { invoke() {} };
+    const android = await resolveSourceDataURLs([
+      { imageB64: Buffer.from("provider-source").toString("base64"), mimeType: "image/png", preparedBase: true },
+    ], fhlEditPayload("images"));
+    assert.deepEqual(android, [original]);
+    assert.equal(decoded, 0);
+  });
+});
+
+test("FHL Images edit resizes preparedBase sources and reports the upload copy", async () => {
+  let capturedFile = null;
+  const logs = [];
+  const progress = [];
+  await withPatchedGlobals(async () => {
+    globalThis.createImageBitmap = async () => ({ width: 12000, height: 6000, close() {} });
+    installFHLEditResizeCanvas("images-copy");
+    globalThis.fetch = async (_url, init) => {
+      capturedFile = init.body.get("image");
+      return new Response('{"data":[{"b64_json":"aW1hZ2U="}]}', {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    await kernel.runRemoteImageJob({
+      payload: fhlEditPayload("images"),
+      sourceImages: [{ imageB64: Buffer.from("source").toString("base64"), mimeType: "image/png", preparedBase: true }],
+    }, {
+      signal: new AbortController().signal,
+      onLog: (line) => logs.push(line),
+      onProgress: (stage) => progress.push(stage),
+    });
+    assert.ok(capturedFile instanceof Blob);
+    assert.equal(capturedFile.type, "image/jpeg");
+    assert.equal(await capturedFile.text(), "images-copy");
+    assert.ok(logs.some((line) => line.includes("12000x6000 -> 8192x4096")));
+    assert.ok(progress.some((stage) => stage.includes("已生成 8192px 上传副本")));
+  });
+});
+
+test("FHL Responses edit uses the same upload dimension guard", async () => {
+  let capturedBody = null;
+  await withPatchedGlobals(async () => {
+    globalThis.createImageBitmap = async () => ({ width: 10000, height: 5000, close() {} });
+    installFHLEditResizeCanvas("responses-copy");
+    globalThis.fetch = async (_url, init) => {
+      capturedBody = JSON.parse(init.body);
+      return new Response(
+        'data: {"type":"response.output_item.done","item":{"type":"image_generation_call","result":"cmVzdWx0"}}\n',
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      );
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    await kernel.runRemoteImageJob({
+      payload: fhlEditPayload("responses"),
+      sourceImages: [{ imageB64: Buffer.from("source").toString("base64"), mimeType: "image/png" }],
+    }, { signal: new AbortController().signal });
+    const imageURL = capturedBody.input[0].content.find((item) => item.type === "input_image").image_url;
+    assert.match(imageURL, /^data:image\/jpeg;base64,/);
+    assert.equal(Buffer.from(imageURL.split(",")[1], "base64").toString(), "responses-copy");
+  });
+});
+
+test("FHL edit decode failure stops before the upstream request", async () => {
+  let fetchCalled = false;
+  await withPatchedGlobals(async () => {
+    globalThis.createImageBitmap = async () => { throw new Error("decode failed"); };
+    globalThis.fetch = async () => {
+      fetchCalled = true;
+      throw new Error("unexpected fetch");
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    await assert.rejects(
+      kernel.runRemoteImageJob({
+        payload: fhlEditPayload("images"),
+        sourceImages: [{ imageB64: Buffer.from("broken").toString("base64"), mimeType: "image/png" }],
+      }, { signal: new AbortController().signal }),
+      /参考图解码失败.*上传前停止请求/,
+    );
+    assert.equal(fetchCalled, false);
+  });
+});
+
+test("FHL image validation 400 explains non-dimension causes without another resize retry", async () => {
+  let calls = 0;
+  await withPatchedGlobals(async () => {
+    globalThis.createImageBitmap = async () => ({ width: 7999, height: 5333, close() {} });
+    globalThis.fetch = async () => {
+      calls += 1;
+      return new Response('{"error":{"message":"Bad request to upstream: Invalid image file or mode for image 1, please"}}', {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    };
+  }, async () => {
+    const kernel = await loadRemoteKernel();
+    await assert.rejects(
+      kernel.runRemoteImageJob({
+        payload: fhlEditPayload("images"),
+        sourceImages: [{ imageB64: Buffer.from("safe-size").toString("base64"), mimeType: "image/jpeg" }],
+      }, { signal: new AbortController().signal }),
+      /已限制在 8192px 以内.*格式、透明通道、模型或 Images 编辑兼容性/,
+    );
+    assert.equal(calls, 1);
+  });
+});
 
 test("runRemoteImageJob retries retryable responses and returns parsed SSE image", async () => {
   let calls = 0;
