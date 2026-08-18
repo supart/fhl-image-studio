@@ -5,11 +5,11 @@
 - V2.0.4 本地开发环境已完成：主线为 `codex/windows-v2.0.4-development`，`origin` 仅作只读参考，无 upstream，未授权 push 会被版本化 hook 阻止。
 - `dev-setup.ps1` 已修正为幂等校验：`windows-v2.0.4-dev.0` 永远指向原始基线 `e29d40fb60dc88e14a8bcfad6942714b35759576`，后续提交不会导致重复初始化失败；归档说明会展开实际 bundle 和源码 ZIP 文件名。
 - Fast、Batch、Milestone 已通过。V2.0.3 正式附件只读校验通过：Portable `45B7BCB232F967531A8BE03FFD784A31754EE3E1EB6BA33120A3B29B68182FF1`，Source `B3068A34BDD21961CB59F97EDA65ED32A8F952C975EF98A5C2D4C5E8999EF12E`。
-- 收口实现提交为 `c2d6707`；本地标签 `windows-v2.0.4-dev.4` 指向 `642545f`。最终归档位于 `V2.0.4-开发版\开发归档\20260818-154818-windows-v2.0.4-dev.4`，bundle `AB378344FC9DD7831E3B253825AE25B0EC5D6026F7FB9A39F735D3AE0D269B45`，源码 ZIP `281F88101C22BD294CD876C5BB188CBB243DFA5B652C30F82E652A41F5A4CCF8`；独立恢复通过。
-- 未推送 GitHub，未创建正式 release 标签，未修改 V2.0.3 或更早版本。本文件的归档证据更新是 `dev.4` 后的文档提交，不改变已归档的工具和应用代码。
+- 核心收口提交为 `c2d6707`、`6ba2094` 和 `8309aad`；本地标签 `windows-v2.0.4-dev.6` 指向 `8309aad`。最终归档位于 `V2.0.4-开发版\开发归档\20260818-160026-windows-v2.0.4-dev.6`，bundle `1F7B75C7D284A02AE649623510712F355A59C9DBFFED388823152714DD839948`，源码 ZIP `03E56EA255E1021139D7625E4BE72CF9537A55CD56F0DF83513CCE81DFF07381`；独立恢复通过。
+- 未推送 GitHub，未创建正式 release 标签，未修改 V2.0.3 或更早版本。本文件的最终归档证据更新是 `dev.6` 后的文档提交，不改变已归档的工具和应用代码。
 - 恢复入口：先运行 `一键初始化V2.0.4开发环境.cmd`，批次完成运行 `一键检查V2.0.4开发批次.cmd`，里程碑再运行 `一键归档V2.0.4里程碑.cmd`。
 - 里程碑入口在干净主开发线上通过 Milestone 后会自动创建下一个本地 `dev.N` 标签，用户不需要手工执行 Git 命令。
-- 首次 Windows PowerShell 双击归档在创建已验证 `dev.5` 标签后发现本机缺少 `Get-FileHash`，未写 manifest；不完整目录已移入回收站，标签作为验证断点保留。SHA-256 已改为纯 .NET 实现，下一次无参数入口自动使用 `dev.6` 完成最终归档。
+- 首次 Windows PowerShell 双击归档在创建已验证 `dev.5` 标签后发现本机缺少 `Get-FileHash`，未写 manifest；不完整目录已移入回收站，标签作为验证断点保留。SHA-256 改为纯 .NET 后，无参数入口自动创建 `dev.6` 并完成最终归档与独立恢复。
 
 ## 批次 20：专业本地开发环境
 
