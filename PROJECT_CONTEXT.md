@@ -5,7 +5,7 @@
 - V2.0.4 本地开发环境已完成：主线为 `codex/windows-v2.0.4-development`，`origin` 仅作只读参考，无 upstream，未授权 push 会被版本化 hook 阻止。
 - `dev-setup.ps1` 已修正为幂等校验：`windows-v2.0.4-dev.0` 永远指向原始基线 `e29d40fb60dc88e14a8bcfad6942714b35759576`，后续提交不会导致重复初始化失败；归档说明会展开实际 bundle 和源码 ZIP 文件名。
 - Fast、Batch、Milestone 已通过；`dev.3` 归档恢复通过。V2.0.3 正式附件只读校验通过：Portable `45B7BCB232F967531A8BE03FFD784A31754EE3E1EB6BA33120A3B29B68182FF1`，Source `B3068A34BDD21961CB59F97EDA65ED32A8F952C975EF98A5C2D4C5E8999EF12E`。
-- 当前收口提交完成后建立本地标签 `windows-v2.0.4-dev.4` 并生成最终开发归档；不推送 GitHub，不创建正式 release 标签，不修改 V2.0.3 或更早版本。
+- 收口实现提交为 `c2d6707`；验证记录提交后建立本地标签 `windows-v2.0.4-dev.4` 并生成最终开发归档。不推送 GitHub，不创建正式 release 标签，不修改 V2.0.3 或更早版本。
 - 恢复入口：先运行 `一键初始化V2.0.4开发环境.cmd`，批次完成运行 `一键检查V2.0.4开发批次.cmd`，里程碑再运行 `一键归档V2.0.4里程碑.cmd`。
 
 ## 批次 20：专业本地开发环境
