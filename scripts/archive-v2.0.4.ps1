@@ -7,16 +7,22 @@ param(
 $ErrorActionPreference = "Stop"
 
 $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
-$devRoot = (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $root)))
+$devRoot = (Split-Path -Parent (Split-Path -Parent $root))
 $archiveRoot = Join-Path $devRoot "开发归档"
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$archiveDir = Join-Path $archiveRoot "$stamp-$Tag"
 $checkJson = Join-Path $root ".tmp\v2.0.4-milestone-check.json"
 
 function Invoke-Git {
   param([string[]]$Arguments)
-  $output = & git -C $root @Arguments 2>&1 | Out-String
-  if ($LASTEXITCODE -ne 0) {
+  $previousPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    $output = & git -C $root @Arguments 2>&1 | Out-String
+    $code = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousPreference
+  }
+  if ($code -ne 0) {
     throw "git $($Arguments -join ' ') failed: $($output.Trim())"
   }
   return $output.Trim()
@@ -30,6 +36,7 @@ if ([string]::IsNullOrWhiteSpace($Tag)) {
   }
   $Tag = $headTags[0]
 }
+$archiveDir = Join-Path $archiveRoot "$stamp-$Tag"
 
 if (-not (Test-Path -LiteralPath (Join-Path $root ".git"))) {
   throw "The V2.0.4 source root is not a Git repository."
