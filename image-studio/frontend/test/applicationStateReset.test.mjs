@@ -60,6 +60,7 @@ test("reset patch returns a blank application state without owning API fields", 
 
   assert.equal(workspace.prompt, "");
   assert.equal(workspace.mode, "generate");
+  assert.equal(workspace.size, "2048x2048");
   assert.equal(workspace.outputFormat, "png");
   assert.deepEqual(workspace.batchTaskIds, []);
   assert.deepEqual(patch.workspaces, [workspace]);

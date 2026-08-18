@@ -35,6 +35,7 @@ import {
 import type { UpstreamProfile } from "../types/domain";
 import { storageKey } from "../lib/storageNamespace.ts";
 import { getImageDimensionsFromBase64 } from "../lib/images";
+import { DEFAULT_FHL_SIZE } from "../lib/generationDefaults.ts";
 import {
   defaultBatchProcessConfig,
   normalizeBatchProcessConfig,
@@ -274,7 +275,7 @@ export function persistTrimmedHistory(items: HistoryItem[]): void {
 function normalizeWorkspaceSize(value: unknown): SizeValue {
   return typeof value === "string" && value.trim()
     ? value as SizeValue
-    : "1024x1024";
+    : DEFAULT_FHL_SIZE;
 }
 
 function normalizeBatchTaskAutoAspectResolution(value: unknown): Exclude<BatchProcessAutoAspectResolution, ""> | undefined {
