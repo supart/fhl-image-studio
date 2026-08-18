@@ -97,8 +97,8 @@ $readme = @"
 
 ## 文件
 
-- `$Tag.bundle`：Git 完整历史，可用于恢复仓库。
-- `$Tag-source.zip`：只包含 Git 跟踪源码和文档，不包含本机配置、用户图片、日志、EXE 或 ZIP 产物。
+- ``$Tag.bundle``：Git 完整历史，可用于恢复仓库。
+- ``$Tag-source.zip``：只包含 Git 跟踪源码和文档，不包含本机配置、用户图片、日志、EXE 或 ZIP 产物。
 - `ARCHIVE-MANIFEST.json`：校验值、版本和验证结果。
 
 ## 恢复

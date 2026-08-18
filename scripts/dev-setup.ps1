@@ -8,6 +8,7 @@ $expectedBranch = "codex/windows-v2.0.4-development"
 $expectedOrigin = "https://github.com/supart/fhl-image-studio.git"
 $baselineTag = "windows-v2.0.3-release"
 $developmentTag = "windows-v2.0.4-dev.0"
+$developmentBaselineCommit = "e29d40fb60dc88e14a8bcfad6942714b35759576"
 
 function Invoke-GitText {
   param([string[]]$Arguments)
@@ -106,11 +107,14 @@ try {
 }
 
 if ($tagExists) {
-  $head = Invoke-GitText @("rev-parse", "HEAD")
-  if ($tagCommit -ne $head) {
-    throw "$developmentTag already exists at $tagCommit, not at current HEAD $head."
+  if ($tagCommit -ne $developmentBaselineCommit) {
+    throw "$developmentTag must remain at the original V2.0.4 baseline $developmentBaselineCommit. Found $tagCommit."
   }
 } elseif ($branch -eq $expectedBranch) {
+  $head = Invoke-GitText @("rev-parse", "HEAD")
+  if ($head -ne $developmentBaselineCommit) {
+    throw "Cannot create $developmentTag because HEAD is $head, not the original V2.0.4 baseline $developmentBaselineCommit."
+  }
   & git -C $root tag -a $developmentTag -m "V2.0.4 local development baseline" HEAD
   if ($LASTEXITCODE -ne 0) {
     throw "Failed to create $developmentTag."
