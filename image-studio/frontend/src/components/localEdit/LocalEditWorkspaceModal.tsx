@@ -73,9 +73,12 @@ function centeredAspectLens(lens: LocalEditLens, aspect: string, sourceWidth: nu
   };
 }
 
-function sourceUrl(item: HistoryItem | null, path?: string) {
+function sourceUrl(item: HistoryItem | null) {
   if (!item) return "";
-  return item.previewUrl || item.fullUrl || (item.imageB64 ? tempDataURLFromB64(item.imageB64) : "") || historyFullSrc(item, path ?? null);
+  if (item.imageB64) return tempDataURLFromB64(item.imageB64);
+  const fullUrl = item.fullUrl && !item.fullUrl.includes("/media/thumb/") ? item.fullUrl : undefined;
+  const candidate = historyFullSrc({ ...item, fullUrl, previewUrl: undefined }, null);
+  return candidate && !candidate.includes("/media/thumb/") ? candidate : "";
 }
 
 export function LocalEditWorkspaceModal() {
@@ -110,16 +113,23 @@ export function LocalEditWorkspaceModal() {
       setSourceSrc("");
       return;
     }
-    const direct = sourceUrl(sourceItem, draft.sourcePath);
+    const direct = sourceUrl(sourceItem);
     if (direct) {
       setSourceSrc(direct);
       return;
     }
     let cancelled = false;
     void (async () => {
-      if (!draft.sourcePath) return;
-      const b64 = await ReadImageAsBase64(draft.sourcePath).catch(() => "");
-      if (!cancelled && b64) setSourceSrc(tempDataURLFromB64(b64));
+      const b64 = draft.sourcePath ? await ReadImageAsBase64(draft.sourcePath).catch(() => "") : "";
+      if (cancelled) return;
+      if (b64) {
+        setSourceSrc(tempDataURLFromB64(b64));
+        return;
+      }
+      const fallback = sourceItem.imageB64
+        ? tempDataURLFromB64(sourceItem.imageB64)
+        : sourceItem.previewUrl || "";
+      setSourceSrc(fallback);
     })();
     return () => { cancelled = true; };
   }, [draft, sourceItem]);

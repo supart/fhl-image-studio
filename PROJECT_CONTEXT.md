@@ -1,5 +1,13 @@
 # FHL Studio Windows V2.0.4 开发交接
 
+## 2026-08-18 批次 24：局部编辑清晰度与面板可读性修复（已完成）
+
+- 工作台原先优先使用 `media/thumb/...` 缩略图，2048×1360 原图在弹窗中放大后发糊；现优先使用 `/media/full/...` 或受管原图路径，浏览器实测自然尺寸为 `2048×1360`。
+- 右侧控件被全局表单样式覆盖成白底浅字；现使用工作台专用深色高对比样式，参数字号提高，面板扩大到 380px，`2K 方形 2048×2048` 等选项完整显示。
+- Codex 浏览器三档视口 `1252x930`、`1440x900`、`1024x768` 均无溢出，控制台 warning/error 为 0。
+- 自动化：`npm run typecheck`、Node 634/634、Lint 0 errors/58 warnings、`git diff --check` 通过；`dev-check.ps1 -Level Fast` 和 `Batch` 均通过，Batch 包含 UI 107/107、桌面/CLI Go test+vet、Worker 5/5 和离线 smoke check。
+- 详细记录：[docs/changes/2026-08-18-windows-v2.0.4-local-edit-clarity.md](docs/changes/2026-08-18-windows-v2.0.4-local-edit-clarity.md)。
+
 ## 2026-08-18 批次 23：普通图局部编辑镜头框定位（已完成）
 
 - 当前分支：`codex/windows-v2.0.4-feature/unified-local-edit-workbench`；本批在现有工作台提交上继续开发，未设置 upstream、未推送 GitHub。
