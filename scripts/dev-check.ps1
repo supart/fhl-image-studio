@@ -96,20 +96,23 @@ if ($Level -eq "Milestone") {
   Invoke-Step "windows-frontend-build" "npm run build:windows" $frontend
   Invoke-Step "windows-wails-build" "wails build -platform windows/amd64 -clean" $imageStudio
 
-  $generatedTracked = @(git -C $root diff --name-only)
   $allowedGenerated = @(
     "image-studio/frontend/wailsjs/go/models.ts",
     "image-studio/go.mod",
     "image-studio/go.sum"
   )
-  $unexpectedGenerated = @($generatedTracked | Where-Object { $_ -notin $allowedGenerated })
+  $statusEntries = @(git -C $root status --porcelain=v1 --untracked-files=all)
+  $statusPaths = @($statusEntries | ForEach-Object {
+    if ($_.Length -ge 4) { $_.Substring(3) } else { $_ }
+  })
+  $unexpectedGenerated = @($statusPaths | Where-Object { $_ -notin $allowedGenerated })
   Add-Check "wails-generated-state" ($unexpectedGenerated.Count -eq 0) $(
     if ($unexpectedGenerated.Count -eq 0) {
-      if ($generatedTracked.Count -eq 0) { "no tracked build changes" } else { "restoring: $($generatedTracked -join ', ')" }
+      if ($statusPaths.Count -eq 0) { "no tracked build changes" } else { "restoring: $($statusPaths -join ', ')" }
     } else { $unexpectedGenerated -join ', ' }
   )
-  if ($unexpectedGenerated.Count -eq 0 -and $generatedTracked.Count -gt 0) {
-    & git -C $root restore --worktree -- $generatedTracked
+  if ($unexpectedGenerated.Count -eq 0 -and $statusPaths.Count -gt 0) {
+    & git -C $root restore --worktree -- $allowedGenerated
     if ($LASTEXITCODE -ne 0) {
       Add-Check "restore-wails-generated-state" $false "git restore failed"
     }
