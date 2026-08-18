@@ -311,6 +311,10 @@ function normalizeWorkspaceStyleTag(value: unknown): string {
 function normalizeLocalEditWorkbenchDraft(value: unknown): LocalEditWorkbenchDraft | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Partial<LocalEditWorkbenchDraft>;
+  // The crop workbench no longer owns generation or prompt state. Legacy edit/align
+  // drafts cannot be resumed safely, so leave their persisted history available and
+  // discard only the stale in-modal phase.
+  if (raw.phase === "edit" || raw.phase === "align") return null;
   const sourceHistoryId = typeof raw.sourceHistoryId === "string" ? raw.sourceHistoryId.trim() : "";
   const sourcePath = typeof raw.sourcePath === "string" ? raw.sourcePath.trim() : "";
   const width = Number(raw.sourceWidth);
@@ -349,7 +353,7 @@ function normalizeLocalEditWorkbenchDraft(value: unknown): LocalEditWorkbenchDra
   };
   return {
     mode: raw.mode === "panorama" ? "panorama" : "planar",
-    phase: raw.phase === "edit" || raw.phase === "align" ? raw.phase : "crop",
+    phase: "crop",
     sourceHistoryId,
     sourcePath: sourcePath || undefined,
     sourceWidth: Math.max(1, Math.floor(width)),
@@ -362,13 +366,6 @@ function normalizeLocalEditWorkbenchDraft(value: unknown): LocalEditWorkbenchDra
     },
     lens,
     aspect: typeof raw.aspect === "string" && raw.aspect.trim() ? raw.aspect.trim() : "free",
-    size: normalizeWorkspaceSize(raw.size),
-    quality: normalizeWorkspaceQuality(raw.quality),
-    promptPrefix: typeof raw.promptPrefix === "string" ? raw.promptPrefix : "",
-    prompt: typeof raw.prompt === "string" ? raw.prompt : "",
-    optimizationGuidance: typeof raw.optimizationGuidance === "string" ? raw.optimizationGuidance : "",
-    styleTag: typeof raw.styleTag === "string" ? raw.styleTag : "",
-    selectedResultId: typeof raw.selectedResultId === "string" ? raw.selectedResultId : null,
     dirty: raw.dirty === true,
   };
 }

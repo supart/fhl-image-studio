@@ -175,13 +175,6 @@ export interface LocalEditWorkbenchDraft {
   /** Current single lens frame; cropRect remains for old drafts and history compatibility. */
   lens?: LocalEditLens;
   aspect: string;
-  size: SizeValue;
-  quality: QualityValue;
-  promptPrefix: string;
-  prompt: string;
-  optimizationGuidance: string;
-  styleTag: string;
-  selectedResultId?: string | null;
   dirty: boolean;
 }
 

@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { Check, ChevronDown, ImageUp, Sparkles, X } from "lucide-react";
+import { RotateCw, Save, X } from "lucide-react";
 import { historyFullSrc } from "../../lib/images";
 import { tempDataURLFromB64 } from "../../state/studioStore.shared";
 import { useStudioStore } from "../../state/studioStore";
 import { ReadImageAsBase64 } from "../../platform/runtime/host";
-import { SIZE_OPTIONS, QUALITY_OPTIONS, type HistoryItem, type LocalEditLens, type LocalEditWorkbenchDraft } from "../../types/domain";
+import type { HistoryItem, LocalEditLens, LocalEditWorkbenchDraft } from "../../types/domain";
 import "./localEditWorkbench.css";
 
 const ASPECTS = [
@@ -16,7 +16,12 @@ const ASPECTS = [
   { value: "2:1", label: "2:1" },
 ];
 
-type DragState = { kind: "move" | "nw" | "ne" | "sw" | "se"; startX: number; startY: number; rect: LocalEditWorkbenchDraft["cropRect"] } | null;
+type DragState = {
+  kind: "move" | "nw" | "ne" | "sw" | "se";
+  startX: number;
+  startY: number;
+  rect: LocalEditWorkbenchDraft["cropRect"];
+} | null;
 type DragKind = "move" | "nw" | "ne" | "sw" | "se";
 
 function ratioValue(aspect: string) {
@@ -24,9 +29,32 @@ function ratioValue(aspect: string) {
   return Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0 ? w / h : null;
 }
 
-function clampRect(rect: LocalEditWorkbenchDraft["cropRect"], sourceWidth: number, sourceHeight: number) {
-  const width = Math.max(8, Math.min(sourceWidth, Math.round(rect.width)));
-  const height = Math.max(8, Math.min(sourceHeight, Math.round(rect.height)));
+function canRotateAspect(aspect: string) {
+  return aspect !== "free" && aspect !== "1:1" && ratioValue(aspect) !== null;
+}
+
+function swapAspect(aspect: string) {
+  if (!canRotateAspect(aspect)) return aspect;
+  const [w, h] = aspect.split(":").map(Number);
+  return `${h}:${w}`;
+}
+
+function clampRect(rect: LocalEditWorkbenchDraft["cropRect"], sourceWidth: number, sourceHeight: number, aspect = "free") {
+  const ratio = ratioValue(aspect);
+  let width = Math.max(8, Math.min(sourceWidth, Math.round(rect.width)));
+  let height = Math.max(8, Math.min(sourceHeight, Math.round(rect.height)));
+  if (ratio) {
+    height = Math.max(8, Math.round(width / ratio));
+    width = Math.max(8, Math.round(height * ratio));
+    if (width > sourceWidth) {
+      width = sourceWidth;
+      height = Math.max(8, Math.round(width / ratio));
+    }
+    if (height > sourceHeight) {
+      height = sourceHeight;
+      width = Math.max(8, Math.round(height * ratio));
+    }
+  }
   return {
     x: Math.max(0, Math.min(sourceWidth - width, Math.round(rect.x))),
     y: Math.max(0, Math.min(sourceHeight - height, Math.round(rect.y))),
@@ -81,6 +109,11 @@ function sourceUrl(item: HistoryItem | null) {
   return candidate && !candidate.includes("/media/thumb/") ? candidate : "";
 }
 
+function outputThumbUrl(item: HistoryItem) {
+  if (item.imageB64) return tempDataURLFromB64(item.imageB64);
+  return item.previewUrl || item.fullUrl || historyFullSrc(item, null);
+}
+
 export function LocalEditWorkspaceModal() {
   const draft = useStudioStore((state) => state.localEditWorkbenchDraft);
   const currentImage = useStudioStore((state) => state.currentImage);
@@ -90,23 +123,23 @@ export function LocalEditWorkspaceModal() {
   const close = useStudioStore((state) => state.closeLocalEditWorkbench);
   const switchMode = useStudioStore((state) => state.switchLocalEditWorkbenchMode);
   const openPanoramaViewer = useStudioStore((state) => state.openPanoramaViewer);
-  const openAligner = useStudioStore((state) => state.openLocalPastebackAligner);
-  const importExternal = useStudioStore((state) => state.importExternalLocalPastebackImage);
-  const submit = useStudioStore((state) => state.submit);
-  const setField = useStudioStore((state) => state.setField);
-  const pushToast = useStudioStore((state) => state.pushToast);
+  const openResultDetail = useStudioStore((state) => state.openResultDetail);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const imageFrameRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState>(null);
-  const importRef = useRef<HTMLInputElement | null>(null);
   const [sourceSrc, setSourceSrc] = useState("");
   const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const sourceWidth = draft?.sourceWidth ?? 0;
   const sourceHeight = draft?.sourceHeight ?? 0;
   const sourceItem = useMemo(() => draft ? history.find((item) => item.id === draft.sourceHistoryId) ?? currentImage : currentImage, [currentImage, draft, history]);
+  const localOutputs = useMemo(() => {
+    if (!draft) return [];
+    return history
+      .filter((item) => item.id !== draft.sourceHistoryId && item.localEditRoundtrip?.kind === "planar" && item.localEditRoundtrip.sourceHistoryId === draft.sourceHistoryId)
+      .slice(0, 8);
+  }, [draft, history]);
   const isPanorama = draft?.mode === "panorama";
-  const isRatioCompatible = draft ? Math.abs((draft.sourceWidth / Math.max(1, draft.sourceHeight)) - 2) < 0.02 : false;
 
   useEffect(() => {
     if (!draft || !sourceItem) {
@@ -139,10 +172,7 @@ export function LocalEditWorkspaceModal() {
     if (!stage || !sourceWidth || !sourceHeight) return;
     const updateFrameSize = () => {
       const bounds = stage.getBoundingClientRect();
-      const scale = Math.min(
-        bounds.width / sourceWidth,
-        bounds.height / sourceHeight,
-      );
+      const scale = Math.min(bounds.width / sourceWidth, bounds.height / sourceHeight);
       setFrameSize({
         width: Math.max(1, Math.floor(sourceWidth * scale)),
         height: Math.max(1, Math.floor(sourceHeight * scale)),
@@ -170,8 +200,13 @@ export function LocalEditWorkspaceModal() {
 
   if (!draft) return null;
 
+  const lens = lensFromDraft(draft);
+  const crop = { x: lens.x, y: lens.y, width: lens.width, height: lens.height };
+  const isCropPhase = draft.phase === "crop";
+  const outputSize = `${crop.width} × ${crop.height}`;
+
   const updateRect = (next: LocalEditWorkbenchDraft["cropRect"]) => {
-    const rect = clampRect(next, draft.sourceWidth, draft.sourceHeight);
+    const rect = clampRect(next, draft.sourceWidth, draft.sourceHeight, draft.aspect);
     const currentLens = lensFromDraft(draft);
     updateDraft({
       cropRect: rect,
@@ -184,17 +219,17 @@ export function LocalEditWorkspaceModal() {
         outputWidth: rect.width,
         outputHeight: rect.height,
       },
-      aspect: draft.aspect,
+      dirty: true,
     });
   };
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLElement>, kind: DragKind) => {
-    if (draft.phase !== "crop" || isPanorama) return;
+    if (!isCropPhase || isPanorama) return;
     event.preventDefault();
     event.stopPropagation();
     const stage = stageRef.current;
     if (!stage) return;
-    dragRef.current = { kind, startX: event.clientX, startY: event.clientY, rect: draft.cropRect };
+    dragRef.current = { kind, startX: event.clientX, startY: event.clientY, rect: crop };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -239,9 +274,14 @@ export function LocalEditWorkspaceModal() {
   };
 
   const chooseAspect = (aspect: string) => {
-    const nextLens = centeredAspectLens(lensFromDraft(draft), aspect, draft.sourceWidth, draft.sourceHeight);
-    const nextRect = clampRect({ x: nextLens.x, y: nextLens.y, width: nextLens.width, height: nextLens.height }, draft.sourceWidth, draft.sourceHeight);
+    const nextLens = centeredAspectLens(lens, aspect, draft.sourceWidth, draft.sourceHeight);
+    const nextRect = clampRect({ x: nextLens.x, y: nextLens.y, width: nextLens.width, height: nextLens.height }, draft.sourceWidth, draft.sourceHeight, aspect);
     updateDraft({ aspect, cropRect: nextRect, lens: { ...nextLens, ...nextRect }, dirty: true });
+  };
+
+  const toggleAspectOrientation = () => {
+    if (isPanorama || !canRotateAspect(draft.aspect)) return;
+    chooseAspect(swapAspect(draft.aspect));
   };
 
   const confirmCrop = async () => {
@@ -249,42 +289,6 @@ export function LocalEditWorkspaceModal() {
     try { await commitCrop(); } finally { setBusy(false); }
   };
 
-  const startGeneration = async () => {
-    if (isPanorama && !isRatioCompatible) {
-      pushToast("只有 2:1 源图才能提交 360 全景生成", "warn", 3600);
-      return;
-    }
-    setField("promptPrefix", draft.promptPrefix);
-    setField("prompt", draft.prompt);
-    setField("optimizationGuidance", draft.optimizationGuidance);
-    setField("styleTag", draft.styleTag);
-    setField("size", draft.size);
-    setField("quality", draft.quality);
-    setField("batchCount", 1);
-    setBusy(true);
-    try { await submit(); } finally { setBusy(false); }
-  };
-
-  const handleImport = async (file: File) => {
-    if (!currentImage) return;
-    setBusy(true);
-    try {
-      const imported = await importExternal(currentImage, file);
-      if (imported) {
-        updateDraft({ phase: "align", selectedResultId: imported.id, dirty: false });
-        close();
-      }
-    } finally { setBusy(false); }
-  };
-
-  const enterAlign = () => {
-    if (!currentImage) return;
-    openAligner(currentImage);
-    close();
-  };
-
-  const lens = lensFromDraft(draft);
-  const crop = { x: lens.x, y: lens.y, width: lens.width, height: lens.height };
   return (
     <div className="lew-overlay" role="dialog" aria-modal="true" aria-label="局部编辑工作台">
       <div className="lew-shell">
@@ -292,7 +296,7 @@ export function LocalEditWorkspaceModal() {
           <div>
             <p className="lew-eyebrow">FHL STUDIO · LOCAL EDIT</p>
             <h2>局部编辑工作台</h2>
-            <span>{draft.phase === "crop" ? "选择区域" : draft.phase === "edit" ? "编辑与导入" : "对齐与贴回"}</span>
+            <span>{isPanorama ? "360 编辑入口" : "镜头选区"}</span>
           </div>
           <div className="lew-mode-switch" role="tablist" aria-label="编辑模式">
             <button type="button" className={!isPanorama ? "active" : ""} onClick={() => switchMode("planar")}>普通图像</button>
@@ -316,29 +320,52 @@ export function LocalEditWorkspaceModal() {
                   }}
                 >
                   <img src={sourceSrc} alt="局部编辑原图" draggable={false} />
-                  {!isPanorama && draft.phase === "crop" ? (
+                  {!isPanorama && isCropPhase ? (
                     <div className="lew-crop-box" style={{ left: `${crop.x / draft.sourceWidth * 100}%`, top: `${crop.y / draft.sourceHeight * 100}%`, width: `${crop.width / draft.sourceWidth * 100}%`, height: `${crop.height / draft.sourceHeight * 100}%` }} onPointerDown={(event) => handlePointerDown(event, "move")}>
-                      <span className="lew-crop-label">{crop.width} × {crop.height}</span>
+                      <span className="lew-crop-label">{outputSize}</span>
                       {(["nw", "ne", "sw", "se"] as const).map((handle) => <button key={handle} type="button" className={`lew-handle ${handle}`} aria-label={`调整${handle}角`} onPointerDown={(event) => handlePointerDown(event, handle)} />)}
                     </div>
                   ) : null}
                 </div>
               ) : <div className="lew-empty">正在加载原图…</div>}
-              {isPanorama ? <div className="lew-pano-note">全景模式保留现有 360 球面查看、镜头和贴回流程。</div> : null}
+              {isPanorama ? <div className="lew-pano-note">全景模式由现有 360 编辑器接管。</div> : null}
             </div>
-            <div className="lew-stage-footer"><span>选择比例后拖动镜头框定位，四角调整大小</span><span className="lew-status-dot">离线工作流</span></div>
+            <div className="lew-stage-footer"><span>{isPanorama ? "打开 360 编辑器调整镜头" : "拖动镜头框定位，四角调整范围"}</span><span className="lew-status-dot">离线工作流</span></div>
           </section>
 
           <aside className="lew-panel">
             <div className="lew-panel-scroll">
-              <section className="lew-section"><div className="lew-section-title"><span>工作阶段</span><span className="lew-pill">{draft.phase}</span></div><div className="lew-steps"><span className={draft.phase === "crop" ? "active" : "done"}>1 选择区域</span><span className={draft.phase === "edit" ? "active" : draft.phase === "align" ? "done" : ""}>2 编辑</span><span className={draft.phase === "align" ? "active" : ""}>3 贴回</span></div></section>
-              <section className="lew-section"><div className="lew-section-title"><span>比例</span><span className="lew-muted">{draft.aspect}</span></div><div className="lew-aspect-grid">{ASPECTS.map((item) => <button key={item.value} type="button" className={draft.aspect === item.value ? "active" : ""} onClick={() => chooseAspect(item.value)} disabled={draft.phase !== "crop" || isPanorama}>{item.label}</button>)}</div></section>
-              <section className="lew-section lew-fields"><label>输出尺寸<select value={draft.size} onChange={(event) => updateDraft({ size: event.target.value as LocalEditWorkbenchDraft["size"] })}>{SIZE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><label>质量<select value={draft.quality} onChange={(event) => updateDraft({ quality: event.target.value as LocalEditWorkbenchDraft["quality"] })}>{QUALITY_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label></section>
-              <section className="lew-section lew-prompt-section"><div className="lew-section-title"><span>提示词</span><button type="button" className="lew-text-button" onClick={() => updateDraft({ prompt: "", promptPrefix: "", optimizationGuidance: "" })}>清空</button></div><textarea value={draft.promptPrefix} onChange={(event) => updateDraft({ promptPrefix: event.target.value })} placeholder="前置要求（可选）" /><textarea className="lew-prompt" value={draft.prompt} onChange={(event) => updateDraft({ prompt: event.target.value })} placeholder="描述希望如何修改选区" /><textarea value={draft.optimizationGuidance} onChange={(event) => updateDraft({ optimizationGuidance: event.target.value })} placeholder="补充说明（可选）" /><div className="lew-style-row"><span>风格</span>{["写实", "电影感", "产品摄影"].map((style) => <button type="button" key={style} className={draft.styleTag === style ? "active" : ""} onClick={() => updateDraft({ styleTag: draft.styleTag === style ? "" : style })}>{style}</button>)}</div></section>
-              {isPanorama && !isRatioCompatible ? <div className="lew-warning">当前源图不是 2:1，仍可查看普通工作台，但不能提交全景生成。</div> : null}
-              {draft.phase === "edit" ? <section className="lew-section lew-edit-actions"><button type="button" className="lew-primary" onClick={() => void startGeneration()} disabled={busy}><Sparkles size={16} />{busy ? "处理中…" : "开始局部生成"}</button><input ref={importRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void handleImport(file); event.currentTarget.value = ""; }} /><button type="button" className="lew-secondary" onClick={() => importRef.current?.click()} disabled={busy}><ImageUp size={16} />导入 PNG / JPG / WebP</button><button type="button" className="lew-secondary" onClick={enterAlign} disabled={!currentImage}><Check size={16} />进入对齐贴回</button></section> : null}
+              {isPanorama ? (
+                <section className="lew-section lew-pano-handoff"><div className="lew-section-title"><span>360 工作台</span><span className="lew-pill">球面</span></div><p>普通图面板不会修改全景镜头。打开现有 360 编辑器继续调整比例、视角和输出。</p></section>
+              ) : (
+                <>
+                  <section className="lew-section lew-output-manager">
+                    <div className="lew-section-title"><span>输出管理</span><span className="lew-output-count">{localOutputs.length}</span></div>
+                    {localOutputs.length > 0 ? <div className="lew-output-list">{localOutputs.map((item) => <div key={item.id} className="lew-output-item"><button type="button" className="lew-output-thumb" onClick={() => void openResultDetail(item)} title="打开详情">{outputThumbUrl(item) ? <img src={outputThumbUrl(item)} alt="" /> : <span>无预览</span>}</button><div className="lew-output-meta"><div className="lew-output-line"><span>局部结果</span><span>{item.width || item.previewWidth || "?"} × {item.height || item.previewHeight || "?"}</span></div><button type="button" className="lew-text-button" onClick={() => void openResultDetail(item)}>详情</button></div></div>)}</div> : <div className="lew-output-empty">还没有局部输出</div>}
+                  </section>
+
+                  <section className="lew-section">
+                    <div className="lew-section-title"><span>镜头参数</span><span className="lew-muted">{draft.aspect}</span></div>
+                    <div className="lew-aspect-control">
+                      <div className="lew-aspect-select" role="group" aria-label="局部编辑比例">
+                        {ASPECTS.map((item) => <button key={item.value} type="button" className={draft.aspect === item.value ? "active" : ""} onClick={() => chooseAspect(item.value)}>{item.label}</button>)}
+                      </div>
+                      <button type="button" className="lew-rotate-aspect" aria-label="横竖切换" title="横竖切换" disabled={!canRotateAspect(draft.aspect)} onClick={toggleAspectOrientation}><RotateCw size={16} /></button>
+                    </div>
+                    <div className="lew-lens-size"><span>镜头尺寸</span><strong>{outputSize}</strong></div>
+                  </section>
+
+                  <section className="lew-section lew-output-section">
+                    <div className="lew-section-title"><span>输出</span><span className="lew-muted">{outputSize}</span></div>
+                    <div className="lew-output-size-card"><span>自然像素</span><strong>{outputSize}</strong><small>保存后送入外部图生图编辑流程</small></div>
+                  </section>
+                </>
+              )}
             </div>
-            <footer className="lew-footer"><button type="button" className="lew-secondary" onClick={close}>取消</button>{draft.phase === "crop" && !isPanorama ? <button type="button" className="lew-primary" onClick={() => void confirmCrop()} disabled={busy}><ChevronDown size={16} />确认裁切并编辑</button> : null}{isPanorama ? <button type="button" className="lew-primary" onClick={() => { close(); if (currentImage) void openPanoramaViewer(currentImage); }}>打开 360 编辑器</button> : null}</footer>
+            <footer className="lew-footer">
+              <button type="button" className="lew-secondary" onClick={close}>取消</button>
+              {isPanorama ? <button type="button" className="lew-primary" onClick={() => { close(); if (currentImage) void openPanoramaViewer(currentImage); }}>打开 360 编辑器</button> : <button type="button" className="lew-primary" onClick={() => void confirmCrop()} disabled={busy || !isCropPhase}><Save size={16} />{busy ? "保存中…" : "保存并编辑"}</button>}
+            </footer>
           </aside>
         </main>
       </div>

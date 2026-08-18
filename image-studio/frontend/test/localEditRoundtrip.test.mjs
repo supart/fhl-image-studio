@@ -21,6 +21,7 @@ test("Windows UI exposes local edit and keeps panorama entry points", async () =
   const toolbar = await read("components/canvas/Toolbar.tsx");
   const aligner = await read("components/panorama/PanoramaPastebackAlignModal.tsx");
   const menus = await read("components/history/historyMenus.ts");
+  const modal = await read("components/localEdit/LocalEditWorkspaceModal.tsx");
   assert.match(toolbar, /startLocalEditRoundtrip/);
   assert.match(toolbar, /localEditAction/);
   assert.match(toolbar, /newest rectangle|reverse\(\)\.find\(\(a\) => a\.kind === "rect"\)/);
@@ -29,10 +30,16 @@ test("Windows UI exposes local edit and keeps panorama entry points", async () =
   assert.match(aligner, /手动对齐贴回原图/);
   assert.match(menus, /局部裁切编辑/);
   assert.match(menus, /手动对齐贴回全景图/);
+  assert.match(modal, /输出管理/);
+  assert.match(modal, /镜头参数/);
+  assert.match(modal, /横竖切换/);
+  assert.match(modal, /保存并编辑/);
+  assert.doesNotMatch(modal, /开始局部生成|导入 PNG \/ JPG \/ WebP|进入对齐贴回|promptPrefix|optimizationGuidance|<textarea/);
 });
 
 test("local edit store actions create a child crop and terminal pasteback result", async () => {
   const store = await read("state/studioStore.ts");
+  const shared = await read("state/studioStore.shared.ts");
   assert.match(store, /startLocalEditRoundtrip: async \(rect\)/);
   assert.match(store, /createPlanarLocalEditLens/);
   assert.match(store, /请拖动镜头框定位区域/);
@@ -42,4 +49,7 @@ test("local edit store actions create a child crop and terminal pasteback result
   assert.match(store, /autoPasteLocalEditRoundtripResult/);
   assert.match(store, /prompt: `\(局部贴回\)/);
   assert.match(store, /importExternalLocalPastebackImage: async/);
+  assert.match(store, /commitLocalEditWorkbenchCrop: async[\s\S]{0,9000}localEditWorkbenchDraft: null/);
+  assert.doesNotMatch(store, /promptPrefix: state\.promptPrefix/);
+  assert.match(shared, /raw\.phase === "edit" \|\| raw\.phase === "align"\) return null/);
 });

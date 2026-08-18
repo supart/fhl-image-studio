@@ -5282,13 +5282,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         cropRect: { x: lens.x, y: lens.y, width: lens.width, height: lens.height },
         lens,
         aspect: lens.aspect,
-        size: state.size,
-        quality: state.quality,
-        promptPrefix: state.promptPrefix,
-        prompt: state.prompt,
-        optimizationGuidance: state.optimizationGuidance,
-        styleTag: state.styleTag,
-        selectedResultId: null,
         dirty: false,
       };
       set((currentState) => ({
@@ -5407,13 +5400,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         annotations: [],
         selectedAnnotationId: null,
         tool: "pan",
-        localEditWorkbenchDraft: {
-          ...draft,
-          phase: "edit",
-          cropRect: { x, y, width, height },
-          lens: { ...(draft.lens ?? createPlanarLocalEditLens(sourceWidth, sourceHeight, rect)), x, y, width, height },
-          dirty: false,
-        },
+        localEditWorkbenchDraft: null,
         workspaces: patchWorkspaceRuntime(currentState.workspaces, workspaceId, {
           currentImageId: next.id,
           resultGridOpen: false,
@@ -5421,13 +5408,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           sources: next.sourceImages || [],
           mode: "edit",
           editSourceMode: "manual",
-          localEditWorkbenchDraft: {
-            ...draft,
-            phase: "edit",
-            cropRect: { x, y, width, height },
-            lens: { ...(draft.lens ?? createPlanarLocalEditLens(sourceWidth, sourceHeight, rect)), x, y, width, height },
-            dirty: false,
-          },
+          localEditWorkbenchDraft: null,
         }),
       } as Partial<StudioState>));
       await persistHistoryItem(next).catch(() => undefined);
@@ -5457,7 +5438,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const current = state.localEditWorkbenchDraft;
     if (!current || current.mode === mode) return;
     if (current.dirty && typeof window !== "undefined" && !window.confirm("当前工作台有未保存内容，切换模式会重置本轮编辑。继续吗？")) return;
-    const next = { ...current, mode, phase: "crop" as const, selectedResultId: null, dirty: false };
+    const next = { ...current, mode, phase: "crop" as const, dirty: false };
     set((currentState) => ({
       localEditWorkbenchDraft: next,
       workspaces: patchWorkspaceRuntime(currentState.workspaces, currentState.activeWorkspaceId, {
