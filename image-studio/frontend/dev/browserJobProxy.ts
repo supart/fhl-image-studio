@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Plugin } from "vite";
+import sharp from "sharp";
 import {
   BROWSER_JOB_PROXY_PREFIX,
   BROWSER_JOB_REGISTRY_FILENAME,
@@ -67,6 +68,9 @@ const BROWSER_JOB_SSE_HEARTBEAT_MS = 15 * 1000;
 const BROWSER_JOB_PERSIST_RETRY_DELAYS_MS = [80, 160, 320, 640, 1000] as const;
 const APIMART_OFFICIAL_BASE_URL = "https://api.apimart.ai";
 const APIMART_LEGACY_BASE_URL = "https://api.apib.ai";
+const FHL_OFFICIAL_BASE_URL = "https://www.fhl.mom";
+const FHL_EDIT_UPLOAD_MAX_LONG_SIDE = 8192;
+const FHL_EDIT_UPLOAD_JPEG_QUALITY = 82;
 
 function minutesLabel(ms: number) {
   return `${Math.round(ms / 60_000)} 分钟`;
@@ -266,6 +270,90 @@ function effectiveBaseURLForCLI(payload: BrowserJobSubmitPayload) {
   if (payload.apiMode !== "apimart") return raw;
   const normalized = raw.replace(/\/+$/, "").replace(/\/v1$/i, "");
   return normalized === APIMART_OFFICIAL_BASE_URL ? APIMART_LEGACY_BASE_URL : raw;
+}
+
+function normalizeBaseURLForRouting(raw: string) {
+  let normalized = String(raw || "").trim().replace(/\/+$/, "").toLowerCase();
+  while (normalized.endsWith("/v1")) normalized = normalized.slice(0, -3).replace(/\/+$/, "");
+  return normalized;
+}
+
+function shouldGuardFHLBrowserEditUpload(payload: BrowserJobSubmitPayload) {
+  return payload.mode === "edit"
+    && (payload.apiMode === "images" || payload.apiMode === "responses")
+    && normalizeBaseURLForRouting(payload.baseURL) === FHL_OFFICIAL_BASE_URL;
+}
+
+type PreparedFHLSourcePaths = {
+  paths: string[];
+  temporaryPaths: string[];
+  messages: string[];
+};
+
+async function resolveBrowserSourcePath(repoRoot: string, inputDir: string, rawPath: string) {
+  const cleaned = toWindowsPath(rawPath);
+  if (!cleaned) return "";
+  if (path.isAbsolute(cleaned)) return cleaned;
+  const repoCandidate = path.resolve(repoRoot, cleaned);
+  try {
+    await fs.access(repoCandidate);
+    return repoCandidate;
+  } catch {
+    return path.resolve(inputDir, cleaned);
+  }
+}
+
+async function prepareFHLBrowserEditSources(
+  payload: BrowserJobSubmitPayload,
+  repoRoot: string,
+  inputDir: string,
+  outputDir: string,
+  jobId: string,
+): Promise<PreparedFHLSourcePaths> {
+  const originalPaths = (payload.sourceImagePaths ?? []).map(toWindowsPath).filter(Boolean);
+  if (!shouldGuardFHLBrowserEditUpload(payload) || originalPaths.length === 0) {
+    return { paths: originalPaths, temporaryPaths: [], messages: [] };
+  }
+
+  const paths: string[] = [];
+  const temporaryPaths: string[] = [];
+  const messages: string[] = [];
+  try {
+    await fs.mkdir(outputDir, { recursive: true });
+    for (let index = 0; index < originalPaths.length; index += 1) {
+      const sourcePath = await resolveBrowserSourcePath(repoRoot, inputDir, originalPaths[index]);
+      const metadata = await sharp(sourcePath, { failOn: "error" }).metadata();
+      const originalWidth = Number(metadata.width || 0);
+      const originalHeight = Number(metadata.height || 0);
+      if (originalWidth <= 0 || originalHeight <= 0) {
+        throw new Error(`参考图 ${index + 1} 无法读取有效像素尺寸，已在上传前停止请求`);
+      }
+      const originalLongSide = Math.max(originalWidth, originalHeight);
+      if (originalLongSide <= FHL_EDIT_UPLOAD_MAX_LONG_SIDE) {
+        paths.push(sourcePath);
+        continue;
+      }
+      const scale = FHL_EDIT_UPLOAD_MAX_LONG_SIDE / originalLongSide;
+      const uploadWidth = Math.max(1, Math.round(originalWidth * scale));
+      const uploadHeight = Math.max(1, Math.round(originalHeight * scale));
+      const uploadPath = path.join(outputDir, `${jobId}-fhl-source-${index + 1}.jpg`);
+      await sharp(sourcePath, { failOn: "error" })
+        .resize({ width: uploadWidth, height: uploadHeight, fit: "fill" })
+        .flatten({ background: "#ffffff" })
+        .jpeg({ quality: FHL_EDIT_UPLOAD_JPEG_QUALITY })
+        .toFile(uploadPath);
+      paths.push(uploadPath);
+      temporaryPaths.push(uploadPath);
+      messages.push(
+        `参考图 ${index + 1} 最长边 ${originalLongSide}px，已生成 ${Math.max(uploadWidth, uploadHeight)}px 上传副本，原图未修改`,
+      );
+    }
+    return { paths, temporaryPaths, messages };
+  } catch (error) {
+    await Promise.all(temporaryPaths.map((temporaryPath) => fs.rm(temporaryPath, { force: true }).catch(() => undefined)));
+    const message = String((error as { message?: unknown })?.message || error || "unknown image error");
+    throw new Error(`FHL 参考图上传预检失败：${message}`);
+  }
 }
 
 function shouldRunSequentially(payload: BrowserJobSubmitPayload) {
@@ -867,6 +955,38 @@ export class BrowserJobManager {
       return;
     }
 
+    let preparedSources: PreparedFHLSourcePaths;
+    try {
+      preparedSources = await prepareFHLBrowserEditSources(
+        payload,
+        this.repoRoot,
+        this.inputDir,
+        path.join(this.outputDir, "log"),
+        jobId,
+      );
+    } catch (error) {
+      if (this.getSlot(jobId)?.status === "cancelled") {
+        void this.startNextQueuedSlot(groupId);
+        return;
+      }
+      await this.failRegisteredSlotStart(groupId, jobId, error);
+      return;
+    }
+    const cleanupPreparedSources = async () => {
+      if (preparedSources.temporaryPaths.length === 0) return;
+      const paths = preparedSources.temporaryPaths.splice(0);
+      await Promise.all(paths.map((temporaryPath) => fs.rm(temporaryPath, { force: true }).catch(() => undefined)));
+    };
+    for (const message of preparedSources.messages) {
+      const preparedSlot = this.updateSlot(jobId, {
+        updatedAt: Date.now(),
+        stage: message,
+      });
+      await this.persist();
+      const preparedGroup = preparedSlot ? this.getGroup(groupId) : null;
+      if (preparedSlot && preparedGroup) this.emit(jobId, { type: "snapshot", slot: preparedSlot, group: preparedGroup });
+    }
+
     const args = [
       "--no-input",
       "--json",
@@ -898,16 +1018,27 @@ export class BrowserJobManager {
     if (effectiveSeed > 0) {
       args.push("--seed", String(effectiveSeed));
     }
-    for (const imagePath of payload.sourceImagePaths ?? []) {
+    for (const imagePath of preparedSources.paths) {
       if (imagePath.trim()) args.push("--image", toWindowsPath(imagePath));
     }
-    if (payload.maskB64?.trim()) {
-      const maskPath = path.join(this.outputDir, "log", `${jobId}-mask.png`);
-      await fs.writeFile(maskPath, Buffer.from(cleanBase64(payload.maskB64), "base64"));
-      args.push("--mask", maskPath);
+    try {
+      if (payload.maskB64?.trim()) {
+        const maskPath = path.join(this.outputDir, "log", `${jobId}-mask.png`);
+        await fs.writeFile(maskPath, Buffer.from(cleanBase64(payload.maskB64), "base64"));
+        args.push("--mask", maskPath);
+      }
+    } catch (error) {
+      await cleanupPreparedSources();
+      if (this.getSlot(jobId)?.status === "cancelled") {
+        void this.startNextQueuedSlot(groupId);
+        return;
+      }
+      await this.failRegisteredSlotStart(groupId, jobId, error);
+      return;
     }
 
     if (this.getSlot(jobId)?.status === "cancelled") {
+      await Promise.all(preparedSources.temporaryPaths.map((temporaryPath) => fs.rm(temporaryPath, { force: true }).catch(() => undefined)));
       void this.startNextQueuedSlot(groupId);
       return;
     }
@@ -985,6 +1116,7 @@ export class BrowserJobManager {
       if (this.running.get(jobId) !== proc) return;
       clearProcessTimeout(proc);
       this.running.delete(jobId);
+      await cleanupPreparedSources();
       const timedOut = !proc.cancelled && !!proc.timedOutMessage;
       const current = this.updateSlot(jobId, {
         status: proc.cancelled ? "cancelled" : "failed",
@@ -1009,6 +1141,7 @@ export class BrowserJobManager {
       if (this.running.get(jobId) !== proc) return;
       clearProcessTimeout(proc);
       this.running.delete(jobId);
+      await cleanupPreparedSources();
       const rawResult = safeJsonParse(proc.stdout);
       const ok = !!rawResult?.ok;
       const cancelled = proc.cancelled;

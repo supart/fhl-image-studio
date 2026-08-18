@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, RotateCw, Upload, WandSparkles } from "lucid
 import { Stage, Layer, Image as KonvaImage, Line, Rect, Arrow } from "react-konva";
 import Konva from "konva";
 import { useStudioStore } from "../../state/studioStore";
-import type { BatchTaskRecord, HistoryItem } from "../../types/domain";
+import type { BatchTaskRecord, HistoryItem, JobGroupSnapshot, JobSlotSnapshot } from "../../types/domain";
 import { usePlatform } from "../../platform/context";
 import { ContextMenu } from "../common/ContextMenu";
 import { ImagePixelSizeBadge } from "../common/ImagePixelSizeBadge";
@@ -28,6 +28,7 @@ import {
   sortedBatchTasksForCurrentView,
   sortedBatchTasksForWorkspace,
 } from "../../state/batchTaskRecords";
+import { sourceImagesFromPaths } from "../../state/historySourceImages";
 import { sortHistoryGalleryItems } from "./historyGallerySort";
 import { RawResponseModal } from "../history/RawResponseModal";
 import { HistoryApiSourceBadge } from "../history/HistoryApiSourceBadge";
@@ -108,6 +109,50 @@ function itemWithTaskApiSource(item: HistoryItem, task: BatchTaskRecord | null |
     size,
     quality,
     outputFormat,
+  };
+}
+
+function historyContextItemFromBatchTask(task: BatchTaskRecord): HistoryItem {
+  return {
+    id: `task-context:${task.id}`,
+    prompt: task.prompt,
+    mode: task.mode,
+    apiMode: task.apiMode,
+    apiProfileId: task.apiProfileId,
+    apiProfileName: task.apiProfileName,
+    fhlImagesPoolSlot: normalizeFHLImagesPoolSlot(task.fhlImagesPoolSlot),
+    size: task.size,
+    quality: task.quality,
+    outputFormat: task.outputFormat,
+    createdAt: task.updatedAt || task.createdAt,
+    seed: task.seed,
+    negativePrompt: task.negativePrompt,
+    styleTag: task.styleTag,
+    sourceImages: task.sourceImages ?? sourceImagesFromPaths(task.sourceImagePaths),
+    parentId: task.batchSourcePath || task.sourceImagePaths?.[0],
+    previewOnly: true,
+  };
+}
+
+function historyContextItemFromJobGroup(group: JobGroupSnapshot, slot: JobSlotSnapshot): HistoryItem {
+  return {
+    id: `job-context:${slot.jobId}`,
+    prompt: group.prompt,
+    mode: group.mode,
+    apiMode: group.apiMode,
+    apiProfileId: group.apiProfileId,
+    apiProfileName: group.apiProfileName,
+    fhlImagesPoolSlot: normalizeFHLImagesPoolSlot(group.fhlImagesPoolSlot),
+    size: group.size,
+    quality: group.quality,
+    outputFormat: group.outputFormat,
+    createdAt: slot.updatedAt || group.createdAt,
+    seed: group.seed,
+    negativePrompt: group.negativePrompt,
+    styleTag: group.styleTag,
+    sourceImages: sourceImagesFromPaths(group.sourceImagePaths),
+    parentId: group.batchSourcePath || group.sourceImagePaths?.[0],
+    previewOnly: true,
   };
 }
 
@@ -468,6 +513,7 @@ export function CanvasStage() {
               logMessage: latest.slot.errorMessage || latest.slot.stage,
               rawPath: latest.slot.rawPath,
               apiSource: apiSourceFromRecord(latest.group),
+              contextItem: historyContextItemFromJobGroup(latest.group, latest.slot),
             };
           }
           if (displayStatus === "failed") return slot;
@@ -505,6 +551,7 @@ export function CanvasStage() {
         logMessage: task.errorMessage || task.lastLogLine,
         rawPath: task.rawPath,
         apiSource,
+        contextItem: sourcedItem ?? historyContextItemFromBatchTask(task),
         sourcePreview,
         runningHubRecoverable: runningHubRecovery.recoverable,
         runningHubRecoveryLabel: runningHubRecovery.label,
@@ -544,6 +591,7 @@ export function CanvasStage() {
           logMessage: task.errorMessage || task.lastLogLine || "APIMart 任务可能已经完成，但本地没有最终图片。",
           rawPath: task.rawPath,
           apiSource,
+          contextItem: historyContextItemFromBatchTask(task),
           sourcePreview,
           apimartRecoverable: true,
           apimartRecoveryLabel: apimartRecovery.label,

@@ -22,6 +22,14 @@ test("failed batch slots expose hover and click log affordances", () => {
   assert.match(gridSource, /<RawResponseModal path=\{rawPath\}/);
 });
 
+test("failed batch slots expose the shared history parameter menu without generating", () => {
+  assert.match(gridSource, /contextItem\?: HistoryItem \| null/);
+  assert.match(gridSource, /onContextMenu=\{\(event\) => \{/);
+  assert.match(gridSource, /onOpenItemContextMenu\?\.\(slot\.contextItem, event\.clientX, event\.clientY\)/);
+  assert.match(canvasStageSource, /contextItem: sourcedItem \?\? historyContextItemFromBatchTask\(task\)/);
+  assert.match(canvasStageSource, /function historyContextItemFromBatchTask/);
+});
+
 test("failed grid logs include task context, prompt, raw response path, and message", () => {
   assert.match(gridSource, /任务 ID: \$\{slot\.taskId\}/);
   assert.match(gridSource, /Job ID: \$\{slot\.jobId\}/);

@@ -1,5 +1,15 @@
 # FHL Studio Windows V2.0.4 开发交接
 
+## 2026-08-19 批次 28：FHL 浏览器代理大图保护与失败任务参数菜单（已完成）
+
+- 当前分支：`codex/windows-v2.0.4-feature/fhl-upload-browser-proxy-failed-params`；本批提交信息为 `fix(fhl-upload): guard browser proxy and failed task params`，未设置 upstream、未推送 GitHub。
+- 根因已修复：Codex 浏览器批量任务走 `browserJobClient -> browserJobProxy -> gptcodex-image.exe`，此前绕过 remote-kernel 的 FHL 长边保护。代理现在只对官方 FHL、编辑模式、Images/Responses 参考图执行真实像素预检。
+- 超过 `8192px` 长边的参考图按比例生成白底 JPEG 临时上传副本；真实浏览器用 `9000×6000` 图验证得到 `8192×5461`，FHL Images 图生图最终成功，任务结束后临时副本已清理，原图和历史未修改。
+- 失败任务卡片右键菜单已接入共享历史上下文；浏览器实测“应用参数（不生成）”可恢复提示词、尺寸、质量和参考图，不创建新任务。
+- 验证完成：TypeScript、Node `644/644`、UI `107/107`、Lint `0 errors/58 warnings`、`dev-check.ps1 -Level Fast`、`Batch`、`git diff --check` 全通过；Codex 浏览器控制台 warning/error 为 `0`。
+- 详细记录：[docs/changes/2026-08-19-windows-v2.0.4-fhl-browser-proxy-failed-params.md](docs/changes/2026-08-19-windows-v2.0.4-fhl-browser-proxy-failed-params.md)。
+- 下一步：观察真实用户大图日志；若 `8192px` 内仍复现同类 400，另开格式、透明通道、模型或 Images 编辑兼容性批次，不继续降低本批上限。
+
 ## 2026-08-19 批次 27：FHL 图生图参考图长边保护（已完成）
 
 - 已在同一 FHL Images 配置下顺序真实测试 `7999 / 8000 / 8192 / 8193px` 四张同源 JPEG，四次均返回完整 `b64_json`；原 400 不能认定为单纯 8K 尺寸边界。按批准规则，浏览器安全上限固定为 `8192px`。

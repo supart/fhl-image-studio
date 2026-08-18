@@ -38,6 +38,7 @@ export type BatchGridSlot =
       logMessage?: string;
       rawPath?: string;
       apiSource?: HistoryApiSource | null;
+      contextItem?: HistoryItem | null;
       sourcePreview?: BatchGridSourcePreview | null;
       runningHubRecoverable?: boolean;
       runningHubRecoveryLabel?: string;
@@ -560,6 +561,7 @@ export function BatchResultGrid({
                         onRetryTask={onRetryTask}
                         onRecoverRunningHub={onRecoverRunningHub}
                         onRecoverAPIMart={onRecoverAPIMart}
+                        onOpenItemContextMenu={onOpenItemContextMenu}
                       />
                     );
                   }
@@ -874,6 +876,7 @@ function FailedGridTile({
   onRetryTask,
   onRecoverRunningHub,
   onRecoverAPIMart,
+  onOpenItemContextMenu,
 }: {
   index: number;
   slot: Extract<BatchGridSlot, { type: "failed" }>;
@@ -883,6 +886,7 @@ function FailedGridTile({
   onRetryTask?: (slot: TaskRetryTarget) => void | Promise<void>;
   onRecoverRunningHub?: (slot: TaskRecoverTarget) => void | Promise<void>;
   onRecoverAPIMart?: (slot: TaskRecoverTarget) => void | Promise<void>;
+  onOpenItemContextMenu?: (item: HistoryItem, x: number, y: number) => void;
 }) {
   const canRetryTask = !!(slot.taskId && onRetryTask);
   const canRetryFailed = !!(slot.groupId && slot.jobId && onRetryFailed);
@@ -907,6 +911,11 @@ function FailedGridTile({
           event.preventDefault();
           onSelectTask?.(slot.taskId!);
         }
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (slot.contextItem) onOpenItemContextMenu?.(slot.contextItem, event.clientX, event.clientY);
       }}
     >
       {slot.sourcePreview ? <TaskSourcePreviewAnchor sourcePreview={slot.sourcePreview} index={index} /> : null}
