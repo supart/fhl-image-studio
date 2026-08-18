@@ -1,5 +1,16 @@
 # FHL Studio Windows V2.0.4 开发交接
 
+## 2026-08-18 批次 26：局部贴回像素边界与 2K 默认修复（已完成）
+
+- 已读取 360 `image-studio/frontend/src/panorama/core.ts` 的 `mapPanoramaPastebackSample` / `pastePanoramaRoundtripBase64`。其规则是：原始镜头矩形定义物理贴回范围，编辑图尺寸只影响采样；普通图现已遵循同一规则。
+- 修复普通图自动贴回：`cropRect` 始终是默认物理覆盖范围，超分辨率或任意尺寸编辑结果只被双线性重采样到该范围；裁切框外像素保持不变。手动平移、缩放、旋转、蒙版、羽化和色彩调整保留。
+- 修复旧工作区缺失尺寸字段的回退；`normalizeWorkspaceSize` 现在使用 `DEFAULT_FHL_SIZE`。`createDefaultWorkspace` 和一键初始化路径均保持 `2048x2048`（2K），已有历史显式尺寸不改写。
+- 新增高分辨率越界回归测试和 2K 初始化断言；未在用户历史上点击自动贴回或一键初始化。
+- 验证：`npm run typecheck`、Node `635/635`、UI `107/107`、Lint `0 errors/58 warnings`、`git diff --check`、Fast、Batch 全部通过；Batch 包含桌面/CLI Go test+vet、Worker `5/5` 和离线 smoke check。
+- Codex 浏览器 `http://127.0.0.1:5173/` 已复核主界面默认显示 `2K`，普通图/360/贴回入口仍在，控制台 warning/error 为 `0`；未调用真实 API。
+- 提交：`5b3e465 fix(defaults): keep reset resolution at 2K`、`4f19de3 fix(local-edit): fit automatic pasteback to crop bounds`。
+- 详细记录：[docs/changes/2026-08-18-windows-v2.0.4-local-edit-pasteback-defaults.md](docs/changes/2026-08-18-windows-v2.0.4-local-edit-pasteback-defaults.md)。
+
 ## 2026-08-18 批次 25：普通图局部编辑面板对齐 360 工作流（已完成）
 
 - 普通图局部编辑弹窗已收窄为“输出管理 / 镜头参数 / 输出 / 工作台”，移除弹窗内提示词、AI 优化、风格、生成、外部导入和对齐入口；外部主编辑区成为唯一提示词管理位置。
