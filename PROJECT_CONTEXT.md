@@ -2,7 +2,7 @@
 
 ## 2026-08-19 批次 28：FHL 浏览器代理大图保护与失败任务参数菜单（已完成）
 
-- 当前分支：`codex/windows-v2.0.4-feature/fhl-upload-browser-proxy-failed-params`；本批提交信息为 `fix(fhl-upload): guard browser proxy and failed task params`，未设置 upstream、未推送 GitHub。
+- 当前分支：`codex/windows-v2.0.4-feature/fhl-upload-browser-proxy-failed-params`；本批提交为 `1c125be fix(fhl-upload): guard browser proxy and failed task params`，未设置 upstream、未推送 GitHub。
 - 根因已修复：Codex 浏览器批量任务走 `browserJobClient -> browserJobProxy -> gptcodex-image.exe`，此前绕过 remote-kernel 的 FHL 长边保护。代理现在只对官方 FHL、编辑模式、Images/Responses 参考图执行真实像素预检。
 - 超过 `8192px` 长边的参考图按比例生成白底 JPEG 临时上传副本；真实浏览器用 `9000×6000` 图验证得到 `8192×5461`，FHL Images 图生图最终成功，任务结束后临时副本已清理，原图和历史未修改。
 - 失败任务卡片右键菜单已接入共享历史上下文；浏览器实测“应用参数（不生成）”可恢复提示词、尺寸、质量和参考图，不创建新任务。
