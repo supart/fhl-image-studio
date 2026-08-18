@@ -9,7 +9,6 @@ $ErrorActionPreference = "Stop"
 $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $devRoot = (Split-Path -Parent (Split-Path -Parent $root))
 $archiveRoot = Join-Path $devRoot "开发归档"
-$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $checkJson = Join-Path $root ".tmp\v2.0.4-milestone-check.json"
 
 function Invoke-Git {
@@ -28,16 +27,6 @@ function Invoke-Git {
   return $output.Trim()
 }
 
-if ([string]::IsNullOrWhiteSpace($Tag)) {
-  $headTags = @((Invoke-Git @("tag", "--points-at", "HEAD", "--list", "windows-v2.0.4-*")) -split "`r?`n" |
-    Where-Object { $_ -match '^windows-v2\.0\.4-(dev\.\d+|rc\.\d+)$' })
-  if ($headTags.Count -ne 1) {
-    throw "HEAD must have exactly one V2.0.4 development or release-candidate tag. Found: $($headTags -join ', ')"
-  }
-  $Tag = $headTags[0]
-}
-$archiveDir = Join-Path $archiveRoot "$stamp-$Tag"
-
 if (-not (Test-Path -LiteralPath (Join-Path $root ".git"))) {
   throw "The V2.0.4 source root is not a Git repository."
 }
@@ -47,10 +36,44 @@ if (-not [string]::IsNullOrWhiteSpace($status)) {
   throw "Milestone archive requires a clean working tree:`n$status"
 }
 
-$tagCommit = Invoke-Git @("rev-list", "-n", "1", $Tag)
+$branch = Invoke-Git @("branch", "--show-current")
+if ($branch -ne "codex/windows-v2.0.4-development") {
+  throw "Milestone archives must be created from codex/windows-v2.0.4-development. Found: $branch"
+}
+
 $head = Invoke-Git @("rev-parse", "HEAD")
-if ($tagCommit -ne $head) {
-  throw "$Tag points to $tagCommit, but HEAD is $head. Archive the exact verified commit."
+$createTag = $false
+if ([string]::IsNullOrWhiteSpace($Tag)) {
+  $headTags = @((Invoke-Git @("tag", "--points-at", "HEAD", "--list", "windows-v2.0.4-*")) -split "`r?`n" |
+    Where-Object { $_ -match '^windows-v2\.0\.4-(dev\.\d+|rc\.\d+)$' })
+  if ($headTags.Count -gt 1) {
+    throw "HEAD has multiple V2.0.4 milestone tags: $($headTags -join ', ')"
+  }
+  if ($headTags.Count -eq 1) {
+    $Tag = $headTags[0]
+  } else {
+    $devNumbers = @((Invoke-Git @("tag", "--list", "windows-v2.0.4-dev.*")) -split "`r?`n" |
+      ForEach-Object {
+        if ($_ -match '^windows-v2\.0\.4-dev\.(\d+)$') { [int]$Matches[1] }
+      })
+    $nextDevNumber = if ($devNumbers.Count -eq 0) { 0 } else { [int](($devNumbers | Measure-Object -Maximum).Maximum) + 1 }
+    $Tag = "windows-v2.0.4-dev.$nextDevNumber"
+    $createTag = $true
+  }
+} else {
+  try {
+    $tagCommit = Invoke-Git @("rev-list", "-n", "1", $Tag)
+  } catch {
+    $tagCommit = ""
+    $createTag = $true
+  }
+}
+
+if (-not $createTag) {
+  $tagCommit = Invoke-Git @("rev-list", "-n", "1", $Tag)
+  if ($tagCommit -ne $head) {
+    throw "$Tag points to $tagCommit, but HEAD is $head. Archive the exact verified commit."
+  }
 }
 
 $checkScript = Join-Path $root "scripts\dev-check.ps1"
@@ -59,6 +82,17 @@ if ($LASTEXITCODE -ne 0) {
   throw "Milestone checks failed. No archive was created."
 }
 
+$checkedHead = Invoke-Git @("rev-parse", "HEAD")
+if ($checkedHead -ne $head) {
+  throw "HEAD changed during Milestone checks. Expected $head, found $checkedHead."
+}
+if ($createTag) {
+  Invoke-Git @("tag", "-a", $Tag, "-m", "Windows V2.0.4 verified development milestone", $head) | Out-Null
+  Write-Output "Created local milestone tag: $Tag"
+}
+
+$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$archiveDir = Join-Path $archiveRoot "$stamp-$Tag"
 if (Test-Path -LiteralPath $archiveDir) {
   throw "Archive directory already exists: $archiveDir"
 }
@@ -77,7 +111,7 @@ $manifest = [ordered]@{
   product = "Windows desktop V2.0.4"
   tag = $Tag
   commit = $head
-  branch = (Invoke-Git @("branch", "--show-current"))
+  branch = $branch
   baseline = "windows-v2.0.3-release"
   originPolicy = "origin retained for read-only reference; pushes require explicit authorization"
   files = @(

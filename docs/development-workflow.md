@@ -53,6 +53,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\dev-check.ps1 -Level Mileston
 - 版本、提交、分支和检查结果清单；
 - 中文恢复说明。
 
-开发标签使用 `windows-v2.0.4-dev.0`、`windows-v2.0.4-dev.1` 或 `windows-v2.0.4-rc.1`。正式标签 `windows-v2.0.4-release` 只有在用户明确授权后才能创建。
+双击里程碑归档入口时，如果当前干净主开发线还没有里程碑标签，工具会在 Milestone 全部通过后自动创建下一个本地 `windows-v2.0.4-dev.N` 标签，不需要手动执行 Git 命令。已有当前标签时会安全复用；`windows-v2.0.4-rc.N` 需要显式指定。正式标签 `windows-v2.0.4-release` 只有在用户明确授权后才能创建，归档工具不会自动创建。
 
 归档恢复时新建恢复目录或恢复分支，不覆盖当前正在使用的开发目录。
