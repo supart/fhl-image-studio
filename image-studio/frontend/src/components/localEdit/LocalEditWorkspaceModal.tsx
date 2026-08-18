@@ -214,13 +214,17 @@ export function LocalEditWorkspaceModal() {
           <section className="lew-stage-column">
             <div className="lew-stage-toolbar"><span>{isPanorama ? "360 源图" : "原图裁切"}</span><strong>{draft.sourceWidth} × {draft.sourceHeight}</strong></div>
             <div ref={stageRef} className={`lew-stage${isPanorama ? " is-pano" : ""}`} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerCancel={handlePointerUp}>
-              {sourceSrc ? <img src={sourceSrc} alt="局部编辑原图" draggable={false} /> : <div className="lew-empty">正在加载原图…</div>}
-              {!isPanorama && draft.phase === "crop" ? (
-                <div className="lew-crop-box" style={{ left: `${crop.x / draft.sourceWidth * 100}%`, top: `${crop.y / draft.sourceHeight * 100}%`, width: `${crop.width / draft.sourceWidth * 100}%`, height: `${crop.height / draft.sourceHeight * 100}%` }} onPointerDown={(event) => handlePointerDown(event, "move")}>
-                  <span className="lew-crop-label">{crop.width} × {crop.height}</span>
-                  {(["nw", "ne", "sw", "se"] as const).map((handle) => <button key={handle} type="button" className={`lew-handle ${handle}`} aria-label={`调整${handle}角`} onPointerDown={(event) => handlePointerDown(event, handle)} />)}
+              {sourceSrc ? (
+                <div className="lew-image-frame" style={{ aspectRatio: `${draft.sourceWidth} / ${draft.sourceHeight}` }}>
+                  <img src={sourceSrc} alt="局部编辑原图" draggable={false} />
+                  {!isPanorama && draft.phase === "crop" ? (
+                    <div className="lew-crop-box" style={{ left: `${crop.x / draft.sourceWidth * 100}%`, top: `${crop.y / draft.sourceHeight * 100}%`, width: `${crop.width / draft.sourceWidth * 100}%`, height: `${crop.height / draft.sourceHeight * 100}%` }} onPointerDown={(event) => handlePointerDown(event, "move")}>
+                      <span className="lew-crop-label">{crop.width} × {crop.height}</span>
+                      {(["nw", "ne", "sw", "se"] as const).map((handle) => <button key={handle} type="button" className={`lew-handle ${handle}`} aria-label={`调整${handle}角`} onPointerDown={(event) => handlePointerDown(event, handle)} />)}
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
+              ) : <div className="lew-empty">正在加载原图…</div>}
               {isPanorama ? <div className="lew-pano-note">全景模式保留现有 360 球面查看、镜头和贴回流程。</div> : null}
             </div>
             <div className="lew-stage-footer"><span>拖动裁切框定位，四角调整大小</span><span className="lew-status-dot">离线工作流</span></div>
