@@ -28,7 +28,7 @@ test("Windows UI exposes local edit and keeps panorama entry points", async () =
   assert.match(aligner, /repasteLocalEditRoundtrip/);
   assert.match(aligner, /importExternalLocalPastebackImage/);
   assert.match(aligner, /手动对齐贴回原图/);
-  assert.match(menus, /局部裁切编辑/);
+  assert.match(menus, /裁切局部重绘/);
   assert.match(menus, /手动对齐贴回全景图/);
   assert.match(modal, /输出管理/);
   assert.match(modal, /镜头参数/);
@@ -47,7 +47,10 @@ test("local edit store actions create a child crop and terminal pasteback result
   assert.match(store, /kind: "planar"/);
   assert.match(store, /repasteLocalEditRoundtrip: async/);
   assert.match(store, /autoPasteLocalEditRoundtripResult/);
+  assert.match(store, /function normalizePlanarPastebackRoundtrip/);
+  assert.match(store, /cropX: normalizedRoundtrip\.cropRect\.x/);
   assert.match(store, /prompt: `\(局部贴回\)/);
+  assert.match(store, /裁切局部重绘失败/);
   assert.match(store, /importExternalLocalPastebackImage: async/);
   assert.match(store, /commitLocalEditWorkbenchCrop: async[\s\S]{0,9000}localEditWorkbenchDraft: null/);
   assert.doesNotMatch(store, /promptPrefix: state\.promptPrefix/);

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 const localEdit = await import("../src/localEdit/core.ts");
+const panorama = await import("../src/panorama/core.ts");
 
 function solid(width, height, rgba) {
   const data = new Uint8ClampedArray(width * height * 4);
@@ -103,4 +104,18 @@ test("planar size guard blocks oversized sources", () => {
     () => localEdit.validateLocalEditSourceDimensions(10_001, 10_000),
     /超过裁切局部重绘上限/,
   );
+});
+
+test("planar feathering follows the panorama smoothstep contract", () => {
+  const source = solid(8, 8, [0, 0, 0, 255]);
+  const edited = solid(2, 2, [255, 255, 255, 255]);
+  const output = localEdit.composePlanarRoundtripPixels(
+    source,
+    edited,
+    { ...roundtrip, sourceWidth: 8, sourceHeight: 8, cropRect: { x: 2, y: 2, width: 4, height: 4 } },
+    { offsetXRatio: 0, offsetYRatio: 0, scale: 1, rotationDeg: 0, featherFraction: 0.25 },
+  );
+  const expectedEdge = panorama.panoramaRoundtripFeatherMaskAt(0.125, 0.625, 0.25);
+  const edgePixel = output.data[(4 * 8 + 2) * 4] / 255;
+  assert.ok(Math.abs(edgePixel - expectedEdge) < 0.02, `planar edge ${edgePixel} should follow panorama ${expectedEdge}`);
 });

@@ -81,7 +81,7 @@ export function buildSharedHistoryMenu(
     onClick: actions.onOpenPanorama,
   });
   items.push({
-    label: "局部裁切编辑",
+    label: "裁切局部重绘",
     onClick: actions.onStartLocalEdit,
   });
   if (hasPanoramaRoundtripRef(item)) {

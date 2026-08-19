@@ -1,4 +1,8 @@
 import type { LocalEditPlanarRoundtripRef, PanoramaPastebackAlignment } from "../types/domain";
+import {
+  panoramaPastebackMaskAlphaAt,
+  panoramaRoundtripFeatherMaskAt,
+} from "../panorama/core.ts";
 
 export type LocalPastebackMaskInput = {
   image: CanvasImageSource;
@@ -179,9 +183,8 @@ export function composePlanarRoundtripPixels(
       const mapped = mapPlanarPastebackSample(x + 0.5, y + 0.5, crop, edited.width, edited.height, roundtrip.editWidth, roundtrip.editHeight, alignment);
       if (!mapped.inside) continue;
       const rgba = sample(edited, mapped.x, mapped.y);
-      const maskAlpha = mask ? sample(mask, mapped.u * (mask.width - 1), mapped.v * (mask.height - 1))[3] / 255 : 1;
-      const edge = Math.min(mapped.u, 1 - mapped.u, mapped.v, 1 - mapped.v);
-      const featherAlpha = feather <= 0 ? 1 : clamp(edge / feather, 0, 1);
+      const maskAlpha = mask ? panoramaPastebackMaskAlphaAt(mask, mapped.u, mapped.v) : 1;
+      const featherAlpha = panoramaRoundtripFeatherMaskAt(mapped.u, mapped.v, feather);
       const alpha = (rgba[3] / 255) * maskAlpha * featherAlpha;
       if (alpha <= 1e-6) continue;
       const [r, g, b] = colorAdjust(rgba, alignment);

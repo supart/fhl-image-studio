@@ -7,10 +7,17 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"image/draw"
+	"image/png"
 	"math"
 	"os"
 	"path/filepath"
+)
+
+const (
+	maxPastebackSourcePixels uint64 = 100_000_000
+	maxPastebackEditedPixels uint64 = 64_000_000
+	maxPastebackDimension           = 16_384
+	maxPastebackWorkingBytes uint64 = 768 * 1024 * 1024
 )
 
 // PasteLocalEdit composites an edited crop onto the original source image.
@@ -39,6 +46,28 @@ func (s *Service) PasteLocalEdit(sourcePath, editedPath string, options PlanarPa
 	}
 	defer releaseMedia()
 
+	sourceConfig, err := imageConfig(allowedSource)
+	if err != nil {
+		return ImageTransformResult{}, err
+	}
+	editedConfig, err := imageConfig(allowedEdited)
+	if err != nil {
+		return ImageTransformResult{}, err
+	}
+	if err := validatePastebackConfigs(sourceConfig, editedConfig, options); err != nil {
+		return ImageTransformResult{}, err
+	}
+
+	maskBytes, maskConfig, err := inspectPastebackMask(options.MaskB64)
+	if err != nil {
+		return ImageTransformResult{}, err
+	}
+	if estimated, ok := estimatePastebackWorkingBytes(sourceConfig, editedConfig, maskConfig); !ok {
+		return ImageTransformResult{}, errors.New("贴回所需工作内存估算溢出，请缩小裁切区域后重试")
+	} else if estimated > maxPastebackWorkingBytes {
+		return ImageTransformResult{}, fmt.Errorf("贴回所需工作内存过大（估算 %s，上限 %s），请缩小裁切区域后重试", formatBytes(estimated), formatBytes(maxPastebackWorkingBytes))
+	}
+
 	source, err := loadImage(allowedSource)
 	if err != nil {
 		return ImageTransformResult{}, err
@@ -47,32 +76,19 @@ func (s *Service) PasteLocalEdit(sourcePath, editedPath string, options PlanarPa
 	if err != nil {
 		return ImageTransformResult{}, err
 	}
-	sourceBounds := source.Bounds()
-	editedBounds := edited.Bounds()
-	if sourceBounds.Dx() <= 0 || sourceBounds.Dy() <= 0 || editedBounds.Dx() <= 0 || editedBounds.Dy() <= 0 {
-		return ImageTransformResult{}, errors.New("pasteback image dimensions are invalid")
-	}
-	if sourceBounds.Dx() > 16_384 || sourceBounds.Dy() > 16_384 || int64(sourceBounds.Dx())*int64(sourceBounds.Dy()) > 100_000_000 {
-		return ImageTransformResult{}, fmt.Errorf("原图尺寸 %dx%d 超过桌面贴回上限", sourceBounds.Dx(), sourceBounds.Dy())
-	}
-	if editedBounds.Dx() > 16_384 || editedBounds.Dy() > 16_384 || int64(editedBounds.Dx())*int64(editedBounds.Dy()) > 64_000_000 {
-		return ImageTransformResult{}, fmt.Errorf("编辑图尺寸 %dx%d 超过局部贴回上限", editedBounds.Dx(), editedBounds.Dy())
-	}
 
-	mask, err := decodePastebackMask(options.MaskB64)
+	mask, err := decodePastebackMaskBytes(maskBytes)
 	if err != nil {
 		return ImageTransformResult{}, err
 	}
-	output := image.NewRGBA(image.Rect(0, 0, sourceBounds.Dx(), sourceBounds.Dy()))
-	draw.Draw(output, output.Bounds(), source, sourceBounds.Min, draw.Src)
-	composePlanarImage(output, edited, mask, options)
 	out, err := prepareTransformOutput(allowedSource, "local-pasteback")
 	if err != nil {
 		return ImageTransformResult{}, err
 	}
 	out.Path = filepath.Join(filepath.Dir(out.Path), filepath.Base(out.Path[:len(out.Path)-len(filepath.Ext(out.Path))]+".png"))
 	out.Format = "png"
-	result, err := saveTransform(output, out, "desktop-disk")
+	composite := newPlanarCompositeImage(source, edited, mask, options)
+	result, err := savePlanarTransform(composite, out, "desktop-disk")
 	if err != nil {
 		_ = os.Remove(out.Path)
 		return ImageTransformResult{}, err
@@ -80,22 +96,149 @@ func (s *Service) PasteLocalEdit(sourcePath, editedPath string, options PlanarPa
 	return result, nil
 }
 
+func validatePastebackConfigs(source, edited image.Config, options PlanarPastebackOptions) error {
+	if source.Width <= 0 || source.Height <= 0 || edited.Width <= 0 || edited.Height <= 0 {
+		return errors.New("pasteback image dimensions are invalid")
+	}
+	if options.CropWidth <= 0 || options.CropHeight <= 0 {
+		return errors.New("pasteback crop rect must have positive size")
+	}
+	if uint64(source.Width) > maxPastebackDimension || uint64(source.Height) > maxPastebackDimension ||
+		uint64(source.Width)*uint64(source.Height) > maxPastebackSourcePixels {
+		return fmt.Errorf("原图尺寸 %dx%d 超过桌面贴回上限", source.Width, source.Height)
+	}
+	if uint64(edited.Width) > maxPastebackDimension || uint64(edited.Height) > maxPastebackDimension ||
+		uint64(edited.Width)*uint64(edited.Height) > maxPastebackEditedPixels {
+		return fmt.Errorf("编辑图尺寸 %dx%d 超过局部贴回上限", edited.Width, edited.Height)
+	}
+	if options.CropX < 0 || options.CropY < 0 ||
+		uint64(options.CropX)+uint64(options.CropWidth) > uint64(source.Width) ||
+		uint64(options.CropY)+uint64(options.CropHeight) > uint64(source.Height) {
+		return fmt.Errorf("贴回裁切范围超出原图边界 (%d×%d)", source.Width, source.Height)
+	}
+	return nil
+}
+
 func decodePastebackMask(raw string) (image.Image, error) {
+	data, _, err := inspectPastebackMask(raw)
+	if err != nil {
+		return nil, err
+	}
+	return decodePastebackMaskBytes(data)
+}
+
+func inspectPastebackMask(raw string) ([]byte, image.Config, error) {
 	if raw == "" {
-		return nil, nil
+		return nil, image.Config{}, nil
 	}
 	data, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil {
-		return nil, fmt.Errorf("蒙版数据无效: %w", err)
+		return nil, image.Config{}, fmt.Errorf("蒙版数据无效: %w", err)
 	}
 	if len(data) > 50*1024*1024 {
-		return nil, errors.New("蒙版数据过大，请缩小贴回区域后重试")
+		return nil, image.Config{}, errors.New("蒙版数据过大，请缩小贴回区域后重试")
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, image.Config{}, fmt.Errorf("蒙版数据无法读取: %w", err)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width > maxPastebackDimension || cfg.Height > maxPastebackDimension ||
+		uint64(cfg.Width)*uint64(cfg.Height) > maxPastebackEditedPixels {
+		return nil, image.Config{}, fmt.Errorf("蒙版尺寸 %dx%d 超过局部贴回上限", cfg.Width, cfg.Height)
+	}
+	return data, cfg, nil
+}
+
+func decodePastebackMaskBytes(data []byte) (image.Image, error) {
+	if len(data) == 0 {
+		return nil, nil
 	}
 	decoded, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("蒙版数据无法读取: %w", err)
 	}
 	return decoded, nil
+}
+
+func estimatePastebackWorkingBytes(source, edited, mask image.Config) (uint64, bool) {
+	const overhead = uint64(32 * 1024 * 1024)
+	parts := []struct {
+		width, height uint64
+		bytesPerPixel uint64
+	}{
+		{uint64(source.Width), uint64(source.Height), 6},
+		{uint64(edited.Width), uint64(edited.Height), 6},
+		{uint64(mask.Width), uint64(mask.Height), 4},
+	}
+	total := overhead
+	for _, part := range parts {
+		if part.width == 0 || part.height == 0 {
+			continue
+		}
+		pixels, overflow := checkedUint64Multiply(part.width, part.height)
+		if overflow {
+			return 0, false
+		}
+		bytes, overflow := checkedUint64Multiply(pixels, part.bytesPerPixel)
+		if overflow || total > ^uint64(0)-bytes {
+			return 0, false
+		}
+		total += bytes
+	}
+	return total, true
+}
+
+func checkedUint64Multiply(a, b uint64) (uint64, bool) {
+	if a != 0 && b > ^uint64(0)/a {
+		return 0, true
+	}
+	return a * b, false
+}
+
+func formatBytes(value uint64) string {
+	if value >= 1024*1024*1024 {
+		return fmt.Sprintf("%.1fGiB", float64(value)/(1024*1024*1024))
+	}
+	return fmt.Sprintf("%.0fMiB", float64(value)/(1024*1024))
+}
+
+type planarCompositeImage struct {
+	source  image.Image
+	edited  image.Image
+	mask    image.Image
+	options PlanarPastebackOptions
+	bounds  image.Rectangle
+}
+
+func newPlanarCompositeImage(source, edited, mask image.Image, options PlanarPastebackOptions) image.Image {
+	bounds := source.Bounds()
+	return &planarCompositeImage{source: source, edited: edited, mask: mask, options: options, bounds: image.Rect(0, 0, bounds.Dx(), bounds.Dy())}
+}
+
+func (p *planarCompositeImage) ColorModel() color.Model { return color.RGBAModel }
+
+func (p *planarCompositeImage) Bounds() image.Rectangle { return p.bounds }
+
+func (p *planarCompositeImage) At(x, y int) color.Color {
+	if !image.Pt(x, y).In(p.bounds) {
+		return color.RGBA{}
+	}
+	sourceBounds := p.source.Bounds()
+	r, g, b, a := p.source.At(sourceBounds.Min.X+x, sourceBounds.Min.Y+y).RGBA()
+	base := color.RGBA{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), uint8(a >> 8)}
+	return compositePlanarPixel(base, p.edited, p.mask, x, y, p.options)
+}
+
+func savePlanarTransform(img image.Image, out transformOutput, acceleration string) (ImageTransformResult, error) {
+	f, err := os.OpenFile(out.Path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, secureFileMode)
+	if err != nil {
+		return ImageTransformResult{}, err
+	}
+	defer f.Close()
+	if err := png.Encode(f, img); err != nil {
+		return ImageTransformResult{}, err
+	}
+	return ImageTransformResult{Path: out.Path, Acceleration: acceleration}, nil
 }
 
 func composePlanarImage(output *image.RGBA, edited image.Image, mask image.Image, options PlanarPastebackOptions) {
@@ -107,43 +250,65 @@ func composePlanarImage(output *image.RGBA, edited image.Image, mask image.Image
 	}
 	centerX := float64(options.CropX) + width*(0.5+finiteOrZero(options.OffsetXRatio))
 	centerY := float64(options.CropY) + height*(0.5+finiteOrZero(options.OffsetYRatio))
-	angle := -finiteOrZero(options.RotationDeg) * math.Pi / 180
-	cosine, sine := math.Cos(angle), math.Sin(angle)
 	overlayWidth, overlayHeight := width*scale, height*scale
 	radius := math.Hypot(overlayWidth, overlayHeight)*0.5 + 2
 	minX := maxInt(0, int(math.Floor(centerX-radius)))
 	maxX := minInt(output.Bounds().Dx(), int(math.Ceil(centerX+radius)))
 	minY := maxInt(0, int(math.Floor(centerY-radius)))
 	maxY := minInt(output.Bounds().Dy(), int(math.Ceil(centerY+radius)))
-	feather := clampFloat(options.FeatherFraction, 0, 0.5)
 	for y := minY; y < maxY; y++ {
 		for x := minX; x < maxX; x++ {
-			dx, dy := float64(x)+0.5-centerX, float64(y)+0.5-centerY
-			rx, ry := dx*cosine-dy*sine, dx*sine+dy*cosine
-			u := rx/(width*scale) + 0.5
-			v := ry/(height*scale) + 0.5
-			if u < 0 || u > 1 || v < 0 || v > 1 {
+			base := output.RGBAAt(x, y)
+			result := compositePlanarPixel(base, edited, mask, x, y, options)
+			if result == base {
 				continue
 			}
-			r, g, b, a := sampleImageRGBA(edited, u, v)
-			alpha := float64(a) / 255
-			if mask != nil {
-				alpha *= maskAlphaAt(mask, u, v, options.MaskFeatherPx)
-			}
-			edge := math.Min(math.Min(u, 1-u), math.Min(v, 1-v))
-			if feather > 0 {
-				alpha *= clampFloat(edge/feather, 0, 1)
-			}
-			if alpha <= 0.000001 {
-				continue
-			}
-			r, g, b = adjustPastebackColor(r, g, b, options)
 			index := output.PixOffset(x, y)
-			output.Pix[index] = uint8(float64(r)*alpha + float64(output.Pix[index])*(1-alpha))
-			output.Pix[index+1] = uint8(float64(g)*alpha + float64(output.Pix[index+1])*(1-alpha))
-			output.Pix[index+2] = uint8(float64(b)*alpha + float64(output.Pix[index+2])*(1-alpha))
-			output.Pix[index+3] = 255
+			output.Pix[index] = result.R
+			output.Pix[index+1] = result.G
+			output.Pix[index+2] = result.B
+			output.Pix[index+3] = result.A
 		}
+	}
+}
+
+func compositePlanarPixel(base color.RGBA, edited image.Image, mask image.Image, x, y int, options PlanarPastebackOptions) color.RGBA {
+	width := float64(maxInt(1, options.CropWidth))
+	height := float64(maxInt(1, options.CropHeight))
+	scale := options.Scale
+	if !isFinite(scale) || scale < 0.05 {
+		scale = 1
+	}
+	centerX := float64(options.CropX) + width*(0.5+finiteOrZero(options.OffsetXRatio))
+	centerY := float64(options.CropY) + height*(0.5+finiteOrZero(options.OffsetYRatio))
+	angle := -finiteOrZero(options.RotationDeg) * math.Pi / 180
+	cosine, sine := math.Cos(angle), math.Sin(angle)
+	dx, dy := float64(x)+0.5-centerX, float64(y)+0.5-centerY
+	rx, ry := dx*cosine-dy*sine, dx*sine+dy*cosine
+	u := rx/(width*scale) + 0.5
+	v := ry/(height*scale) + 0.5
+	if u < 0 || u > 1 || v < 0 || v > 1 {
+		return base
+	}
+	r, g, b, a := sampleImageRGBA(edited, u, v)
+	alpha := float64(a) / 255
+	if mask != nil {
+		alpha *= maskAlphaAt(mask, u, v, options.MaskFeatherPx)
+	}
+	feather := clampFloat(options.FeatherFraction, 0, 0.5)
+	edge := math.Min(math.Min(u, 1-u), math.Min(v, 1-v))
+	if feather > 0 {
+		alpha *= smoothstep(clampFloat(edge/feather, 0, 1))
+	}
+	if alpha <= 0.000001 {
+		return base
+	}
+	r, g, b = adjustPastebackColor(r, g, b, options)
+	return color.RGBA{
+		R: uint8(float64(r)*alpha + float64(base.R)*(1-alpha)),
+		G: uint8(float64(g)*alpha + float64(base.G)*(1-alpha)),
+		B: uint8(float64(b)*alpha + float64(base.B)*(1-alpha)),
+		A: 255,
 	}
 }
 
@@ -162,7 +327,12 @@ func maskAlphaAt(mask image.Image, u, v, featherPx float64) float64 {
 		total += float64(alpha) / 255
 		count++
 	}
-	return total / count
+	return smoothstep(clampFloat(total/count, 0, 1))
+}
+
+func smoothstep(value float64) float64 {
+	value = clampFloat(value, 0, 1)
+	return value * value * (3 - 2*value)
 }
 
 func sampleImageRGBA(source image.Image, u, v float64) (uint8, uint8, uint8, uint8) {
