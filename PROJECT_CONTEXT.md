@@ -2,7 +2,7 @@
 
 ## 2026-08-19 批次 29：FHL 浏览器相机 JPEG 规范化（已完成）
 
-- 当前分支：`codex/windows-v2.0.4-feature/fhl-upload-browser-proxy-failed-params`；本批代码提交使用 `fix(fhl-upload): normalize browser camera JPEGs`，未设置 upstream、未推送 GitHub。
+- 当前分支：`codex/windows-v2.0.4-feature/fhl-upload-browser-proxy-failed-params`；本批代码提交为 `54e5cfc fix(fhl-upload): normalize browser camera JPEGs`，未设置 upstream、未推送 GitHub。
 - 根因已复核：失败相机原图为 `5168×3448`、约 `9.08MB`、含约 `44KB` EXIF；同图规范化为 `1600×1067`、无 EXIF JPEG 后，FHL Images 图生图成功。此前 `7999/8000/8192/8193px` 合成尺寸测试均成功，问题不是单一 8K 边界。
 - 浏览器 FHL Images/Responses 编辑上传现在在 CLI 前按长边 `1600px`、文件 `6MiB`、透明通道三项预检；命中任一条件就生成白底、质量 `88`、无元数据 JPEG 临时副本，原图和历史不变。
 - Codex 浏览器真实验收已用原始相机 JPEG 完成单任务 FHL Images 生图，结果成功并显示 `1536×1024`；任务结束后临时副本清理，控制台 warning/error 为 `0`。
