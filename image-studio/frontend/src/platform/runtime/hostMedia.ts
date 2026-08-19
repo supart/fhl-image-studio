@@ -30,6 +30,8 @@ import type {
   MaterialOutputSyncItemLike,
   MaterialOutputSyncResultLike,
   MediaAssetRefLike,
+  PlanarPastebackOptionsLike,
+  PhotoMetadataLike,
 } from "./hostTypes.ts";
 
 export type LocalInputImageLike = ImportedImageLike & { name?: string };
@@ -273,10 +275,17 @@ export function CropImage(path: string, x: number, y: number, width: number, hei
   if (isVirtualPath(path)) {
     return cropVirtualImage(path, x, y, width, height).then((result) => ({ path: result.path, acceleration: result.acceleration || "cpu-canvas" }));
   }
-  if (supportsDesktopNativeGPUTransforms()) {
+  if (hasServiceMethod("CropImage")) {
     return invokeService<ImageTransformResultLike>(unsupportedMessage, "CropImage", path, x, y, width, height);
   }
   return runPersistedVirtualTransform(path, (virtualPath) => cropVirtualImage(virtualPath, x, y, width, height));
+}
+
+export function PasteLocalEdit(sourcePath: string, editedPath: string, options: PlanarPastebackOptionsLike): Promise<ImageTransformResultLike> {
+  if (hasServiceMethod("PasteLocalEdit")) {
+    return invokeService<ImageTransformResultLike>(unsupportedMessage, "PasteLocalEdit", sourcePath, editedPath, options);
+  }
+  return Promise.reject(new Error(unsupportedMessage("PasteLocalEdit")));
 }
 
 export function ReadImageAsBase64(path: string): Promise<string> {
@@ -293,4 +302,12 @@ export function ReadImageAsBase64(path: string): Promise<string> {
     return invokeAndroid<string>(unsupportedMessage, "ReadImageAsBase64", path);
   }
   return invokeService<string>(unsupportedMessage, "ReadImageAsBase64", path);
+}
+
+export function ReadImageMetadata(path: string): Promise<PhotoMetadataLike> {
+  if (isVirtualPath(path)) return Promise.resolve({});
+  if (hasServiceMethod("ReadImageMetadata")) {
+    return invokeService<PhotoMetadataLike>(unsupportedMessage, "ReadImageMetadata", path);
+  }
+  return Promise.resolve({});
 }

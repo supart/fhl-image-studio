@@ -58,18 +58,22 @@ func (s *Service) importImageFile(path string) (ImportedImage, error) {
 	if info.IsDir() {
 		return ImportedImage{}, fmt.Errorf("path is a directory: %s", path)
 	}
-	if info.Size() > client.MaxInputImageBytes {
-		return ImportedImage{}, fmt.Errorf("图片超过 50MB,请换一张更小的图片")
+	if info.Size() > maxLocalImageBytes {
+		return ImportedImage{}, fmt.Errorf("本地图片超过 200MB,请换一张更小的图片")
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ImportedImage{}, err
 	}
-	return s.importImageBytes(data, filepath.Base(path))
+	return s.importImageBytesWithLimit(data, filepath.Base(path), maxLocalImageBytes)
 }
 
 func (s *Service) importImageBytes(data []byte, suggestedName string) (ImportedImage, error) {
-	validated, err := validateImageBytes(data)
+	return s.importImageBytesWithLimit(data, suggestedName, client.MaxInputImageBytes)
+}
+
+func (s *Service) importImageBytesWithLimit(data []byte, suggestedName string, maxBytes int64) (ImportedImage, error) {
+	validated, err := validateImageBytesWithLimit(data, maxBytes)
 	if err != nil {
 		return ImportedImage{}, err
 	}
@@ -88,7 +92,12 @@ func (s *Service) importImageBytes(data []byte, suggestedName string) (ImportedI
 	if err := os.WriteFile(full, validated.Bytes, secureFileMode); err != nil {
 		return ImportedImage{}, fmt.Errorf("write import file: %w", err)
 	}
-	return ImportedImage{Path: full, Width: validated.Config.Width, Height: validated.Config.Height}, nil
+	return ImportedImage{
+		Path:          full,
+		Width:         validated.Config.Width,
+		Height:        validated.Config.Height,
+		PhotoMetadata: parsePhotoMetadata(validated.Bytes, validated.Config.Width, validated.Config.Height),
+	}, nil
 }
 
 // sanitiseName produces a filename-safe stem from a user-supplied filename.

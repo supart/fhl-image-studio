@@ -13,6 +13,7 @@ import type {
   LocalEditWorkbenchDraft,
   OutputFormatValue,
   ProgressInfo,
+  PhotoMetadata,
   QualityValue,
   ReversePromptImage,
   SizeValue,
@@ -397,6 +398,26 @@ function normalizeProgressInfo(value: unknown): ProgressInfo | null {
   };
 }
 
+function normalizePhotoMetadata(value: unknown): PhotoMetadata | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Partial<PhotoMetadata>;
+  const metadata: PhotoMetadata = {
+    cameraMake: typeof raw.cameraMake === "string" && raw.cameraMake.trim() ? raw.cameraMake.trim() : undefined,
+    cameraModel: typeof raw.cameraModel === "string" && raw.cameraModel.trim() ? raw.cameraModel.trim() : undefined,
+    lensModel: typeof raw.lensModel === "string" && raw.lensModel.trim() ? raw.lensModel.trim() : undefined,
+    capturedAt: typeof raw.capturedAt === "string" && raw.capturedAt.trim() ? raw.capturedAt.trim() : undefined,
+    iso: typeof raw.iso === "string" && raw.iso.trim() ? raw.iso.trim() : undefined,
+    shutterSpeed: typeof raw.shutterSpeed === "string" && raw.shutterSpeed.trim() ? raw.shutterSpeed.trim() : undefined,
+    aperture: typeof raw.aperture === "string" && raw.aperture.trim() ? raw.aperture.trim() : undefined,
+    focalLength: typeof raw.focalLength === "string" && raw.focalLength.trim() ? raw.focalLength.trim() : undefined,
+    orientation: typeof raw.orientation === "string" && raw.orientation.trim() ? raw.orientation.trim() : undefined,
+    software: typeof raw.software === "string" && raw.software.trim() ? raw.software.trim() : undefined,
+    width: Number.isFinite(Number(raw.width)) && Number(raw.width) > 0 ? Math.floor(Number(raw.width)) : undefined,
+    height: Number.isFinite(Number(raw.height)) && Number(raw.height) > 0 ? Math.floor(Number(raw.height)) : undefined,
+  };
+  return Object.values(metadata).some((item) => item !== undefined) ? metadata : undefined;
+}
+
 function normalizeSourceImage(value: unknown): SourceImage | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Partial<SourceImage>;
@@ -413,6 +434,7 @@ function normalizeSourceImage(value: unknown): SourceImage | null {
     width: Number.isFinite(Number(raw.width)) ? Math.floor(Number(raw.width)) : undefined,
     height: Number.isFinite(Number(raw.height)) ? Math.floor(Number(raw.height)) : undefined,
     previewUrl: sanitizeStoredPreviewUrl(raw.previewUrl),
+    photoMetadata: normalizePhotoMetadata(raw.photoMetadata),
     imageBlob: null,
     panoramaRoundtrip: raw.panoramaRoundtrip,
     panoramaProject: raw.panoramaProject,
@@ -520,9 +542,10 @@ function toPersistedWorkspace(workspace: Workspace): Workspace {
         path: source.path,
         name: source.name,
         size: source.size,
-        width: source.width,
+          width: source.width,
           height: source.height,
           previewUrl: sanitizeStoredPreviewUrl(source.previewUrl),
+          photoMetadata: source.photoMetadata,
           imageBlob: null,
           panoramaRoundtrip: source.panoramaRoundtrip,
           panoramaProject: source.panoramaProject,

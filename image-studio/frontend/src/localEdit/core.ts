@@ -8,6 +8,7 @@ export type LocalPastebackMaskInput = {
 export type RGBAImage = { width: number; height: number; data: Uint8ClampedArray };
 
 export const LOCAL_EDIT_MAX_PIXELS = 64_000_000;
+export const LOCAL_EDIT_MAX_SOURCE_PIXELS = 100_000_000;
 export const LOCAL_EDIT_MAX_DIMENSION = 16_384;
 export const LOCAL_EDIT_MAX_WORKING_BYTES = 768 * 1024 * 1024;
 
@@ -91,7 +92,19 @@ export function validateLocalEditDimensions(width: number, height: number) {
     throw new Error("无法读取图片尺寸");
   }
   if (w > LOCAL_EDIT_MAX_DIMENSION || h > LOCAL_EDIT_MAX_DIMENSION || w * h > LOCAL_EDIT_MAX_PIXELS) {
-    throw new Error(`图片尺寸 ${w}x${h} 超过局部编辑上限（单边 ${LOCAL_EDIT_MAX_DIMENSION}px，${LOCAL_EDIT_MAX_PIXELS / 1_000_000}MP）`);
+    throw new Error(`图片尺寸 ${w}x${h} 超过裁切局部重绘上限（单边 ${LOCAL_EDIT_MAX_DIMENSION}px，${LOCAL_EDIT_MAX_PIXELS / 1_000_000}MP）`);
+  }
+  return { width: w, height: h };
+}
+
+export function validateLocalEditSourceDimensions(width: number, height: number) {
+  const w = Math.floor(Number(width));
+  const h = Math.floor(Number(height));
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w < 1 || h < 1) {
+    throw new Error("无法读取图片尺寸");
+  }
+  if (w > LOCAL_EDIT_MAX_DIMENSION || h > LOCAL_EDIT_MAX_DIMENSION || w * h > LOCAL_EDIT_MAX_SOURCE_PIXELS) {
+    throw new Error(`原图尺寸 ${w}x${h} 超过裁切局部重绘上限（单边 ${LOCAL_EDIT_MAX_DIMENSION}px，${LOCAL_EDIT_MAX_SOURCE_PIXELS / 1_000_000}MP）`);
   }
   return { width: w, height: h };
 }
@@ -144,7 +157,7 @@ export function composePlanarRoundtripPixels(
   validateLocalEditDimensions(source.width, source.height);
   validateLocalEditDimensions(edited.width, edited.height);
   const estimatedBytes = (source.width * source.height + edited.width * edited.height) * 4 * 2;
-  if (estimatedBytes > LOCAL_EDIT_MAX_WORKING_BYTES) throw new Error("局部编辑需要的内存超过当前上限，请缩小选择区域后重试");
+  if (estimatedBytes > LOCAL_EDIT_MAX_WORKING_BYTES) throw new Error("裁切局部重绘需要的内存超过当前上限，请缩小选择区域后重试");
   const output = new Uint8ClampedArray(source.data);
   const crop = roundtrip.cropRect;
   const normalized = alignment ?? { offsetXRatio: 0, offsetYRatio: 0, scale: 1 };

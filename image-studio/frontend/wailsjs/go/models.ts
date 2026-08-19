@@ -1,5 +1,44 @@
 export namespace backend {
 
+	export class PlanarPastebackOptions {
+	    cropX: number;
+	    cropY: number;
+	    cropWidth: number;
+	    cropHeight: number;
+	    offsetXRatio?: number;
+	    offsetYRatio?: number;
+	    scale?: number;
+	    rotationDeg?: number;
+	    featherFraction?: number;
+	    brightness?: number;
+	    contrast?: number;
+	    hueRotationDeg?: number;
+	    maskB64?: string;
+	    maskFeatherPx?: number;
+
+	    static createFrom(source: any = {}) {
+	        return new PlanarPastebackOptions(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.cropX = source["cropX"];
+	        this.cropY = source["cropY"];
+	        this.cropWidth = source["cropWidth"];
+	        this.cropHeight = source["cropHeight"];
+	        this.offsetXRatio = source["offsetXRatio"];
+	        this.offsetYRatio = source["offsetYRatio"];
+	        this.scale = source["scale"];
+	        this.rotationDeg = source["rotationDeg"];
+	        this.featherFraction = source["featherFraction"];
+	        this.brightness = source["brightness"];
+	        this.contrast = source["contrast"];
+	        this.hueRotationDeg = source["hueRotationDeg"];
+	        this.maskB64 = source["maskB64"];
+	        this.maskFeatherPx = source["maskFeatherPx"];
+	    }
+	}
+
 	export class AutomationStatus {
 	    enabled: boolean;
 	    mode?: string;
@@ -209,6 +248,40 @@ export namespace backend {
 	        this.acceleration = source["acceleration"];
 	    }
 	}
+	export class PhotoMetadata {
+	    cameraMake?: string;
+	    cameraModel?: string;
+	    lensModel?: string;
+	    capturedAt?: string;
+	    iso?: string;
+	    shutterSpeed?: string;
+	    aperture?: string;
+	    focalLength?: string;
+	    orientation?: string;
+	    software?: string;
+	    width?: number;
+	    height?: number;
+
+	    static createFrom(source: any = {}) {
+	        return new PhotoMetadata(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.cameraMake = source["cameraMake"];
+	        this.cameraModel = source["cameraModel"];
+	        this.lensModel = source["lensModel"];
+	        this.capturedAt = source["capturedAt"];
+	        this.iso = source["iso"];
+	        this.shutterSpeed = source["shutterSpeed"];
+	        this.aperture = source["aperture"];
+	        this.focalLength = source["focalLength"];
+	        this.orientation = source["orientation"];
+	        this.software = source["software"];
+	        this.width = source["width"];
+	        this.height = source["height"];
+	    }
+	}
 	export class ImportedImage {
 	    path: string;
 	    imageB64?: string;
@@ -218,6 +291,7 @@ export namespace backend {
 	    height?: number;
 	    previewWidth?: number;
 	    previewHeight?: number;
+	    photoMetadata?: PhotoMetadata;
 
 	    static createFrom(source: any = {}) {
 	        return new ImportedImage(source);
@@ -233,6 +307,7 @@ export namespace backend {
 	        this.height = source["height"];
 	        this.previewWidth = source["previewWidth"];
 	        this.previewHeight = source["previewHeight"];
+        this.photoMetadata = source["photoMetadata"] ? new PhotoMetadata(source["photoMetadata"]) : undefined;
 	    }
 	}
 	export class JobStarted {
@@ -696,6 +771,7 @@ export namespace backend {
 	    height?: number;
 	    previewWidth?: number;
 	    previewHeight?: number;
+	    photoMetadata?: PhotoMetadata;
 
 	    static createFrom(source: any = {}) {
 	        return new SelectFileResponse(source);
@@ -713,6 +789,7 @@ export namespace backend {
 	        this.height = source["height"];
 	        this.previewWidth = source["previewWidth"];
 	        this.previewHeight = source["previewHeight"];
+        this.photoMetadata = source["photoMetadata"] ? new PhotoMetadata(source["photoMetadata"]) : undefined;
 	    }
 	}
 	export class SelectFilesResponse {
@@ -747,4 +824,3 @@ export namespace backend {
 	}
 
 }
-

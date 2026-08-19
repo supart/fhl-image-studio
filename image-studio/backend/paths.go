@@ -22,6 +22,7 @@ const (
 	appConfigDirName   = "fhl-studio"
 	appDocumentDirName = "FHL Studio"
 	maxImagePixels     = 100_000_000
+	maxLocalImageBytes = 200 * 1024 * 1024
 )
 
 // imagesSubdir / logSubdir 把根目录拆为「生成的 PNG」和「原始响应/排错日志」两个子文件夹。
@@ -36,10 +37,17 @@ type validatedImageData struct {
 }
 
 func validateImageBytes(data []byte) (validatedImageData, error) {
+	return validateImageBytesWithLimit(data, client.MaxInputImageBytes)
+}
+
+func validateImageBytesWithLimit(data []byte, maxBytes int64) (validatedImageData, error) {
 	if len(data) == 0 {
 		return validatedImageData{}, fmt.Errorf("image data is empty")
 	}
-	if len(data) > client.MaxInputImageBytes {
+	if int64(len(data)) > maxBytes {
+		if maxBytes > client.MaxInputImageBytes {
+			return validatedImageData{}, fmt.Errorf("本地图片超过 200MB,请换一张更小的图片")
+		}
 		return validatedImageData{}, fmt.Errorf("图片超过 50MB,请换一张更小的图片")
 	}
 	config, format, err := image.DecodeConfig(bytes.NewReader(data))

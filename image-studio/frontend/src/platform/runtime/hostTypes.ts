@@ -85,8 +85,39 @@ export type ImportedImageLike = {
   height?: number;
   previewWidth?: number;
   previewHeight?: number;
+  photoMetadata?: PhotoMetadataLike;
+};
+export type PhotoMetadataLike = {
+  cameraMake?: string;
+  cameraModel?: string;
+  lensModel?: string;
+  capturedAt?: string;
+  iso?: string;
+  shutterSpeed?: string;
+  aperture?: string;
+  focalLength?: string;
+  orientation?: string;
+  software?: string;
+  width?: number;
+  height?: number;
 };
 export type ImageTransformResultLike = { path: string; acceleration?: string };
+export type PlanarPastebackOptionsLike = {
+  cropX: number;
+  cropY: number;
+  cropWidth: number;
+  cropHeight: number;
+  offsetXRatio?: number;
+  offsetYRatio?: number;
+  scale?: number;
+  rotationDeg?: number;
+  featherFraction?: number;
+  brightness?: number;
+  contrast?: number;
+  hueRotationDeg?: number;
+  maskB64?: string;
+  maskFeatherPx?: number;
+};
 export type SelectFileResponseLike = {
   path: string;
   name?: string;
@@ -98,6 +129,7 @@ export type SelectFileResponseLike = {
   height?: number;
   previewWidth?: number;
   previewHeight?: number;
+  photoMetadata?: PhotoMetadataLike;
 };
 export type BatchInputImageLike = {
   path: string;

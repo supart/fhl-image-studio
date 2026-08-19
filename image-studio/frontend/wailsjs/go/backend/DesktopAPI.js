@@ -118,6 +118,10 @@ export function OpenOutputDir() {
   return window['go']['backend']['DesktopAPI']['OpenOutputDir']();
 }
 
+export function PasteLocalEdit(arg1, arg2, arg3) {
+  return window['go']['backend']['DesktopAPI']['PasteLocalEdit'](arg1, arg2, arg3);
+}
+
 export function OptimizePrompt(arg1) {
   return window['go']['backend']['DesktopAPI']['OptimizePrompt'](arg1);
 }
@@ -128,6 +132,10 @@ export function ProbeUpstream(arg1) {
 
 export function ReadImageAsBase64(arg1) {
   return window['go']['backend']['DesktopAPI']['ReadImageAsBase64'](arg1);
+}
+
+export function ReadImageMetadata(arg1) {
+  return window['go']['backend']['DesktopAPI']['ReadImageMetadata'](arg1);
 }
 
 export function ReadTextFile(arg1) {

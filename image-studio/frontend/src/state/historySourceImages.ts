@@ -14,6 +14,7 @@ function cloneSourceImage(source: SourceImage, keepBlob: boolean): SourceImage |
     width: Number.isFinite(source.width) ? source.width : undefined,
     height: Number.isFinite(source.height) ? source.height : undefined,
     previewUrl: source.previewUrl || undefined,
+    photoMetadata: source.photoMetadata,
     imageB64,
     imageBlob: keepBlob ? source.imageBlob ?? null : null,
     panoramaRoundtrip: source.panoramaRoundtrip,

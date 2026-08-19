@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { historyFullSrc } from "../../lib/images";
-import { ReadImageAsBase64 } from "../../platform/runtime/host";
+import { CropImage, ReadImageAsBase64 } from "../../platform/runtime/host";
 import {
   exportPanoramaCutoutBase64,
   panoramaShotFromRoundtripState,
@@ -230,23 +230,36 @@ export function PanoramaPastebackAlignModal() {
         const sourceItem = roundtrip.sourceHistoryId
           ? history.find((item) => item.id === roundtrip.sourceHistoryId) ?? null
           : null;
-        const sourceLoaded = await loadHistoryImage(
-          sourceItem ?? ({
-            id: "local-edit-source",
-            prompt: target.prompt,
-            mode: "edit",
-            size: `${roundtrip.sourceWidth}x${roundtrip.sourceHeight}`,
-            quality: target.quality,
-            createdAt: target.createdAt,
-            savedPath: roundtrip.sourcePath,
-          } as HistoryItem),
-          roundtrip.sourcePath,
-        );
-        const original = exportPlanarCutoutBase64(sourceLoaded.image, roundtrip);
+        const planarSource = sourceItem ?? ({
+          id: "local-edit-source",
+          prompt: target.prompt,
+          mode: "edit",
+          size: `${roundtrip.sourceWidth}x${roundtrip.sourceHeight}`,
+          quality: target.quality,
+          createdAt: target.createdAt,
+          savedPath: roundtrip.sourcePath,
+        } as HistoryItem);
+        const sourcePixels = Number(roundtrip.sourceWidth || 0) * Number(roundtrip.sourceHeight || 0);
+        const largeSourcePath = roundtrip.sourcePath;
+        const sourceLoaded = sourcePixels > 64_000_000 && largeSourcePath
+          ? await (async () => {
+              const cropped = await CropImage(
+                largeSourcePath,
+                Math.round(roundtrip.cropRect.x),
+                Math.round(roundtrip.cropRect.y),
+                Math.round(roundtrip.cropRect.width),
+                Math.round(roundtrip.cropRect.height),
+              );
+              return loadHistoryImage({ ...planarSource, savedPath: cropped.path }, cropped.path);
+            })()
+          : await loadHistoryImage(planarSource, roundtrip.sourcePath);
+        const original = sourcePixels > 64_000_000
+          ? { imageB64: "", src: sourceLoaded.src, width: roundtrip.cropRect.width, height: roundtrip.cropRect.height }
+          : { ...exportPlanarCutoutBase64(sourceLoaded.image, roundtrip), src: "" };
         const edited = await loadHistoryImage(target);
         if (cancelled) return;
         setPreview({
-          originalSrc: tempDataURLFromB64(original.imageB64),
+          originalSrc: original.src || tempDataURLFromB64(original.imageB64),
           editedSrc: edited.src,
           rectWidth: original.width,
           rectHeight: original.height,

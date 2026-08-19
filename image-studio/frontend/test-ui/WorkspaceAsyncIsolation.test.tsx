@@ -21,7 +21,7 @@ vi.mock("../src/platform/runtime/host", async (importOriginal) => ({
 
 import { useStudioStore } from "../src/state/studioStore.ts";
 import { createDefaultWorkspace } from "../src/state/workspaceDefaults.ts";
-import type { UpstreamProfile, Workspace } from "../src/types/domain.ts";
+import type { SourceImage, UpstreamProfile, Workspace } from "../src/types/domain.ts";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -45,13 +45,14 @@ const profile: UpstreamProfile = {
   createdAt: 1,
 };
 
-function workspace(id: string, prompt: string): Workspace {
+function workspace(id: string, prompt: string, sources: SourceImage[] = []): Workspace {
   return {
     ...createDefaultWorkspace(id, "png", id, {
       activeProfileId: profile.id,
       fhlTransportMode: "responses",
     }),
     prompt,
+    sources,
     reversePromptImage: {
       path: `I:/input/${id}.png`,
       name: `${id}.png`,
@@ -199,6 +200,35 @@ describe("workspace async isolation", () => {
     expect(state.workspaces.map((item) => item.id)).toEqual(["workspace-b"]);
     expect(state.sources).toEqual([]);
     expect(hostMocks.registerImportedImageAsset).not.toHaveBeenCalled();
+  });
+
+  it("bases a delayed import on the live active source list after a deletion", async () => {
+    const first = { path: "I:/input/first.png", name: "first.png", size: 1, width: 12000, height: 8000 };
+    const second = { path: "I:/input/second.png", name: "second.png", size: 1, width: 12000, height: 8000 };
+    const thirdImport = deferred<any>();
+    const sourceWorkspace = workspace("workspace-a", "prompt-a", [first, second]);
+    useStudioStore.setState({
+      workspaces: [sourceWorkspace, useStudioStore.getState().workspaces[1]],
+      sources: [first, second],
+    });
+    hostMocks.importImageFromB64.mockReturnValueOnce(thirdImport.promise);
+    hostMocks.registerImportedImageAsset.mockResolvedValueOnce(null);
+
+    const importing = useStudioStore.getState().importSourceImageFile(
+      new File([new Uint8Array([1, 2, 3])], "third.png", { type: "image/png" }),
+    );
+    await vi.waitFor(() => expect(hostMocks.importImageFromB64).toHaveBeenCalledTimes(1));
+    useStudioStore.getState().removeSource(0);
+    thirdImport.resolve({ path: "I:/managed/third.png", imageB64: "AQID", width: 2400, height: 1600 });
+    await importing;
+
+    const state = useStudioStore.getState();
+    expect(state.sources.map((source) => source.path)).toEqual([
+      "I:/input/second.png",
+      "I:/managed/third.png",
+    ]);
+    expect(state.workspaces.find((item) => item.id === "workspace-a")?.sources.map((source) => source.path))
+      .toEqual(["I:/input/second.png", "I:/managed/third.png"]);
   });
 
   it("does not let delayed history materialization replace another workspace canvas", async () => {

@@ -1,5 +1,16 @@
 # FHL Studio Windows V2.0.4 开发交接
 
+## 2026-08-19 批次 30：参考图删除状态同步与照片属性（开发中）
+
+- 当前分支：`codex/windows-v2.0.4-feature/reference-slot-workspace-sync`；工作区仍有本批未提交代码，未设置 upstream、未推送 GitHub。
+- 已修复删除/清空/排序只更新顶层 `sources` 导致旧工作区快照复活的问题；添加图片和延迟导入改为读取目标工作区实时列表。
+- 已新增 JPEG EXIF 照片属性读取和参考图右键入口；缺失字段不会渲染空行。局部编辑入口文案统一为“裁切局部重绘”。
+- 已增加 `100MP / 16,384px` 源图门禁和 Windows `PasteLocalEdit` 磁盘端贴回；超过 `64MP` 的大图不进入浏览器整图 Canvas，裁切区域仍按自然像素贴回完整尺寸 PNG，并保留对齐、羽化、颜色和手绘蒙版参数。
+- 本地受管相机文件导入上限为 `200MB`，FHL/API 请求体仍保持 `50MB` 上限，不会因为本地放宽而绕过上传保护。
+- 自动化已通过：TypeScript、Node `648/648`、UI `111/111`、Lint `0 errors / 58 warnings`、Go test/vet、Fast 和 Batch。
+- 下一步用真实 Sony/哈苏原图做一次不调用生图 API 的桌面端裁切与贴回耗时/文件大小验收；不要因机器内存不足放宽 100MP 或 16,384px 门禁。
+- 详细记录：[docs/changes/2026-08-19-windows-v2.0.4-reference-slot-workspace-sync.md](docs/changes/2026-08-19-windows-v2.0.4-reference-slot-workspace-sync.md)。
+
 ## 2026-08-19 批次 29：FHL 浏览器相机 JPEG 规范化（已完成）
 
 - 当前分支：`codex/windows-v2.0.4-feature/fhl-upload-browser-proxy-failed-params`；本批代码提交为 `54e5cfc fix(fhl-upload): normalize browser camera JPEGs`，未设置 upstream、未推送 GitHub。

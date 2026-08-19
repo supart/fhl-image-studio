@@ -78,6 +78,10 @@ func (api *DesktopAPI) CropImage(path string, x, y, width, height int) (ImageTra
 	return api.service.CropImage(path, x, y, width, height)
 }
 
+func (api *DesktopAPI) PasteLocalEdit(sourcePath, editedPath string, options PlanarPastebackOptions) (ImageTransformResult, error) {
+	return api.service.PasteLocalEdit(sourcePath, editedPath, options)
+}
+
 func (api *DesktopAPI) DeleteStoredAPIKey(user string) error {
 	return api.service.DeleteStoredAPIKey(user)
 }
@@ -190,6 +194,10 @@ func (api *DesktopAPI) ProbeUpstream(opts ProbeUpstreamOptions) (ProbeUpstreamRe
 
 func (api *DesktopAPI) ReadImageAsBase64(path string) (string, error) {
 	return api.service.ReadImageAsBase64(path)
+}
+
+func (api *DesktopAPI) ReadImageMetadata(path string) (PhotoMetadata, error) {
+	return api.service.ReadImageMetadata(path)
 }
 
 func (api *DesktopAPI) ReadTextFile(path string) (string, error) {

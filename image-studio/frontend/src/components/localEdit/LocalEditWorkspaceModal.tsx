@@ -290,12 +290,12 @@ export function LocalEditWorkspaceModal() {
   };
 
   return (
-    <div className="lew-overlay" role="dialog" aria-modal="true" aria-label="局部编辑工作台">
+    <div className="lew-overlay" role="dialog" aria-modal="true" aria-label="裁切局部重绘工作台">
       <div className="lew-shell">
         <header className="lew-header">
           <div>
             <p className="lew-eyebrow">FHL STUDIO · LOCAL EDIT</p>
-            <h2>局部编辑工作台</h2>
+            <h2>裁切局部重绘工作台</h2>
             <span>{isPanorama ? "360 编辑入口" : "镜头选区"}</span>
           </div>
           <div className="lew-mode-switch" role="tablist" aria-label="编辑模式">
@@ -319,7 +319,7 @@ export function LocalEditWorkspaceModal() {
                     aspectRatio: `${draft.sourceWidth} / ${draft.sourceHeight}`,
                   }}
                 >
-                  <img src={sourceSrc} alt="局部编辑原图" draggable={false} />
+                  <img src={sourceSrc} alt="裁切局部重绘原图" draggable={false} />
                   {!isPanorama && isCropPhase ? (
                     <div className="lew-crop-box" style={{ left: `${crop.x / draft.sourceWidth * 100}%`, top: `${crop.y / draft.sourceHeight * 100}%`, width: `${crop.width / draft.sourceWidth * 100}%`, height: `${crop.height / draft.sourceHeight * 100}%` }} onPointerDown={(event) => handlePointerDown(event, "move")}>
                       <span className="lew-crop-label">{outputSize}</span>
@@ -347,7 +347,7 @@ export function LocalEditWorkspaceModal() {
                   <section className="lew-section">
                     <div className="lew-section-title"><span>镜头参数</span><span className="lew-muted">{draft.aspect}</span></div>
                     <div className="lew-aspect-control">
-                      <div className="lew-aspect-select" role="group" aria-label="局部编辑比例">
+                      <div className="lew-aspect-select" role="group" aria-label="裁切局部重绘比例">
                         {ASPECTS.map((item) => <button key={item.value} type="button" className={draft.aspect === item.value ? "active" : ""} onClick={() => chooseAspect(item.value)}>{item.label}</button>)}
                       </div>
                       <button type="button" className="lew-rotate-aspect" aria-label="横竖切换" title="横竖切换" disabled={!canRotateAspect(draft.aspect)} onClick={toggleAspectOrientation}><RotateCw size={16} /></button>

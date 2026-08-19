@@ -2,6 +2,25 @@ package backend
 
 import "strings"
 
+// PlanarPastebackOptions describes the physical crop bounds and optional
+// alignment adjustments used by the desktop disk-backed pasteback path.
+type PlanarPastebackOptions struct {
+	CropX           int     `json:"cropX"`
+	CropY           int     `json:"cropY"`
+	CropWidth       int     `json:"cropWidth"`
+	CropHeight      int     `json:"cropHeight"`
+	OffsetXRatio    float64 `json:"offsetXRatio,omitempty"`
+	OffsetYRatio    float64 `json:"offsetYRatio,omitempty"`
+	Scale           float64 `json:"scale,omitempty"`
+	RotationDeg     float64 `json:"rotationDeg,omitempty"`
+	FeatherFraction float64 `json:"featherFraction,omitempty"`
+	Brightness      float64 `json:"brightness,omitempty"`
+	Contrast        float64 `json:"contrast,omitempty"`
+	HueRotationDeg  float64 `json:"hueRotationDeg,omitempty"`
+	MaskB64         string  `json:"maskB64,omitempty"`
+	MaskFeatherPx   float64 `json:"maskFeatherPx,omitempty"`
+}
+
 // --- UI-facing types -------------------------------------------------------
 
 // GenerateOptions is the request shape sent by the frontend.
@@ -178,16 +197,34 @@ type ErrorPayload struct {
 // managed previewUrl; ImageB64 remains only as a legacy/browser fallback when
 // preview generation is unavailable. Files over 50MB omit both preview forms.
 type SelectFileResponse struct {
-	Path          string `json:"path"`
-	Name          string `json:"name,omitempty"`
-	Size          int64  `json:"size"`
-	ImageB64      string `json:"imageB64,omitempty"`
-	ImageID       string `json:"imageId,omitempty"`
-	PreviewURL    string `json:"previewUrl,omitempty"`
-	Width         int    `json:"width,omitempty"`
-	Height        int    `json:"height,omitempty"`
-	PreviewWidth  int    `json:"previewWidth,omitempty"`
-	PreviewHeight int    `json:"previewHeight,omitempty"`
+	Path          string         `json:"path"`
+	Name          string         `json:"name,omitempty"`
+	Size          int64          `json:"size"`
+	ImageB64      string         `json:"imageB64,omitempty"`
+	ImageID       string         `json:"imageId,omitempty"`
+	PreviewURL    string         `json:"previewUrl,omitempty"`
+	Width         int            `json:"width,omitempty"`
+	Height        int            `json:"height,omitempty"`
+	PreviewWidth  int            `json:"previewWidth,omitempty"`
+	PreviewHeight int            `json:"previewHeight,omitempty"`
+	PhotoMetadata *PhotoMetadata `json:"photoMetadata,omitempty"`
+}
+
+// PhotoMetadata contains camera fields that are present in the source file.
+// Empty fields are omitted so the UI can hide unsupported or absent tags.
+type PhotoMetadata struct {
+	CameraMake   string `json:"cameraMake,omitempty"`
+	CameraModel  string `json:"cameraModel,omitempty"`
+	LensModel    string `json:"lensModel,omitempty"`
+	CapturedAt   string `json:"capturedAt,omitempty"`
+	ISO          string `json:"iso,omitempty"`
+	ShutterSpeed string `json:"shutterSpeed,omitempty"`
+	Aperture     string `json:"aperture,omitempty"`
+	FocalLength  string `json:"focalLength,omitempty"`
+	Orientation  string `json:"orientation,omitempty"`
+	Software     string `json:"software,omitempty"`
+	Width        int    `json:"width,omitempty"`
+	Height       int    `json:"height,omitempty"`
 }
 
 type BatchInputImage struct {
@@ -212,14 +249,15 @@ type SelectFilesResponse struct {
 
 // ImportedImage describes a freshly imported (drag-dropped or pasted) image.
 type ImportedImage struct {
-	Path          string `json:"path"`
-	ImageB64      string `json:"imageB64,omitempty"`
-	ImageID       string `json:"imageId,omitempty"`
-	PreviewURL    string `json:"previewUrl,omitempty"`
-	Width         int    `json:"width,omitempty"`
-	Height        int    `json:"height,omitempty"`
-	PreviewWidth  int    `json:"previewWidth,omitempty"`
-	PreviewHeight int    `json:"previewHeight,omitempty"`
+	Path          string         `json:"path"`
+	ImageB64      string         `json:"imageB64,omitempty"`
+	ImageID       string         `json:"imageId,omitempty"`
+	PreviewURL    string         `json:"previewUrl,omitempty"`
+	Width         int            `json:"width,omitempty"`
+	Height        int            `json:"height,omitempty"`
+	PreviewWidth  int            `json:"previewWidth,omitempty"`
+	PreviewHeight int            `json:"previewHeight,omitempty"`
+	PhotoMetadata *PhotoMetadata `json:"photoMetadata,omitempty"`
 }
 
 type MediaAssetRef struct {

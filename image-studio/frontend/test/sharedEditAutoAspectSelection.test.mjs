@@ -44,9 +44,10 @@ test("batch source changes resync the shared auto-aspect preview size", () => {
   assert.match(storeSource, /stateBefore\.mode === "edit" && stateBefore\.editSourceMode === "batch"[\s\S]*?syncSharedEditAutoAspect\(\{ getState: get, setState: set \}\)/);
   assert.match(storeSource, /restoredActiveWorkspace\.mode === "edit"[\s\S]*?syncSharedEditAutoAspect\(\{ getState: get, setState: set \}\)/);
   assert.match(storeSource, /editAutoAspectUserLocked: restoredActiveWorkspace\.editAutoAspectUserLocked === true,/);
-  assert.match(imageActionsSource, /async selectBatchInputDir\(\)[\s\S]*?void syncSharedEditAutoAspect\(store\);/s);
-  assert.match(imageActionsSource, /async selectBatchInputFiles\(\)[\s\S]*?void syncSharedEditAutoAspect\(store\);/s);
-  assert.match(imageActionsSource, /async refreshBatchInputDir\(\)[\s\S]*?void syncSharedEditAutoAspect\(store\);/s);
+  const sourceAspectSync = "(?:, \\{ workspaceId \\})?";
+  assert.match(imageActionsSource, new RegExp(`async selectBatchInputDir\\(\\)[\\s\\S]*?void syncSharedEditAutoAspect\\(store${sourceAspectSync}\\);`));
+  assert.match(imageActionsSource, new RegExp(`async selectBatchInputFiles\\(\\)[\\s\\S]*?void syncSharedEditAutoAspect\\(store${sourceAspectSync}\\);`));
+  assert.match(imageActionsSource, new RegExp(`async refreshBatchInputDir\\(\\)[\\s\\S]*?void syncSharedEditAutoAspect\\(store${sourceAspectSync}\\);`));
 });
 
 test("submit respects the edit auto-aspect lock and only stores auto-aspect retries when auto mode is active", () => {

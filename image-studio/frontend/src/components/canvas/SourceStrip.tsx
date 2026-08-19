@@ -8,8 +8,8 @@ import { dataURLFromBase64, useBlobURL } from "../../lib/images";
 import { materializeCompareSourceAsHistoryItem } from "../../state/compareSourceSelection";
 import { sourceToDataURL } from "../../lib/virtualHostStore";
 import { usePlatform } from "../../platform/context";
-import { ImportImagePath, ReadImageAsBase64, RegisterImportedImageAsset } from "../../platform/runtime/host";
-import type { BatchProcessConfig, BatchProcessSourceImage, HistoryItem, SourceImage } from "../../types/domain";
+import { ImportImagePath, ReadImageAsBase64, ReadImageMetadata, RegisterImportedImageAsset } from "../../platform/runtime/host";
+import type { BatchProcessConfig, BatchProcessSourceImage, HistoryItem, PhotoMetadata, SourceImage } from "../../types/domain";
 import {
   calculateWindowsSourceTileWidth,
   clipboardImageReadMessage,
@@ -27,6 +27,11 @@ type SourceContextMenuState = {
 
 type ManualPasteState = {
   replaceSourcePath?: string;
+};
+
+type PhotoMetadataDialogState = {
+  source: SourceImage;
+  metadata: PhotoMetadata;
 };
 
 function clampBatchQueueSlotIndex(value: unknown, fixedSourceCount: number): number {
@@ -73,6 +78,7 @@ export function SourceStrip() {
   const [batchQueueOpen, setBatchQueueOpen] = useState(false);
   const [sourceContextMenu, setSourceContextMenu] = useState<SourceContextMenuState | null>(null);
   const [manualPaste, setManualPaste] = useState<ManualPasteState | null>(null);
+  const [photoMetadataDialog, setPhotoMetadataDialog] = useState<PhotoMetadataDialogState | null>(null);
   const batchQueueTriggerRef = useRef<HTMLDivElement | null>(null);
   const manualPasteInputRef = useRef<HTMLTextAreaElement | null>(null);
   const manualPasteFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -185,6 +191,26 @@ export function SourceStrip() {
       pushToast("参考图原文件无法读取，请重新导入", "warn", 3200);
     } else {
       pushToast("复制图像失败，请检查剪贴板权限", "error", 3200);
+    }
+  };
+
+  const openPhotoMetadata = async (sourcePath: string) => {
+    setSourceContextMenu(null);
+    const source = useStudioStore.getState().sources.find((item) => item.path === sourcePath);
+    if (!source) {
+      pushToast("目标参考图已变化，无法读取照片属性", "warn", 2800);
+      return;
+    }
+    try {
+      const metadata = await ReadImageMetadata(source.path);
+      const merged = { ...(source.photoMetadata ?? {}), ...(metadata ?? {}) };
+      if (!Object.values(merged).some((value) => value !== undefined && value !== null && String(value).trim() !== "")) {
+        pushToast("没有读取到可用的照片属性", "info", 2800);
+        return;
+      }
+      setPhotoMetadataDialog({ source, metadata: merged });
+    } catch (error: any) {
+      pushToast(`读取照片属性失败: ${error?.message ?? error}`, "warn", 3200);
     }
   };
 
@@ -392,6 +418,10 @@ export function SourceStrip() {
                   onClick: () => void pasteSourceImage(sourceContextMenu.sourcePath),
                 },
                 {
+                  label: "查看照片属性",
+                  onClick: () => void openPhotoMetadata(sourceContextMenu.sourcePath!),
+                },
+                {
                   label: "删除参考图",
                   danger: true,
                   separatorBefore: true,
@@ -447,7 +477,44 @@ export function SourceStrip() {
           </div>
         </Modal>
       ) : null}
+      {photoMetadataDialog ? (
+        <Modal
+          open
+          onClose={() => setPhotoMetadataDialog(null)}
+          title={`照片属性 · ${photoMetadataDialog.source.name}`}
+          width={520}
+        >
+          <PhotoMetadataPanel metadata={photoMetadataDialog.metadata} />
+        </Modal>
+      ) : null}
     </div>
+  );
+}
+
+function PhotoMetadataPanel({ metadata }: { metadata: PhotoMetadata }) {
+  const rows: Array<[string, string | number | undefined]> = [
+    ["相机厂商", metadata.cameraMake],
+    ["相机型号", metadata.cameraModel],
+    ["镜头型号", metadata.lensModel],
+    ["拍摄时间", metadata.capturedAt],
+    ["ISO", metadata.iso],
+    ["快门", metadata.shutterSpeed],
+    ["光圈", metadata.aperture],
+    ["焦距", metadata.focalLength],
+    ["方向", metadata.orientation],
+    ["软件", metadata.software],
+    ["原始像素", metadata.width && metadata.height ? `${metadata.width} × ${metadata.height}` : undefined],
+  ];
+  const visibleRows = rows.filter(([, value]) => value !== undefined && String(value).trim() !== "");
+  return (
+    <dl className="grid grid-cols-[112px_minmax(0,1fr)] gap-x-4 gap-y-2 text-[13px]">
+      {visibleRows.map(([label, value]) => (
+        <Fragment key={label}>
+          <dt className="text-zinc-500 dark:text-zinc-400">{label}</dt>
+          <dd className="m-0 break-words text-zinc-800 dark:text-zinc-100">{value}</dd>
+        </Fragment>
+      ))}
+    </dl>
   );
 }
 

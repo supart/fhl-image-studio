@@ -94,6 +94,29 @@ function editSourceModeAfterReferenceUpdate(current: StudioState["editSourceMode
   return current === "batch" ? "batch" : "manual";
 }
 
+function currentWorkspaceSources(state: StudioState, workspaceId: string): SourceImage[] | null {
+  const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
+  if (!workspace) return null;
+  return state.activeWorkspaceId === workspaceId ? state.sources : workspace.sources;
+}
+
+function currentWorkspaceEditSourceMode(
+  state: StudioState,
+  workspaceId: string,
+): StudioState["editSourceMode"] | null {
+  const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
+  if (!workspace) return null;
+  return state.activeWorkspaceId === workspaceId ? state.editSourceMode : workspace.editSourceMode;
+}
+
+function positiveDimension(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    const dimension = Number(value);
+    if (Number.isFinite(dimension) && dimension > 0) return dimension;
+  }
+  return undefined;
+}
+
 export function createImageActions(store: StateAdapter) {
   async function materializeForShare(item: HistoryItem): Promise<HistoryItem> {
     return await ensureFullHistoryItem(item, {
@@ -165,10 +188,10 @@ export function createImageActions(store: StateAdapter) {
         if (!res || !res.path || !actionIsCurrent(store, token)) return;
         const baseName = res.name || res.path.split(/[\\/]/).pop() || res.path;
         const currentState = store.getState();
-        const workspace = currentState.workspaces.find((entry) => entry.id === workspaceId);
-        if (!workspace) return;
-        const existing = workspace.sources;
-        const editSourceMode = editSourceModeAfterReferenceUpdate(workspace.editSourceMode);
+        const existing = currentWorkspaceSources(currentState, workspaceId);
+        const currentEditSourceMode = currentWorkspaceEditSourceMode(currentState, workspaceId);
+        if (!existing || !currentEditSourceMode) return;
+        const editSourceMode = editSourceModeAfterReferenceUpdate(currentEditSourceMode);
         if (existing.some((source) => source.path === res.path)) {
           store.setState((state) => scopedWorkspacePatch(state, workspaceId, {
             mode: "edit", editSourceMode, errorMessage: null, errorRawPath: null,
@@ -179,11 +202,12 @@ export function createImageActions(store: StateAdapter) {
             path: res.path,
             name: baseName,
             size: res.size,
-            width: Number.isFinite(Number(res.previewWidth)) ? Number(res.previewWidth) : undefined,
-            height: Number.isFinite(Number(res.previewHeight)) ? Number(res.previewHeight) : undefined,
+            width: positiveDimension(res.width, res.previewWidth),
+            height: positiveDimension(res.height, res.previewHeight),
             imageB64: res.imageB64 || undefined,
             imageBlob: res.imageB64 ? base64ToBlob(res.imageB64) : null,
             previewUrl: res.previewUrl,
+            photoMetadata: res.photoMetadata,
           }];
         store.setState((state) => scopedWorkspacePatch(state, workspaceId, {
           sources, mode: "edit", editSourceMode, errorMessage: null, errorRawPath: null,
@@ -330,9 +354,9 @@ export function createImageActions(store: StateAdapter) {
           return;
         }
         const replaceSourcePath = String(options?.replaceSourcePath || "").trim();
-        const initialWorkspace = store.getState().workspaces.find((entry) => entry.id === workspaceId);
-        if (!initialWorkspace) return;
-        if (replaceSourcePath && !initialWorkspace.sources.some((source) => source.path === replaceSourcePath)) {
+        const initialSources = currentWorkspaceSources(store.getState(), workspaceId);
+        if (!initialSources) return;
+        if (replaceSourcePath && !initialSources.some((source) => source.path === replaceSourcePath)) {
           store.getState().pushToast("目标参考图已变化，未执行替换", "warn", 2800);
           return;
         }
@@ -349,16 +373,18 @@ export function createImageActions(store: StateAdapter) {
           path: result.path,
           name: file.name,
           size: file.size,
-          width: Number.isFinite(Number(result.previewWidth)) ? Number(result.previewWidth) : undefined,
-          height: Number.isFinite(Number(result.previewHeight)) ? Number(result.previewHeight) : undefined,
+          width: positiveDimension(result.width, ref?.width, result.previewWidth, ref?.previewWidth),
+          height: positiveDimension(result.height, ref?.height, result.previewHeight, ref?.previewHeight),
           imageB64: legacyB64 || undefined,
           imageBlob: legacyB64 ? base64ToBlob(legacyB64) : null,
           previewUrl,
+          photoMetadata: result.photoMetadata,
         };
-        const workspace = currentState.workspaces.find((entry) => entry.id === workspaceId);
-        if (!workspace) return;
-        const update = applySourceImageImport(workspace.sources, imported, replaceSourcePath || undefined);
-        const editSourceMode = editSourceModeAfterReferenceUpdate(workspace.editSourceMode);
+        const existing = currentWorkspaceSources(currentState, workspaceId);
+        const currentEditSourceMode = currentWorkspaceEditSourceMode(currentState, workspaceId);
+        if (!existing || !currentEditSourceMode) return;
+        const update = applySourceImageImport(existing, imported, replaceSourcePath || undefined);
+        const editSourceMode = editSourceModeAfterReferenceUpdate(currentEditSourceMode);
         store.setState((state) => scopedWorkspacePatch(state, workspaceId, {
           sources: update.sources,
           mode: "edit",
@@ -476,36 +502,54 @@ export function createImageActions(store: StateAdapter) {
 
     removeSource(index: number) {
       const currentState = store.getState();
+      const workspaceId = currentState.activeWorkspaceId;
       const next = currentState.sources.filter((_, i) => i !== index);
-      store.setState({
+      const editSourceMode = editSourceModeAfterReferenceUpdate(currentState.editSourceMode);
+      store.setState((state) => scopedWorkspacePatch(state, workspaceId, {
         sources: next,
         mode: "edit",
-        editSourceMode: editSourceModeAfterReferenceUpdate(currentState.editSourceMode),
-      });
+        editSourceMode,
+      }, {
+        sources: next,
+        mode: "edit",
+        editSourceMode,
+      }));
       if (next.length === 0) {
-        setSharedEditAutoAspectLock(store, false);
+        setSharedEditAutoAspectLock(store, false, workspaceId);
       } else {
-        void syncSharedEditAutoAspect(store);
+        void syncSharedEditAutoAspect(store, { workspaceId });
       }
     },
 
     clearSources() {
       const currentState = store.getState();
-      store.setState({
+      const workspaceId = currentState.activeWorkspaceId;
+      const editSourceMode = editSourceModeAfterReferenceUpdate(currentState.editSourceMode);
+      store.setState((state) => scopedWorkspacePatch(state, workspaceId, {
         sources: [],
         mode: "edit",
-        editSourceMode: editSourceModeAfterReferenceUpdate(currentState.editSourceMode),
-      });
-      setSharedEditAutoAspectLock(store, false);
+        editSourceMode,
+      }, {
+        sources: [],
+        mode: "edit",
+        editSourceMode,
+      }));
+      setSharedEditAutoAspectLock(store, false, workspaceId);
     },
 
     reorderSources(from: number, to: number) {
-      const list = [...store.getState().sources];
+      const currentState = store.getState();
+      const workspaceId = currentState.activeWorkspaceId;
+      const list = [...currentState.sources];
       if (from < 0 || from >= list.length || to < 0 || to >= list.length) return;
       const [moved] = list.splice(from, 1);
       list.splice(to, 0, moved);
-      store.setState({ sources: list });
-      void syncSharedEditAutoAspect(store);
+      store.setState((state) => scopedWorkspacePatch(state, workspaceId, {
+        sources: list,
+      }, {
+        sources: list,
+      }));
+      void syncSharedEditAutoAspect(store, { workspaceId });
     },
 
     async reuseAsSource(item: HistoryItem) {

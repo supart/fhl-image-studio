@@ -60,11 +60,12 @@ func (s *Service) OpenImageDialog() (SelectFileResponse, error) {
 		return SelectFileResponse{}, err
 	}
 	resp := SelectFileResponse{
-		Path:   imported.Path,
-		Name:   sourceName,
-		Size:   info.Size(),
-		Width:  imported.Width,
-		Height: imported.Height,
+		Path:          imported.Path,
+		Name:          sourceName,
+		Size:          info.Size(),
+		Width:         imported.Width,
+		Height:        imported.Height,
+		PhotoMetadata: imported.PhotoMetadata,
 	}
 	if info.Size() > 0 && info.Size() <= maxDialogReadBytes {
 		if preview, previewErr := s.registerImportedPreview(imported.Path); previewErr == nil {
@@ -75,6 +76,18 @@ func (s *Service) OpenImageDialog() (SelectFileResponse, error) {
 		}
 	}
 	return resp, nil
+}
+
+func (s *Service) ReadImageMetadata(path string) (PhotoMetadata, error) {
+	allowed, err := s.ensureManagedReadablePath(path, managedImageFile)
+	if err != nil {
+		return PhotoMetadata{}, err
+	}
+	metadata, err := readPhotoMetadata(allowed)
+	if err != nil || metadata == nil {
+		return PhotoMetadata{}, err
+	}
+	return *metadata, nil
 }
 
 func (s *Service) OpenImagesDialog() (SelectFilesResponse, error) {

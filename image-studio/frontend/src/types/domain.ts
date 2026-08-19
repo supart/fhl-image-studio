@@ -218,6 +218,7 @@ export interface SourceImage {
   width?: number;
   height?: number;
   previewUrl?: string;
+  photoMetadata?: PhotoMetadata;
   imageBlob?: Blob | null;
   // Legacy/browser fallback for canvas preview. Wails source previews should
   // prefer previewUrl so selected files do not cross the bridge as base64.
@@ -248,6 +249,21 @@ export interface BatchProcessSourceImage {
   previewWidth?: number;
   previewHeight?: number;
   selected?: boolean;
+}
+
+export interface PhotoMetadata {
+  cameraMake?: string;
+  cameraModel?: string;
+  lensModel?: string;
+  capturedAt?: string;
+  iso?: string;
+  shutterSpeed?: string;
+  aperture?: string;
+  focalLength?: string;
+  orientation?: string;
+  software?: string;
+  width?: number;
+  height?: number;
 }
 
 export interface BatchProcessConfig {

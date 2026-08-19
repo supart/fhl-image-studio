@@ -22,17 +22,22 @@ test("reference updates preserve an enabled batch image-to-image mode", () => {
   const reuseAsSource = actionBlock("async reuseAsSource(item: HistoryItem)", "applyHistoryParams(item: HistoryItem)");
   const importImageFile = actionBlock("async importImageFile(file: File)", "\n  };");
 
-  assert.match(selectSourceImage, /editSourceModeAfterReferenceUpdate\(workspace\.editSourceMode\)/);
-  assert.match(importSourceImageFile, /editSourceModeAfterReferenceUpdate\(workspace\.editSourceMode\)/);
+  assert.match(selectSourceImage, /currentWorkspaceEditSourceMode\(currentState, workspaceId\)/);
+  assert.match(selectSourceImage, /editSourceModeAfterReferenceUpdate\(currentEditSourceMode\)/);
+  assert.match(importSourceImageFile, /currentWorkspaceEditSourceMode\(currentState, workspaceId\)/);
+  assert.match(importSourceImageFile, /editSourceModeAfterReferenceUpdate\(currentEditSourceMode\)/);
   assert.match(reuseAsSource, /editSourceModeAfterReferenceUpdate\(workspace\.editSourceMode\)/);
   assert.match(importImageFile, /editSourceModeAfterReferenceUpdate\(workspace\.editSourceMode\)/);
 });
 
 test("removing the last edit source keeps image-to-image mode active", () => {
   const removeSource = actionBlock("removeSource(index: number)", "clearSources()");
+  assert.match(removeSource, /const workspaceId = currentState\.activeWorkspaceId/);
+  assert.match(removeSource, /const editSourceMode = editSourceModeAfterReferenceUpdate\(currentState\.editSourceMode\)/);
+  assert.match(removeSource, /scopedWorkspacePatch\(state, workspaceId, \{[\s\S]*?sources: next/);
   assert.match(
     removeSource,
-    /mode: "edit",[\s\S]*?editSourceMode: editSourceModeAfterReferenceUpdate\(currentState\.editSourceMode\)/,
+    /mode: "edit",[\s\S]*?editSourceMode,/,
   );
   assert.doesNotMatch(
     removeSource,
@@ -42,8 +47,18 @@ test("removing the last edit source keeps image-to-image mode active", () => {
 
 test("clearing all edit sources keeps image-to-image mode active", () => {
   const clearSources = actionBlock("clearSources()", "reorderSources(from: number, to: number)");
+  assert.match(clearSources, /const workspaceId = currentState\.activeWorkspaceId/);
+  assert.match(clearSources, /const editSourceMode = editSourceModeAfterReferenceUpdate\(currentState\.editSourceMode\)/);
+  assert.match(clearSources, /scopedWorkspacePatch\(state, workspaceId, \{[\s\S]*?sources: \[\]/);
   assert.match(
     clearSources,
-    /mode: "edit",[\s\S]*?editSourceMode: editSourceModeAfterReferenceUpdate\(currentState\.editSourceMode\)/,
+    /mode: "edit",[\s\S]*?editSourceMode,/,
   );
+});
+
+test("reordering edit sources updates the active workspace snapshot", () => {
+  const reorderSources = actionBlock("reorderSources(from: number, to: number)", "async reuseAsSource(item: HistoryItem)");
+  assert.match(reorderSources, /const workspaceId = currentState\.activeWorkspaceId/);
+  assert.match(reorderSources, /scopedWorkspacePatch\(state, workspaceId, \{[\s\S]*?sources: list/);
+  assert.match(reorderSources, /syncSharedEditAutoAspect\(store, \{ workspaceId \}\)/);
 });

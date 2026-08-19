@@ -212,8 +212,8 @@ export function TransformSection({
         </ToolbarTextButton>
       ) : null}
       {localEditAction ? (
-        <ToolbarTextButton onClick={localEditAction} title="局部裁切编辑并贴回原图" tone="accent">
-          <WandSparkles className="w-3.5 h-3.5" /> 局部编辑
+        <ToolbarTextButton onClick={localEditAction} title="裁切局部重绘并贴回原图" tone="accent">
+          <WandSparkles className="w-3.5 h-3.5" /> 裁切局部重绘
         </ToolbarTextButton>
       ) : null}
     </>

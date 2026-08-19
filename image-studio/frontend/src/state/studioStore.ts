@@ -9,6 +9,7 @@ import {
   Cancel as wailsCancel,
   ImportImageFromB64,
   CropImage,
+  PasteLocalEdit,
   ReadImageAsBase64,
   GetOutputDir,
   SetOutputDir,
@@ -296,6 +297,7 @@ import {
 import {
   pastePlanarRoundtripBase64,
   validateLocalEditDimensions,
+  validateLocalEditSourceDimensions,
   type LocalPastebackMaskInput,
 } from "../localEdit/core";
 import { loadMaterialGroups } from "./materialLibrary";
@@ -999,6 +1001,21 @@ async function autoPastePanoramaRoundtripResult(
   return nextItem;
 }
 
+function canvasImageSourceToBase64(source: CanvasImageSource): string {
+  const width = Number((source as HTMLImageElement).naturalWidth || (source as HTMLCanvasElement).width || 0);
+  const height = Number((source as HTMLImageElement).naturalHeight || (source as HTMLCanvasElement).height || 0);
+  if (width <= 0 || height <= 0) throw new Error("无法读取蒙版尺寸");
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("无法读取蒙版像素");
+  context.drawImage(source, 0, 0, width, height);
+  const dataURL = canvas.toDataURL("image/png");
+  const comma = dataURL.indexOf(",");
+  return comma >= 0 ? dataURL.slice(comma + 1) : dataURL;
+}
+
 async function autoPasteLocalEditRoundtripResult(
   item: HistoryItem,
   options: {
@@ -1028,26 +1045,64 @@ async function autoPasteLocalEditRoundtripResult(
         height: roundtrip.sourceHeight,
       }
     : null);
-  if (!source) throw new Error("局部编辑原图已丢失");
-  const [sourceImage, editedImage] = await Promise.all([
-    source.savedPath ? loadSavedPathAsHtmlImage(source.savedPath) : loadHistoryItemAsHtmlImage(source),
-    loadHistoryItemAsHtmlImage(item),
-  ]);
+  if (!source) throw new Error("裁切局部重绘原图已丢失");
+  const sourceWidth = Number(roundtrip.sourceWidth || source.width || 0);
+  const sourceHeight = Number(roundtrip.sourceHeight || source.height || 0);
+  const useDiskPasteback = sourceWidth * sourceHeight > 64_000_000;
+  let imported: Awaited<ReturnType<typeof ImportImageFromB64>>;
+  let pastedB64 = "";
+  let ref: Awaited<ReturnType<typeof RegisterImportedImageAsset>> | null = null;
+  if (useDiskPasteback) {
+    if (!source.savedPath || !item.savedPath) throw new Error("大图贴回需要可读取的原图和编辑结果路径");
+    const mask = options.pasteMask?.image ? canvasImageSourceToBase64(options.pasteMask.image) : "";
+    const diskResult = await PasteLocalEdit(source.savedPath, item.savedPath, {
+      cropX: roundtrip.cropRect.x,
+      cropY: roundtrip.cropRect.y,
+      cropWidth: roundtrip.cropRect.width,
+      cropHeight: roundtrip.cropRect.height,
+      offsetXRatio: options.alignment?.offsetXRatio ?? 0,
+      offsetYRatio: options.alignment?.offsetYRatio ?? 0,
+      scale: options.alignment?.scale ?? 1,
+      rotationDeg: options.alignment?.rotationDeg ?? 0,
+      featherFraction: options.alignment?.featherFraction ?? 0.1,
+      brightness: options.alignment?.brightness ?? 1,
+      contrast: options.alignment?.contrast ?? 1,
+      hueRotationDeg: options.alignment?.hueRotationDeg ?? 0,
+      maskB64: mask,
+      maskFeatherPx: options.pasteMask?.featherPx ?? 0,
+    });
+    ref = await RegisterImportedImageAsset(diskResult.path).catch(() => null);
+    imported = {
+      path: diskResult.path,
+      imageId: ref?.imageId,
+      previewUrl: ref?.previewUrl,
+      width: ref?.width || sourceWidth,
+      height: ref?.height || sourceHeight,
+      previewWidth: ref?.previewWidth,
+      previewHeight: ref?.previewHeight,
+    };
+  } else {
+    const [sourceImage, editedImage] = await Promise.all([
+      source.savedPath ? loadSavedPathAsHtmlImage(source.savedPath) : loadHistoryItemAsHtmlImage(source),
+      loadHistoryItemAsHtmlImage(item),
+    ]);
+    if (options.isCurrent && !options.isCurrent()) return null;
+    const pasted = pastePlanarRoundtripBase64(
+      sourceImage,
+      editedImage,
+      roundtrip,
+      options.alignment,
+      options.pasteMask as LocalPastebackMaskInput | null,
+    );
+    pastedB64 = pasted.imageB64;
+    imported = await ImportImageFromB64(pasted.imageB64, `local-edit-roundtrip-${Date.now()}.png`);
+  }
   if (options.isCurrent && !options.isCurrent()) return null;
-  const pasted = pastePlanarRoundtripBase64(
-    sourceImage,
-    editedImage,
-    roundtrip,
-    options.alignment,
-    options.pasteMask as LocalPastebackMaskInput | null,
-  );
-  const imported = await ImportImageFromB64(pasted.imageB64, `local-edit-roundtrip-${Date.now()}.png`);
-  if (options.isCurrent && !options.isCurrent()) return null;
-  const ref = await RegisterImportedImageAsset(imported.path).catch(() => null);
+  if (!ref) ref = await RegisterImportedImageAsset(imported.path).catch(() => null);
   if (options.isCurrent && !options.isCurrent()) return null;
   const nextItem = ref
-    ? withMediaAssetRef(syntheticLocalPastebackResultItem(imported, pasted.imageB64, item, source), ref)
-    : syntheticLocalPastebackResultItem(imported, pasted.imageB64, item, source);
+    ? withMediaAssetRef(syntheticLocalPastebackResultItem(imported, pastedB64, item, source), ref)
+    : syntheticLocalPastebackResultItem(imported, pastedB64, item, source);
   useStudioStore.setState((state) => {
     if (options.isCurrent && !options.isCurrent()) return {};
     const history = trimHistory([nextItem, ...state.history.filter((entry) => entry.id !== nextItem.id)]);
@@ -5258,7 +5313,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           sourceHeight = dimensions.h;
         }
       }
-      validateLocalEditDimensions(sourceWidth, sourceHeight);
+      validateLocalEditSourceDimensions(sourceWidth, sourceHeight);
       const previewWidth = Math.max(1, Number(source.previewWidth || sourceWidth));
       const previewHeight = Math.max(1, Number(source.previewHeight || sourceHeight));
       const scaleX = sourceWidth / previewWidth;
@@ -5291,17 +5346,17 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         }),
       } as Partial<StudioState>));
       scheduleWorkspaceSessionPersistence(get(), true);
-      state.pushToast("已打开局部编辑工作台，请拖动镜头框定位区域", "info", 3000);
+      state.pushToast("已打开裁切局部重绘工作台，请拖动镜头框定位区域", "info", 3000);
       return null;
     } catch (error: any) {
-      state.pushToast(`局部编辑工作台无法打开: ${error?.message ?? error}`, "warn", 4600);
+      state.pushToast(`裁切局部重绘工作台无法打开: ${error?.message ?? error}`, "warn", 4600);
       return null;
     }
   },
   commitLocalEditWorkbenchCrop: async () => {
     const draft = get().localEditWorkbenchDraft;
     if (!draft) {
-      get().pushToast("没有可提交的局部编辑草稿", "warn", 2800);
+      get().pushToast("没有可提交的裁切局部重绘草稿", "warn", 2800);
       return null;
     }
     const rect = draft.lens
@@ -5331,7 +5386,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           sourceHeight = dimensions.h;
         }
       }
-      validateLocalEditDimensions(sourceWidth, sourceHeight);
+      validateLocalEditSourceDimensions(sourceWidth, sourceHeight);
+      validateLocalEditDimensions(rect.width, rect.height);
       const x = Math.max(0, Math.min(sourceWidth - 1, Math.round(rect.x)));
       const y = Math.max(0, Math.min(sourceHeight - 1, Math.round(rect.y)));
       const width = Math.max(8, Math.min(sourceWidth - x, Math.round(rect.width)));
@@ -5356,7 +5412,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         previewUrl: ref?.previewUrl,
         fullUrl: ref?.fullUrl,
         previewOnly: !!ref,
-        prompt: `(局部裁切)${source.prompt || ""}`,
+        prompt: `(裁切局部重绘)${source.prompt || ""}`,
         revisedPrompt: source.revisedPrompt,
         mode: "edit",
         apiMode: source.apiMode,
@@ -5413,7 +5469,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       } as Partial<StudioState>));
       await persistHistoryItem(next).catch(() => undefined);
       persistTrimmedHistory(get().history);
-      state.pushToast(`已创建 ${width}×${height} 局部编辑副本`, "success", 3200);
+      state.pushToast(`已创建 ${width}×${height} 裁切局部重绘副本`, "success", 3200);
       return next;
     } catch (error: any) {
       state.pushToast(`局部裁切失败: ${error?.message ?? error}`, "warn", 4600);
@@ -5457,7 +5513,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     } as Partial<StudioState>));
     scheduleWorkspaceSessionPersistence(get(), true);
     if (state.localEditWorkbenchDraft?.dirty) {
-      state.pushToast("已取消本轮局部编辑，未创建新的历史记录", "info", 2600);
+      state.pushToast("已取消本轮裁切局部重绘，未创建新的历史记录", "info", 2600);
     }
   },
   openLocalPastebackAligner: (item) => set({ panoramaAlignTarget: item }),
@@ -5521,7 +5577,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       } as Partial<StudioState>));
       await persistHistoryItem(item).catch(() => undefined);
       persistTrimmedHistory(get().history);
-      get().pushToast("已导入外部局部编辑图，进入手动对齐", "success", 3400);
+      get().pushToast("已导入外部裁切局部重绘图，进入手动对齐", "success", 3400);
       return item;
     } catch (error: any) {
       get().pushToast(`导入局部贴回图失败: ${error?.message ?? error}`, "warn", 4600);

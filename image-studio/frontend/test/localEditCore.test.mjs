@@ -89,10 +89,18 @@ test("planar automatic pasteback keeps high-resolution results inside the crop b
 test("planar size guard blocks oversized sources", () => {
   assert.throws(
     () => localEdit.validateLocalEditDimensions(16_385, 100),
-    /超过局部编辑上限/,
+    /超过裁切局部重绘上限/,
   );
   assert.throws(
     () => localEdit.validateLocalEditDimensions(10_000, 10_000),
-    /超过局部编辑上限/,
+    /超过裁切局部重绘上限/,
+  );
+  assert.deepEqual(localEdit.validateLocalEditSourceDimensions(10_000, 10_000), {
+    width: 10_000,
+    height: 10_000,
+  });
+  assert.throws(
+    () => localEdit.validateLocalEditSourceDimensions(10_001, 10_000),
+    /超过裁切局部重绘上限/,
   );
 });
