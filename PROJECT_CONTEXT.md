@@ -1,5 +1,15 @@
 # FHL Studio Windows V2.0.4 开发交接
 
+## 2026-08-19 批次 29：FHL 浏览器相机 JPEG 规范化（已完成）
+
+- 当前分支：`codex/windows-v2.0.4-feature/fhl-upload-browser-proxy-failed-params`；本批代码提交使用 `fix(fhl-upload): normalize browser camera JPEGs`，未设置 upstream、未推送 GitHub。
+- 根因已复核：失败相机原图为 `5168×3448`、约 `9.08MB`、含约 `44KB` EXIF；同图规范化为 `1600×1067`、无 EXIF JPEG 后，FHL Images 图生图成功。此前 `7999/8000/8192/8193px` 合成尺寸测试均成功，问题不是单一 8K 边界。
+- 浏览器 FHL Images/Responses 编辑上传现在在 CLI 前按长边 `1600px`、文件 `6MiB`、透明通道三项预检；命中任一条件就生成白底、质量 `88`、无元数据 JPEG 临时副本，原图和历史不变。
+- Codex 浏览器真实验收已用原始相机 JPEG 完成单任务 FHL Images 生图，结果成功并显示 `1536×1024`；任务结束后临时副本清理，控制台 warning/error 为 `0`。
+- 自动化：TypeScript、Node `647/647`、UI `107/107`、Lint `0 errors/58 existing warnings`、Fast、Batch、`git diff --check` 均通过；新增相机 JPEG、已安全图片和非 FHL provider 隔离测试。
+- 详细记录：[docs/changes/2026-08-19-windows-v2.0.4-fhl-browser-camera-normalization.md](docs/changes/2026-08-19-windows-v2.0.4-fhl-browser-camera-normalization.md)。
+- 下一步：观察真实用户大图任务；若规范化后的 `1600px` 无元数据 JPEG 仍返回同类 400，另开格式/透明通道/模型兼容性批次，不继续盲目降低尺寸。
+
 ## 2026-08-19 批次 28：FHL 浏览器代理大图保护与失败任务参数菜单（已完成）
 
 - 当前分支：`codex/windows-v2.0.4-feature/fhl-upload-browser-proxy-failed-params`；本批提交为 `1c125be fix(fhl-upload): guard browser proxy and failed task params`，未设置 upstream、未推送 GitHub。

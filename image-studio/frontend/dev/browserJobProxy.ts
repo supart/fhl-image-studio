@@ -69,8 +69,13 @@ const BROWSER_JOB_PERSIST_RETRY_DELAYS_MS = [80, 160, 320, 640, 1000] as const;
 const APIMART_OFFICIAL_BASE_URL = "https://api.apimart.ai";
 const APIMART_LEGACY_BASE_URL = "https://api.apib.ai";
 const FHL_OFFICIAL_BASE_URL = "https://www.fhl.mom";
-const FHL_EDIT_UPLOAD_MAX_LONG_SIDE = 8192;
-const FHL_EDIT_UPLOAD_JPEG_QUALITY = 82;
+// Keep browser edit uploads aligned with the desktop Wails path. The FHL
+// relay rejects some camera JPEGs well below its pixel limit when their file
+// is large or carries camera metadata, so the proxy must normalize those
+// inputs instead of only guarding the 8K boundary.
+const FHL_EDIT_UPLOAD_MAX_LONG_SIDE = 1600;
+const FHL_EDIT_UPLOAD_MAX_BYTES = 6 * 1024 * 1024;
+const FHL_EDIT_UPLOAD_JPEG_QUALITY = 88;
 
 function minutesLabel(ms: number) {
   return `${Math.round(ms / 60_000)} 分钟`;
@@ -303,7 +308,7 @@ async function resolveBrowserSourcePath(repoRoot: string, inputDir: string, rawP
   }
 }
 
-async function prepareFHLBrowserEditSources(
+export async function prepareFHLBrowserEditSources(
   payload: BrowserJobSubmitPayload,
   repoRoot: string,
   inputDir: string,
@@ -329,7 +334,12 @@ async function prepareFHLBrowserEditSources(
         throw new Error(`参考图 ${index + 1} 无法读取有效像素尺寸，已在上传前停止请求`);
       }
       const originalLongSide = Math.max(originalWidth, originalHeight);
-      if (originalLongSide <= FHL_EDIT_UPLOAD_MAX_LONG_SIDE) {
+      const sourceInfo = await fs.stat(sourcePath);
+      const sourceBytes = sourceInfo.isFile() ? sourceInfo.size : 0;
+      const needsNormalization = originalLongSide > FHL_EDIT_UPLOAD_MAX_LONG_SIDE
+        || sourceBytes > FHL_EDIT_UPLOAD_MAX_BYTES
+        || metadata.hasAlpha === true;
+      if (!needsNormalization) {
         paths.push(sourcePath);
         continue;
       }
@@ -345,7 +355,7 @@ async function prepareFHLBrowserEditSources(
       paths.push(uploadPath);
       temporaryPaths.push(uploadPath);
       messages.push(
-        `参考图 ${index + 1} 最长边 ${originalLongSide}px，已生成 ${Math.max(uploadWidth, uploadHeight)}px 上传副本，原图未修改`,
+        `参考图 ${index + 1} ${originalWidth}x${originalHeight}（${sourceBytes}B）已规范化为 ${uploadWidth}x${uploadHeight}px JPEG 上传副本，原图未修改`,
       );
     }
     return { paths, temporaryPaths, messages };

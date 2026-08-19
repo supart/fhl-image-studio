@@ -62,12 +62,16 @@ test("batch source identity survives browser proxy jobs and history sync", () =>
 });
 
 test("browser proxy guards official FHL edit uploads before spawning the CLI", () => {
-  assert.match(proxySource, /const FHL_EDIT_UPLOAD_MAX_LONG_SIDE = 8192/);
+  assert.match(proxySource, /const FHL_EDIT_UPLOAD_MAX_LONG_SIDE = 1600/);
+  assert.match(proxySource, /const FHL_EDIT_UPLOAD_MAX_BYTES = 6 \* 1024 \* 1024/);
+  assert.match(proxySource, /const FHL_EDIT_UPLOAD_JPEG_QUALITY = 88/);
   assert.match(proxySource, /function shouldGuardFHLBrowserEditUpload/);
   assert.match(proxySource, /payload\.mode === "edit"/);
   assert.match(proxySource, /payload\.apiMode === "images" \|\| payload\.apiMode === "responses"/);
   assert.match(proxySource, /await sharp\(sourcePath, \{ failOn: "error" \}\)\.metadata\(\)/);
-  assert.match(proxySource, /已生成 \$\{Math\.max\(uploadWidth, uploadHeight\)\}px 上传副本/);
+  assert.match(proxySource, /sourceBytes > FHL_EDIT_UPLOAD_MAX_BYTES/);
+  assert.match(proxySource, /metadata\.hasAlpha === true/);
+  assert.match(proxySource, /已规范化为 \$\{uploadWidth\}x\$\{uploadHeight\}px JPEG 上传副本/);
   assert.match(proxySource, /--image", toWindowsPath\(imagePath\)/);
   assert.match(proxySource, /cleanupPreparedSources/);
   assert.match(proxySource, /FHL 参考图上传预检失败/);
