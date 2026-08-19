@@ -1,15 +1,14 @@
 # FHL Studio Windows V2.0.4 开发交接
 
-## 2026-08-19 批次 30：参考图删除状态同步与照片属性（开发中）
+## 2026-08-19 批次 30：参考图同步与高清裁切局部重绘（已完成）
 
-- 当前分支：`codex/windows-v2.0.4-feature/reference-slot-workspace-sync`；本批提交为 `feafe04 fix(state): persist reference slot removals per workspace`，工作区干净，未设置 upstream、未推送 GitHub。
-- 已修复删除/清空/排序只更新顶层 `sources` 导致旧工作区快照复活的问题；添加图片和延迟导入改为读取目标工作区实时列表。
-- 已新增 JPEG EXIF 照片属性读取和参考图右键入口；缺失字段不会渲染空行。局部编辑入口文案统一为“裁切局部重绘”。
-- 已增加 `100MP / 16,384px` 源图门禁和 Windows `PasteLocalEdit` 磁盘端贴回；超过 `64MP` 的大图不进入浏览器整图 Canvas，裁切区域仍按自然像素贴回完整尺寸 PNG，并保留对齐、羽化、颜色和手绘蒙版参数。
-- 本地受管相机文件导入上限为 `200MB`，FHL/API 请求体仍保持 `50MB` 上限，不会因为本地放宽而绕过上传保护。
-- 自动化已通过：TypeScript、Node `648/648`、UI `111/111`、Lint `0 errors / 58 warnings`、Go test/vet、Fast 和 Batch。
-- 下一步用真实 Sony/哈苏原图做一次不调用生图 API 的桌面端裁切与贴回耗时/文件大小验收；不要因机器内存不足放宽 100MP 或 16,384px 门禁。
-- 详细记录：[docs/changes/2026-08-19-windows-v2.0.4-reference-slot-workspace-sync.md](docs/changes/2026-08-19-windows-v2.0.4-reference-slot-workspace-sync.md)。
+- 当前分支：`codex/windows-v2.0.4-feature/reference-slot-workspace-sync`；代码提交为 `5df05a9 fix(state): close reference slot workspace restore race` 和 `70be0a5 fix(local-edit): harden high-resolution planar pasteback`。文档提交完成后工作区应保持干净，未设置 upstream、未推送 GitHub。
+- 根因已闭环：参考图动作、异步物化和失败任务参数现在都按目标 workspace 的实时列表合并，删除后添加、切换 `1K/2K/4K`、切换标签和刷新恢复不会复活旧槽位。
+- Windows `PasteLocalEdit` 先做 `DecodeConfig` 门禁，原图上限 `100MP / 16,384px`，编辑图/蒙版上限 `64MP / 16,384px`；超过 `64MP` 的源图不进入浏览器整图 Canvas，按自然像素裁切范围输出完整尺寸 PNG。
+- 85MP 隔离夹具实测输出同尺寸、裁切外采样保持、源文件哈希不变；102MP 在约 7ms 内被解码前门禁拒绝。360 蒙版、羽化和颜色规则继续复用，入口文案为“裁切局部重绘”。
+- Codex 浏览器隔离端口 `5174` 已完成删除/添加/分辨率/标签/刷新/清空重加和 `1252x930`、`1440x900`、`1024x768` 验收，页面控制台新增 warning/error 为 `0`。
+- 自动化已通过：TypeScript、Node `651/651`、UI `113/113`、Lint `0 errors / 58 warnings`、桌面/CLI Go test/vet、Fast 和 Batch（含 Worker `5/5`、离线 smoke）。
+- 详细记录：[docs/changes/2026-08-19-windows-v2.0.4-reference-slot-high-res-closure.md](docs/changes/2026-08-19-windows-v2.0.4-reference-slot-high-res-closure.md)。
 
 ## 2026-08-19 批次 29：FHL 浏览器相机 JPEG 规范化（已完成）
 
