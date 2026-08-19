@@ -672,6 +672,35 @@ function resolveLocalEditRoundtripRef(
   };
 }
 
+function normalizePlanarPastebackRoundtrip(
+  roundtrip: Extract<NonNullable<HistoryItem["localEditRoundtrip"]>, { kind: "planar" }>,
+  sourceWidth: number,
+  sourceHeight: number,
+) {
+  validateLocalEditSourceDimensions(sourceWidth, sourceHeight);
+  const raw = roundtrip.cropRect;
+  const x = Number(raw?.x);
+  const y = Number(raw?.y);
+  const width = Number(raw?.width);
+  const height = Number(raw?.height);
+  if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
+    throw new Error("局部贴回记录缺少有效的自然像素裁切范围");
+  }
+  const clampedX = Math.max(0, Math.min(sourceWidth - 1, Math.floor(x)));
+  const clampedY = Math.max(0, Math.min(sourceHeight - 1, Math.floor(y)));
+  const clampedWidth = Math.min(sourceWidth - clampedX, Math.max(1, Math.round(width)));
+  const clampedHeight = Math.min(sourceHeight - clampedY, Math.max(1, Math.round(height)));
+  if (clampedWidth <= 0 || clampedHeight <= 0) {
+    throw new Error("局部贴回记录的裁切范围超出原图边界");
+  }
+  return {
+    ...roundtrip,
+    sourceWidth,
+    sourceHeight,
+    cropRect: { x: clampedX, y: clampedY, width: clampedWidth, height: clampedHeight },
+  };
+}
+
 function syntheticLocalPastebackResultItem(
   imported: Awaited<ReturnType<typeof ImportImageFromB64>>,
   imageB64: string,
@@ -1048,6 +1077,7 @@ async function autoPasteLocalEditRoundtripResult(
   if (!source) throw new Error("裁切局部重绘原图已丢失");
   const sourceWidth = Number(roundtrip.sourceWidth || source.width || 0);
   const sourceHeight = Number(roundtrip.sourceHeight || source.height || 0);
+  const normalizedRoundtrip = normalizePlanarPastebackRoundtrip(roundtrip, sourceWidth, sourceHeight);
   const useDiskPasteback = sourceWidth * sourceHeight > 64_000_000;
   let imported: Awaited<ReturnType<typeof ImportImageFromB64>>;
   let pastedB64 = "";
@@ -1056,10 +1086,10 @@ async function autoPasteLocalEditRoundtripResult(
     if (!source.savedPath || !item.savedPath) throw new Error("大图贴回需要可读取的原图和编辑结果路径");
     const mask = options.pasteMask?.image ? canvasImageSourceToBase64(options.pasteMask.image) : "";
     const diskResult = await PasteLocalEdit(source.savedPath, item.savedPath, {
-      cropX: roundtrip.cropRect.x,
-      cropY: roundtrip.cropRect.y,
-      cropWidth: roundtrip.cropRect.width,
-      cropHeight: roundtrip.cropRect.height,
+      cropX: normalizedRoundtrip.cropRect.x,
+      cropY: normalizedRoundtrip.cropRect.y,
+      cropWidth: normalizedRoundtrip.cropRect.width,
+      cropHeight: normalizedRoundtrip.cropRect.height,
       offsetXRatio: options.alignment?.offsetXRatio ?? 0,
       offsetYRatio: options.alignment?.offsetYRatio ?? 0,
       scale: options.alignment?.scale ?? 1,
@@ -1090,7 +1120,7 @@ async function autoPasteLocalEditRoundtripResult(
     const pasted = pastePlanarRoundtripBase64(
       sourceImage,
       editedImage,
-      roundtrip,
+      normalizedRoundtrip,
       options.alignment,
       options.pasteMask as LocalPastebackMaskInput | null,
     );
@@ -1774,6 +1804,38 @@ async function materializeEditSourcesForBrowserProxy(sources: SourceImage[]): Pr
     return materialized;
   }));
   return changed ? nextSources : sources;
+}
+
+/**
+ * Apply delayed path materialization only to entries that still exist in the
+ * target workspace. A user may remove or reorder a source while the bridge is
+ * writing a virtual image to disk; replacing the whole captured array would
+ * resurrect that stale entry.
+ */
+function mergeMaterializedSourceList<T extends { path: string }>(
+  current: T[],
+  original: T[],
+  materialized: T[],
+): T[] {
+  const replacements = new Map<string, T>();
+  original.forEach((source, index) => {
+    const next = materialized[index];
+    if (next && next !== source) replacements.set(source.path, next);
+  });
+  if (replacements.size === 0) return current;
+  return current.map((source) => {
+    const replacement = replacements.get(source.path);
+    return replacement ? { ...source, ...replacement } : source;
+  });
+}
+
+function materializedSourceMap<T extends { path: string }>(original: T[], materialized: T[]): Map<string, T> {
+  const replacements = new Map<string, T>();
+  original.forEach((source, index) => {
+    const next = materialized[index];
+    if (next && next !== source) replacements.set(source.path, next);
+  });
+  return replacements;
 }
 
 type MaterializeBatchSourcesResult =
@@ -3128,6 +3190,7 @@ async function submitCurrentRequest(
 ): Promise<void> {
   const s = get();
   if (s.isResettingApplication) return;
+  const workspaceId = s.activeWorkspaceId;
   const submitEpoch = applicationStateEpoch.capture();
   const batchProcess = normalizeBatchProcessConfig(s.batchProcess);
   const requestedBatchProcessMode = s.mode === "edit" && s.editSourceMode === "batch";
@@ -3285,20 +3348,44 @@ async function submitCurrentRequest(
       return;
     }
     if (materializedBatch.changed) {
+      const capturedSelectedSources = batchSelectedSources;
+      const capturedFixedSources = batchFixedSources;
       const materializedSelectedByPath = new Map(
-        batchSelectedSources.map((source, index) => [source.path, materializedBatch.selectedSources[index]]),
+        capturedSelectedSources.map((source, index) => [source.path, materializedBatch.selectedSources[index]]),
       );
+      const materializedFixedByPath = materializedSourceMap(capturedFixedSources, materializedBatch.fixedSources);
       batchSelectedSources = materializedBatch.selectedSources;
       batchFixedSources = materializedBatch.fixedSources;
-      set({
-        sources: batchFixedSources,
-        batchProcess: {
-          ...batchProcess,
-          discoveredSources: batchProcess.discoveredSources.map((source) => {
-            const nextSource = materializedSelectedByPath.get(source.path);
-            return nextSource ? { ...nextSource, selected: source.selected } : source;
+      set((state) => {
+        const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
+        if (!workspace) return {};
+        const currentDiscoveredSources = workspace.batchProcess.discoveredSources;
+        const materializedDiscoveredSources = currentDiscoveredSources.map((source) => {
+          const nextSource = materializedSelectedByPath.get(source.path) ?? materializedFixedByPath.get(source.path);
+          return nextSource ? { ...source, ...nextSource, selected: source.selected } : source;
+        });
+        const nextBatchProcess = {
+          ...workspace.batchProcess,
+          discoveredSources: materializedDiscoveredSources,
+        };
+        const nextSources = mergeMaterializedSourceList(
+          workspace.sources,
+          capturedFixedSources,
+          materializedBatch.fixedSources,
+        );
+        const liveSelectedSources = materializedDiscoveredSources.filter((source) => source.selected !== false);
+        const selectedReplacements = materializedSourceMap(capturedSelectedSources, materializedBatch.selectedSources);
+        batchFixedSources = nextSources;
+        batchSelectedSources = liveSelectedSources.map((source) => selectedReplacements.get(source.path) ?? source);
+        return {
+          workspaces: patchWorkspaceRuntime(state.workspaces, workspaceId, {
+            sources: nextSources,
+            batchProcess: nextBatchProcess,
           }),
-        },
+          ...(state.activeWorkspaceId === workspaceId
+            ? { sources: nextSources, batchProcess: nextBatchProcess }
+            : {}),
+        } as Partial<StudioState>;
       });
     }
     if (
@@ -3315,12 +3402,15 @@ async function submitCurrentRequest(
   let editSourcePaths: string[] = [];
   let preparedSources = recoverPanoramaSourceMetadata(s.sources, s.history);
   if (preparedSources !== s.sources) {
-    set((state) => ({
-      sources: preparedSources,
-      workspaces: patchWorkspaceRuntime(state.workspaces, state.activeWorkspaceId, {
-        sources: preparedSources,
-      }),
-    }));
+    set((state) => {
+      const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
+      if (!workspace) return {};
+      const nextSources = mergeMaterializedSourceList(workspace.sources, s.sources, preparedSources);
+      return {
+        workspaces: patchWorkspaceRuntime(state.workspaces, workspaceId, { sources: nextSources }),
+        ...(state.activeWorkspaceId === workspaceId ? { sources: nextSources } : {}),
+      };
+    });
   }
   let materializedImplicitCurrentImage: RetryAutoAspectSource | null = null;
   if (fallbackToManualEditFromEmptyBatch) {
@@ -3330,8 +3420,17 @@ async function submitCurrentRequest(
     if (shouldUseBackgroundTaskProxyForSubmit(effectiveAPIMode)) {
       const materializedSources = await materializeEditSourcesForBrowserProxy(preparedSources);
       if (materializedSources !== preparedSources) {
+        const capturedSources = preparedSources;
         preparedSources = materializedSources;
-        set({ sources: materializedSources });
+        set((state) => {
+          const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
+          if (!workspace) return {};
+          const nextSources = mergeMaterializedSourceList(workspace.sources, capturedSources, materializedSources);
+          return {
+            workspaces: patchWorkspaceRuntime(state.workspaces, workspaceId, { sources: nextSources }),
+            ...(state.activeWorkspaceId === workspaceId ? { sources: nextSources } : {}),
+          };
+        });
       }
     }
     editSourcePaths = preparedSources.map((src) => src.path).filter(Boolean);
@@ -3402,7 +3501,6 @@ async function submitCurrentRequest(
       batchAutoSizes[index] = autoSize;
     }
   }
-  const workspaceId = s.activeWorkspaceId;
   const clearCurrentForNewRun = s.mode === "generate";
   const previousRuntime = workspaceRuntimeFromState(s, workspaceId);
   const previousBatchResults = completeWorkspaceBatchResults(s, workspaceId);
@@ -5472,7 +5570,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       state.pushToast(`已创建 ${width}×${height} 裁切局部重绘副本`, "success", 3200);
       return next;
     } catch (error: any) {
-      state.pushToast(`局部裁切失败: ${error?.message ?? error}`, "warn", 4600);
+      state.pushToast(`裁切局部重绘失败: ${error?.message ?? error}`, "warn", 4600);
       return null;
     }
   },

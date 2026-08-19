@@ -627,11 +627,16 @@ export function createImageActions(store: StateAdapter) {
     },
 
     applyHistoryParams(item: HistoryItem) {
+      const workspaceId = store.getState().activeWorkspaceId;
+      const workspace = store.getState().workspaces.find((entry) => entry.id === workspaceId);
       const sourceImages: SourceImage[] = item.mode === "edit" ? sourceImagesFromHistoryItem(item) : [];
+      const nextEditSourceMode = item.mode === "edit"
+        ? editSourceModeAfterReferenceUpdate(workspace?.editSourceMode ?? store.getState().editSourceMode)
+        : workspace?.editSourceMode ?? store.getState().editSourceMode;
       const patch: Partial<StudioState> = {
         prompt: item.prompt ?? "",
         mode: item.mode,
-        editSourceMode: item.mode === "edit" ? "manual" : store.getState().editSourceMode,
+        editSourceMode: nextEditSourceMode,
         size: item.size,
         quality: item.quality,
         sources: sourceImages,
@@ -640,7 +645,19 @@ export function createImageActions(store: StateAdapter) {
       if (item.negativePrompt !== undefined) patch.negativePrompt = item.negativePrompt;
       if (item.styleTag !== undefined) patch.styleTag = item.styleTag;
       if (item.outputFormat) patch.outputFormat = item.outputFormat;
-      store.setState(patch);
+      const workspacePatch: WorkspacePatch = {
+        prompt: patch.prompt,
+        mode: patch.mode,
+        editSourceMode: patch.editSourceMode,
+        size: patch.size,
+        quality: patch.quality,
+        sources: sourceImages,
+        ...(patch.negativePrompt !== undefined ? { negativePrompt: patch.negativePrompt } : {}),
+        ...(patch.styleTag !== undefined ? { styleTag: patch.styleTag } : {}),
+        ...(patch.outputFormat !== undefined ? { outputFormat: patch.outputFormat } : {}),
+        ...(patch.seed !== undefined ? { seed: patch.seed } : {}),
+      };
+      store.setState((state) => scopedWorkspacePatch(state, workspaceId, workspacePatch, patch));
       const sourceNote = item.mode === "edit" && sourceImages.length > 0 ? `，并带上 ${sourceImages.length} 张输入图` : "";
       store.getState().pushToast(`已应用此图的参数到控制台${sourceNote}`, "success");
     },

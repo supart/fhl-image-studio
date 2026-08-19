@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const imageActionsSource = readFileSync(new URL("../src/state/studioStore.images.ts", import.meta.url), "utf8");
+const studioStoreSource = readFileSync(new URL("../src/state/studioStore.ts", import.meta.url), "utf8");
 
 function actionBlock(startMarker, endMarker) {
   const start = imageActionsSource.indexOf(startMarker);
@@ -61,4 +62,32 @@ test("reordering edit sources updates the active workspace snapshot", () => {
   assert.match(reorderSources, /const workspaceId = currentState\.activeWorkspaceId/);
   assert.match(reorderSources, /scopedWorkspacePatch\(state, workspaceId, \{[\s\S]*?sources: list/);
   assert.match(reorderSources, /syncSharedEditAutoAspect\(store, \{ workspaceId \}\)/);
+});
+
+test("delayed browser materialization cannot restore a removed workspace source", () => {
+  assert.match(
+    studioStoreSource,
+    /const s = get\(\);[\s\S]{0,180}const workspaceId = s\.activeWorkspaceId;[\s\S]{0,180}const submitEpoch = applicationStateEpoch\.capture\(\)/,
+  );
+  assert.match(studioStoreSource, /function mergeMaterializedSourceList<T extends \{ path: string \}>/);
+  assert.match(studioStoreSource, /target workspace[\s\S]{0,180}resurrect that stale entry/);
+  assert.match(
+    studioStoreSource,
+    /const workspace = state\.workspaces\.find\(\(entry\) => entry\.id === workspaceId\);[\s\S]{0,900}mergeMaterializedSourceList\(/,
+  );
+  assert.match(studioStoreSource, /state\.activeWorkspaceId === workspaceId\s*\n\s*\? \{ sources: nextSources, batchProcess: nextBatchProcess \}/);
+  assert.match(
+    studioStoreSource,
+    /const capturedSources = preparedSources;[\s\S]{0,750}mergeMaterializedSourceList\(workspace\.sources, capturedSources, materializedSources\)/,
+  );
+});
+
+test("applying history parameters updates the same workspace snapshot", () => {
+  const start = imageActionsSource.indexOf("applyHistoryParams(item: HistoryItem)");
+  const end = imageActionsSource.indexOf("async regenerateFromHistory", start);
+  assert.ok(start >= 0 && end > start, "history parameter action should exist");
+  const block = imageActionsSource.slice(start, end);
+  assert.match(block, /const workspaceId = store\.getState\(\)\.activeWorkspaceId/);
+  assert.match(block, /const workspacePatch: WorkspacePatch/);
+  assert.match(block, /scopedWorkspacePatch\(state, workspaceId, workspacePatch, patch\)/);
 });

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { useStudioStore } from "../src/state/studioStore.ts";
+import { loadWorkspaceSession, persistWorkspaceSession } from "../src/state/studioStore.shared.ts";
 import { createDefaultWorkspace } from "../src/state/workspaceDefaults.ts";
 import type { SourceImage } from "../src/types/domain.ts";
 
@@ -87,5 +88,45 @@ describe("reference source workspace synchronization", () => {
     const state = useStudioStore.getState();
     expect(paths(state.sources)).toEqual(["I:/input/second.png"]);
     expect(paths(state.workspaces[0]?.sources)).toEqual(["I:/input/second.png"]);
+  });
+
+  it("keeps a removal when switching away and back to the workspace", () => {
+    const first = createDefaultWorkspace("workspace-source-sync-a", "png", "Source A");
+    const second = createDefaultWorkspace("workspace-source-sync-b", "png", "Source B");
+    const firstSources = [source("I:/input/first.png"), source("I:/input/second.png")];
+    useStudioStore.setState({
+      workspaces: [
+        { ...first, mode: "edit", sources: firstSources },
+        { ...second, mode: "edit", sources: [source("I:/input/other.png")] },
+      ],
+      activeWorkspaceId: first.id,
+      mode: "edit",
+      editSourceMode: "manual",
+      sources: firstSources,
+      currentImage: null,
+    });
+
+    useStudioStore.getState().removeSource(0);
+    useStudioStore.getState().switchWorkspace(second.id);
+    useStudioStore.getState().switchWorkspace(first.id);
+
+    expect(paths(useStudioStore.getState().sources)).toEqual(["I:/input/second.png"]);
+    expect(paths(useStudioStore.getState().workspaces.find((item) => item.id === first.id)?.sources))
+      .toEqual(["I:/input/second.png"]);
+  });
+
+  it("persists the current source list without image payloads for refresh recovery", () => {
+    const base = createDefaultWorkspace("workspace-refresh", "png", "Refresh");
+    const sources = [
+      { ...source("I:/input/kept.jpg"), imageB64: "must-not-persist", imageBlob: new Blob(["private"]) },
+    ];
+    const workspace = { ...base, mode: "edit" as const, sources };
+
+    persistWorkspaceSession(workspace.id, [workspace], {});
+    const restored = loadWorkspaceSession("png");
+
+    expect(paths(restored?.workspaces[0]?.sources)).toEqual(["I:/input/kept.jpg"]);
+    expect(restored?.workspaces[0]?.sources[0]?.imageB64).toBeUndefined();
+    expect(restored?.workspaces[0]?.sources[0]?.imageBlob).toBeNull();
   });
 });
