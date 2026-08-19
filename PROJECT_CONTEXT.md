@@ -2,7 +2,7 @@
 
 ## 2026-08-19 批次 30：参考图删除状态同步与照片属性（开发中）
 
-- 当前分支：`codex/windows-v2.0.4-feature/reference-slot-workspace-sync`；工作区仍有本批未提交代码，未设置 upstream、未推送 GitHub。
+- 当前分支：`codex/windows-v2.0.4-feature/reference-slot-workspace-sync`；本批提交为 `feafe04 fix(state): persist reference slot removals per workspace`，工作区干净，未设置 upstream、未推送 GitHub。
 - 已修复删除/清空/排序只更新顶层 `sources` 导致旧工作区快照复活的问题；添加图片和延迟导入改为读取目标工作区实时列表。
 - 已新增 JPEG EXIF 照片属性读取和参考图右键入口；缺失字段不会渲染空行。局部编辑入口文案统一为“裁切局部重绘”。
 - 已增加 `100MP / 16,384px` 源图门禁和 Windows `PasteLocalEdit` 磁盘端贴回；超过 `64MP` 的大图不进入浏览器整图 Canvas，裁切区域仍按自然像素贴回完整尺寸 PNG，并保留对齐、羽化、颜色和手绘蒙版参数。
