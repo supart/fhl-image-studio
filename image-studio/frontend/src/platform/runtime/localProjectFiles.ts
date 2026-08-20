@@ -1,4 +1,9 @@
-import type { MaterialOutputSyncItemLike, MaterialOutputSyncResultLike, MediaAssetRefLike } from "./hostTypes";
+import type {
+  MaterialOutputSyncItemLike,
+  MaterialOutputSyncResultLike,
+  MediaAssetRefLike,
+  PlanarPastebackOptionsLike,
+} from "./hostTypes";
 
 export type ProjectImageKind = "input" | "output";
 type SaveProjectImageOptions = {
@@ -98,6 +103,50 @@ export async function readProjectImage(path: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+export async function cropProjectImage(
+  sourcePath: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): Promise<{ path: string; acceleration?: string; width?: number; height?: number }> {
+  if (!isLocalPreviewHost()) throw new Error("当前浏览器预览环境未启动本地裁切服务");
+  const response = await fetch(`${PROJECT_FILES_PREFIX}/crop-image`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path: sourcePath, x, y, width, height }),
+  });
+  const data = await response.json().catch(() => ({})) as {
+    path?: string;
+    acceleration?: string;
+    width?: number;
+    height?: number;
+    error?: string;
+  };
+  if (!response.ok) throw new Error(data.error || `本地裁切接口返回 ${response.status}`);
+  if (!data.path) throw new Error("本地裁切接口未返回输出路径");
+  return { ...data, path: data.path };
+}
+
+export async function pasteProjectLocalEdit(
+  sourcePath: string,
+  editedPath: string,
+  options: PlanarPastebackOptionsLike,
+): Promise<{ path: string; acceleration?: string }> {
+  if (!isLocalPreviewHost()) throw new Error("当前浏览器预览环境未启动本地贴回服务");
+  const response = await fetch(`${PROJECT_FILES_PREFIX}/paste-local-edit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sourcePath, editedPath, options }),
+  });
+  const data = await response.json().catch(() => ({})) as { path?: string; acceleration?: string; error?: string };
+  if (!response.ok) {
+    throw new Error(data.error || `本地贴回接口返回 ${response.status}`);
+  }
+  if (!data.path) throw new Error("本地贴回接口未返回输出路径");
+  return { path: data.path, acceleration: data.acceleration };
 }
 
 export async function registerProjectMedia(

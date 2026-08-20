@@ -15,6 +15,8 @@ import {
   HEADER_PROMOTION_ROUTE,
   resolveHeaderPromotionFileResponse,
 } from "./dev/headerPromotionFile";
+import { cropLocalImageFile, type LocalCropRequest } from "./dev/localCrop";
+import { pasteLocalEditFile, type BrowserPastebackOptions } from "./dev/localPasteback";
 
 const targetPlatform = (process.env.VITE_TARGET_PLATFORM ?? "").trim().toLowerCase();
 const isAndroidWebViewTarget = targetPlatform === "android" || targetPlatform === "android-pad";
@@ -623,12 +625,57 @@ function projectFilesPlugin(): Plugin {
             sendJSON(res, 200, { imageB64: data.toString("base64") });
             return;
           }
+          if (url.pathname === "/crop-image") {
+            const body = await readJSONBody(req, 256 * 1024);
+            const sourcePath = assertProjectImagePath(String(body?.path || ""));
+            const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "").replace("T", "-");
+            const outputName = `${stamp}-${safeStem(path.basename(sourcePath))}-crop.png`;
+            const outputPath = await uniqueTargetPath(inputDir, outputName);
+            try {
+              const result = await cropLocalImageFile(
+                sourcePath,
+                outputPath,
+                {
+                  x: body?.x,
+                  y: body?.y,
+                  width: body?.width,
+                  height: body?.height,
+                } as LocalCropRequest,
+              );
+              sendJSON(res, 200, result);
+            } catch (error) {
+              await fs.rm(outputPath, { force: true }).catch(() => undefined);
+              throw error;
+            }
+            return;
+          }
           if (url.pathname === "/register-media") {
             const body = await readJSONBody(req, 1024 * 1024);
             sendJSON(res, 200, await registerProjectMedia(
               String(body?.savedPath || ""),
               String(body?.thumbPath || ""),
             ));
+            return;
+          }
+          if (url.pathname === "/paste-local-edit") {
+            const body = await readJSONBody(req);
+            const sourcePath = assertProjectImagePath(String(body?.sourcePath || ""));
+            const editedPath = assertProjectImagePath(String(body?.editedPath || ""));
+            const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "").replace("T", "-");
+            const outputName = `${stamp}-${safeStem(path.basename(sourcePath))}-local-pasteback.png`;
+            const outputPath = await uniqueTargetPath(inputDir, outputName);
+            try {
+              const result = await pasteLocalEditFile(
+                sourcePath,
+                editedPath,
+                outputPath,
+                (body?.options || {}) as BrowserPastebackOptions,
+              );
+              sendJSON(res, 200, result);
+            } catch (error) {
+              await fs.rm(outputPath, { force: true }).catch(() => undefined);
+              throw error;
+            }
             return;
           }
           if (url.pathname === "/read-text") {

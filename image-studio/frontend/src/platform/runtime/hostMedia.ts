@@ -9,7 +9,9 @@ import {
 } from "../../lib/virtualHostStore.ts";
 import { fileNameFromPath, saveByDownload } from "./hostBrowser.ts";
 import {
+  cropProjectImage,
   readProjectImage,
+  pasteProjectLocalEdit,
   registerProjectMedia,
   saveProjectImage,
   syncProjectMaterialGroup,
@@ -21,6 +23,7 @@ import {
   invokeService,
 } from "./hostBindings.ts";
 import {
+  isLocalPreviewHost,
   supportsDesktopNativeGPUTransforms,
   unsupportedMessage,
 } from "./hostContext.ts";
@@ -278,12 +281,18 @@ export function CropImage(path: string, x: number, y: number, width: number, hei
   if (hasServiceMethod("CropImage")) {
     return invokeService<ImageTransformResultLike>(unsupportedMessage, "CropImage", path, x, y, width, height);
   }
+  if (isLocalPreviewHost()) {
+    return cropProjectImage(path, x, y, width, height);
+  }
   return runPersistedVirtualTransform(path, (virtualPath) => cropVirtualImage(virtualPath, x, y, width, height));
 }
 
 export function PasteLocalEdit(sourcePath: string, editedPath: string, options: PlanarPastebackOptionsLike): Promise<ImageTransformResultLike> {
   if (hasServiceMethod("PasteLocalEdit")) {
     return invokeService<ImageTransformResultLike>(unsupportedMessage, "PasteLocalEdit", sourcePath, editedPath, options);
+  }
+  if (isLocalPreviewHost()) {
+    return pasteProjectLocalEdit(sourcePath, editedPath, options);
   }
   return Promise.reject(new Error(unsupportedMessage("PasteLocalEdit")));
 }

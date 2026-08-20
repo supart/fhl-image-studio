@@ -1295,6 +1295,48 @@ test("runtimeHost linux fallback uses persisted GPU-backed transform when deskto
   });
 });
 
+test("runtimeHost local preview crops managed paths without reading the source as Base64", async () => {
+  const calls = [];
+  await withPatchedGlobals(async () => {
+    globalThis.window.location = {
+      href: "http://127.0.0.1:5173/",
+      origin: "http://127.0.0.1:5173",
+      hostname: "127.0.0.1",
+    };
+    globalThis.window.go = {};
+    globalThis.fetch = async (url, init = {}) => {
+      calls.push({ url: String(url), body: JSON.parse(String(init.body || "{}")) });
+      return new Response(JSON.stringify({
+        path: "I:/preview/input/20260820-source-crop.png",
+        acceleration: "node-sharp",
+        width: 1200,
+        height: 800,
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    const result = await runtimeHost.CropImage("I:/preview/input/source.jpg", 40, 60, 1200, 800);
+    assert.deepEqual(result, {
+      path: "I:/preview/input/20260820-source-crop.png",
+      acceleration: "node-sharp",
+      width: 1200,
+      height: 800,
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "/__image-studio-files/crop-image");
+    assert.deepEqual(calls[0].body, {
+      path: "I:/preview/input/source.jpg",
+      x: 40,
+      y: 60,
+      width: 1200,
+      height: 800,
+    });
+  });
+});
+
 test("runtimeHost remote cancel aborts pending remote jobs", async () => {
   await withPatchedGlobals(async () => {
     globalThis.fetch = async (_url, init) => {
