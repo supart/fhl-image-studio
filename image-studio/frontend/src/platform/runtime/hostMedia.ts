@@ -13,6 +13,7 @@ import {
   readProjectImage,
   pasteProjectLocalEdit,
   registerProjectMedia,
+  removeProjectImage,
   saveProjectImage,
   syncProjectMaterialGroup,
 } from "./localProjectFiles.ts";
@@ -51,7 +52,7 @@ function blobFromBase64(imageB64: string, mimeType: string): Blob {
 }
 
 async function persistVirtualTransformResult(
-  result: { path: string; imageB64?: string; mimeType?: string; name?: string; acceleration?: string },
+  result: { path: string; imageB64?: string; mimeType?: string; name?: string; acceleration?: string; width?: number; height?: number },
   fallbackName: string,
 ): Promise<ImageTransformResultLike> {
   const imageB64 = result.imageB64 || readVirtualImageAsBase64(result.path);
@@ -60,6 +61,8 @@ async function persistVirtualTransformResult(
   return {
     path: imported.path,
     acceleration: result.acceleration,
+    width: result.width,
+    height: result.height,
   };
 }
 
@@ -73,7 +76,7 @@ async function materializeReadablePathAsVirtual(path: string): Promise<ImportedI
 
 async function runPersistedVirtualTransform(
   path: string,
-  transform: (virtualPath: string) => Promise<{ path: string; imageB64?: string; mimeType?: string; name?: string; acceleration?: string }>,
+  transform: (virtualPath: string) => Promise<{ path: string; imageB64?: string; mimeType?: string; name?: string; acceleration?: string; width?: number; height?: number }>,
 ): Promise<ImageTransformResultLike> {
   const imported = await materializeReadablePathAsVirtual(path);
   let resultPath: string | null = null;
@@ -194,6 +197,16 @@ export function SaveImagePathToOutput(path: string, suggestedName: string): Prom
   return Promise.reject(new Error(unsupportedMessage("SaveImagePathToOutput")));
 }
 
+export function RemoveManagedImage(path: string): Promise<void> {
+  if (hasServiceMethod("RemoveManagedImage")) {
+    return invokeService<void>(unsupportedMessage, "RemoveManagedImage", path);
+  }
+  if (isLocalPreviewHost()) {
+    return removeProjectImage(path);
+  }
+  return Promise.reject(new Error(unsupportedMessage("RemoveManagedImage")));
+}
+
 export function SyncMaterialGroupToOutput(
   groupKind: string,
   groupName: string,
@@ -282,7 +295,7 @@ export function ImportImagePath(path: string): Promise<ImportedImageLike> {
 
 export function RotateImage(path: string, degrees: number): Promise<ImageTransformResultLike> {
   if (isVirtualPath(path)) {
-    return rotateVirtualImage(path, degrees).then((result) => ({ path: result.path, acceleration: result.acceleration || "cpu-canvas" }));
+    return rotateVirtualImage(path, degrees).then((result) => ({ path: result.path, width: result.width, height: result.height, acceleration: result.acceleration || "cpu-canvas" }));
   }
   if (supportsDesktopNativeGPUTransforms()) {
     return invokeService<ImageTransformResultLike>(unsupportedMessage, "RotateImage", path, degrees);
@@ -292,7 +305,7 @@ export function RotateImage(path: string, degrees: number): Promise<ImageTransfo
 
 export function FlipImage(path: string, horizontal: boolean): Promise<ImageTransformResultLike> {
   if (isVirtualPath(path)) {
-    return flipVirtualImage(path, horizontal).then((result) => ({ path: result.path, acceleration: result.acceleration || "cpu-canvas" }));
+    return flipVirtualImage(path, horizontal).then((result) => ({ path: result.path, width: result.width, height: result.height, acceleration: result.acceleration || "cpu-canvas" }));
   }
   if (supportsDesktopNativeGPUTransforms()) {
     return invokeService<ImageTransformResultLike>(unsupportedMessage, "FlipImage", path, horizontal);

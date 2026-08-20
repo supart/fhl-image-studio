@@ -101,7 +101,12 @@ export type PhotoMetadataLike = {
   width?: number;
   height?: number;
 };
-export type ImageTransformResultLike = { path: string; acceleration?: string };
+export type ImageTransformResultLike = {
+  path: string;
+  acceleration?: string;
+  width?: number;
+  height?: number;
+};
 export type PlanarPastebackOptionsLike = {
   cropX: number;
   cropY: number;

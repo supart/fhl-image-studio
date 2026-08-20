@@ -60,6 +60,7 @@ const expectedFacadeExports = [
   "ReadTextFile",
   "RegisterImportedImageAsset",
   "RegisterMediaAsset",
+  "RemoveManagedImage",
   "ReversePrompt",
   "RotateImage",
   "SaveImageAs",

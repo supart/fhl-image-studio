@@ -93,3 +93,57 @@ func TestSaveImagePathToOutputRejectsUnmanagedSource(t *testing.T) {
 		t.Fatalf("unmanaged source should not create output images directory: %v", statErr)
 	}
 }
+
+func TestRemoveManagedImageCleansTransformAndRegisteredPreview(t *testing.T) {
+	packageRoot := t.TempDir()
+	t.Setenv(publicRootEnvName, packageRoot)
+	sourcePath := filepath.Join(portableInputDir(packageRoot), "crop-source.png")
+	writeImportSourceTestPNG(t, sourcePath)
+
+	service := NewService()
+	api := NewDesktopAPI(service)
+	cropped, err := api.CropImage(sourcePath, 2, 3, 7, 5)
+	if err != nil {
+		t.Fatalf("CropImage: %v", err)
+	}
+	if cropped.Width != 7 || cropped.Height != 5 {
+		t.Fatalf("crop dimensions = %dx%d, want 7x5", cropped.Width, cropped.Height)
+	}
+	ref, err := api.RegisterImportedImageAsset(cropped.Path)
+	if err != nil {
+		t.Fatalf("RegisterImportedImageAsset: %v", err)
+	}
+	if ref.PreviewURL == "" {
+		t.Fatal("expected a registered preview")
+	}
+	previewPath := filepath.Join(filepath.Dir(cropped.Path), "previews", "")
+	entries, err := os.ReadDir(previewPath)
+	if err != nil {
+		t.Fatalf("read preview directory: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("expected a generated preview file")
+	}
+	if err := api.RemoveManagedImage(cropped.Path); err != nil {
+		t.Fatalf("RemoveManagedImage: %v", err)
+	}
+	if _, err := os.Stat(cropped.Path); !os.IsNotExist(err) {
+		t.Fatalf("cropped file still exists: %v", err)
+	}
+	for _, entry := range entries {
+		if _, err := os.Stat(filepath.Join(previewPath, entry.Name())); !os.IsNotExist(err) {
+			t.Fatalf("preview file still exists: %s (%v)", entry.Name(), err)
+		}
+	}
+
+	outputPath, err := api.SaveImagePathToOutput(sourcePath, "cleanup.png")
+	if err != nil {
+		t.Fatalf("SaveImagePathToOutput: %v", err)
+	}
+	if err := api.RemoveManagedImage(outputPath); err != nil {
+		t.Fatalf("RemoveManagedImage output: %v", err)
+	}
+	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
+		t.Fatalf("output file still exists: %v", err)
+	}
+}

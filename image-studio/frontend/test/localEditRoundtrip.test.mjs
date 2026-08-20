@@ -12,6 +12,7 @@ test("local edit roundtrip is persisted on both history and source records", asy
   assert.match(domain, /export type LocalEditRoundtripRef/);
   assert.match(domain, /export interface LocalEditLens/);
   assert.match(domain, /lens\?: LocalEditLens/);
+  assert.match(domain, /lensActive\?: boolean/);
   assert.match(domain, /localEditRoundtrip\?: LocalEditRoundtripRef/);
   assert.match(shared, /localEditRoundtrip: raw\.localEditRoundtrip/);
   assert.match(sources, /localEditRoundtrip: source\.localEditRoundtrip/);
@@ -38,6 +39,10 @@ test("Windows UI exposes local edit and keeps panorama entry points", async () =
   assert.doesNotMatch(modal, /横竖切换|RotateCw|lew-rotate-aspect/);
   assert.match(modal, /保存并编辑/);
   assert.match(modal, /保存镜头（不修改）/);
+  assert.match(modal, /lew-floating-bottom/);
+  assert.match(modal, /镜头预览/);
+  assert.match(modal, /清除镜头/);
+  assert.match(modal, /重置镜头/);
   assert.doesNotMatch(modal, /开始局部生成|导入 PNG \/ JPG \/ WebP|进入对齐贴回|promptPrefix|optimizationGuidance|<textarea/);
 });
 
@@ -68,4 +73,6 @@ test("local edit store actions create a child crop and terminal pasteback result
   assert.match(store, /persistHistoryItem\(source\)/);
   assert.doesNotMatch(store, /promptPrefix: state\.promptPrefix/);
   assert.match(shared, /raw\.phase === "edit" \|\| raw\.phase === "align"\) return null/);
+  assert.match(shared, /lensActive: raw\.lensActive !== false/);
+  assert.match(store, /draft\.lensActive === false/);
 });

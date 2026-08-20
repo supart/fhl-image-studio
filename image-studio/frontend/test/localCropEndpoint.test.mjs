@@ -12,6 +12,8 @@ test("local crop endpoint stays path-only and applies project containment", () =
 
   assert.match(vite, /import \{ cropLocalImageFile, type LocalCropRequest \} from "\.\/dev\/localCrop"/);
   assert.match(vite, /url\.pathname === "\/crop-image"/);
+  assert.match(vite, /url\.pathname === "\/remove-image"/);
+  assert.match(vite, /path outside temporary project image folders/);
   assert.match(vite, /assertProjectImagePath\(String\(body\?\.path \|\| ""\)\)/);
   assert.match(vite, /await fs\.rm\(outputPath, \{ force: true \}\)/);
   assert.match(vite, /cropLocalImageFile\(/);

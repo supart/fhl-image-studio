@@ -76,6 +76,8 @@ export function RegisterImportedImageAsset(arg1:string):Promise<backend.MediaAss
 
 export function RegisterMediaAsset(arg1:string,arg2:string):Promise<backend.MediaAssetRef>;
 
+export function RemoveManagedImage(arg1:string):Promise<void>;
+
 export function ReversePrompt(arg1:backend.PromptReverseOptions):Promise<string>;
 
 export function RotateImage(arg1:string,arg2:number):Promise<backend.ImageTransformResult>;

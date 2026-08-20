@@ -237,6 +237,8 @@ export namespace backend {
 	export class ImageTransformResult {
 	    path: string;
 	    acceleration?: string;
+	    width?: number;
+	    height?: number;
 
 	    static createFrom(source: any = {}) {
 	        return new ImageTransformResult(source);
@@ -246,6 +248,8 @@ export namespace backend {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
 	        this.acceleration = source["acceleration"];
+	        this.width = source["width"];
+	        this.height = source["height"];
 	    }
 	}
 	export class PhotoMetadata {

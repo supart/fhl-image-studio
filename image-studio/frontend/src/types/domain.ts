@@ -179,6 +179,8 @@ export interface LocalEditWorkbenchDraft {
   cropRect: { x: number; y: number; width: number; height: number };
   /** Current single lens frame; cropRect remains for old drafts and history compatibility. */
   lens?: LocalEditLens;
+  /** Whether the current lens is available for saving. Old drafts default to true. */
+  lensActive?: boolean;
   aspect: string;
   dirty: boolean;
 }

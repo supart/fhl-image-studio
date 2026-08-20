@@ -26,6 +26,7 @@ import type {
 import { compactWorkspaceSessionTasks } from "./workspaceSessionTasks";
 import type { FHLTransportMode, ModeConfig, Stroke } from "./studioStore.types";
 import { isWindows } from "../platform";
+import { normalizeLocalEditLens } from "../localEdit/lens";
 import {
   ACTIVE_PROFILE_LS_KEY,
   PROFILES_LS_KEY,
@@ -333,40 +334,33 @@ function normalizeLocalEditWorkbenchDraft(value: unknown): LocalEditWorkbenchDra
   const lensY = Number((rawLens as any)?.y);
   const lensWidth = Number((rawLens as any)?.width);
   const lensHeight = Number((rawLens as any)?.height);
-  const normalizedLensWidth = Number.isFinite(lensWidth) && lensWidth > 0 ? Math.min(Math.floor(width), Math.floor(lensWidth)) : Math.max(1, Math.floor(cropWidth));
-  const normalizedLensHeight = Number.isFinite(lensHeight) && lensHeight > 0 ? Math.min(Math.floor(height), Math.floor(lensHeight)) : Math.max(1, Math.floor(cropHeight));
-  const lens: LocalEditLens = {
+  const safeWidth = Math.max(1, Math.floor(width));
+  const safeHeight = Math.max(1, Math.floor(height));
+  const normalizedAspect = typeof (rawLens as any)?.aspect === "string" && (rawLens as any).aspect.trim()
+    ? (rawLens as any).aspect.trim()
+    : (typeof raw.aspect === "string" && raw.aspect.trim() ? raw.aspect.trim() : "free");
+  const lens: LocalEditLens = normalizeLocalEditLens({
     id: typeof (rawLens as any)?.id === "string" && (rawLens as any).id.trim()
       ? (rawLens as any).id.trim()
       : "local-edit-lens-1",
-    aspect: typeof (rawLens as any)?.aspect === "string" && (rawLens as any).aspect.trim()
-      ? (rawLens as any).aspect.trim()
-      : (typeof raw.aspect === "string" && raw.aspect.trim() ? raw.aspect.trim() : "free"),
-    x: Math.max(0, Math.min(Math.floor(width - normalizedLensWidth), Number.isFinite(lensX) ? Math.floor(lensX) : Math.floor(x))),
-    y: Math.max(0, Math.min(Math.floor(height - normalizedLensHeight), Number.isFinite(lensY) ? Math.floor(lensY) : Math.floor(y))),
-    width: normalizedLensWidth,
-    height: normalizedLensHeight,
-    outputWidth: Number.isFinite(Number((rawLens as any)?.outputWidth))
-      ? Math.max(1, Math.floor(Number((rawLens as any).outputWidth)))
-      : Math.max(1, Math.floor(cropWidth)),
-    outputHeight: Number.isFinite(Number((rawLens as any)?.outputHeight))
-      ? Math.max(1, Math.floor(Number((rawLens as any).outputHeight)))
-      : Math.max(1, Math.floor(cropHeight)),
-  };
+    aspect: normalizedAspect,
+    x: Number.isFinite(lensX) ? lensX : x,
+    y: Number.isFinite(lensY) ? lensY : y,
+    width: Number.isFinite(lensWidth) && lensWidth > 0 ? lensWidth : cropWidth,
+    height: Number.isFinite(lensHeight) && lensHeight > 0 ? lensHeight : cropHeight,
+    outputWidth: Number((rawLens as any)?.outputWidth) || cropWidth,
+    outputHeight: Number((rawLens as any)?.outputHeight) || cropHeight,
+  }, safeWidth, safeHeight, normalizedAspect);
   return {
     mode: raw.mode === "panorama" ? "panorama" : "planar",
     phase: "crop",
     sourceHistoryId,
     sourcePath: sourcePath || undefined,
-    sourceWidth: Math.max(1, Math.floor(width)),
-    sourceHeight: Math.max(1, Math.floor(height)),
-    cropRect: {
-      x: Math.max(0, Math.floor(x)),
-      y: Math.max(0, Math.floor(y)),
-      width: Math.max(1, Math.floor(cropWidth)),
-      height: Math.max(1, Math.floor(cropHeight)),
-    },
+    sourceWidth: safeWidth,
+    sourceHeight: safeHeight,
+    cropRect: { x: lens.x, y: lens.y, width: lens.width, height: lens.height },
     lens,
+    lensActive: raw.lensActive !== false,
     aspect: typeof raw.aspect === "string" && raw.aspect.trim() ? raw.aspect.trim() : "free",
     dirty: raw.dirty === true,
   };

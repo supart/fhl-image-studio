@@ -18,7 +18,7 @@ func TestDesktopAPIBindingSurface(t *testing.T) {
 		"GetStoredAPIKey", "ImportHistoryFromFile", "ImportImageFromB64", "ImportImagePath",
 		"ListBatchInputImages", "OpenExternalURL", "OpenFile", "OpenImageDialog", "OpenImagesDialog",
 		"OpenMaterialSyncDir", "OpenOutputDir", "OptimizePrompt", "PasteLocalEdit", "ProbeUpstream", "ReadImageAsBase64",
-		"ReadImageMetadata", "ReadTextFile", "RegisterImportedImageAsset", "RegisterMediaAsset", "ReversePrompt", "RotateImage",
+		"ReadImageMetadata", "ReadTextFile", "RegisterImportedImageAsset", "RegisterMediaAsset", "RemoveManagedImage", "ReversePrompt", "RotateImage",
 		"SaveImageAs", "SaveImagePathAs", "SaveImagePathToDir", "SaveImagePathToOutput", "SaveImageToDir", "SetOutputDir",
 		"SetStoredAPIKey", "SyncCLIConfig", "SyncMaterialGroupToOutput", "SyncPSBridgeProfile", "UpdatePSBridgeRemoteJob",
 	}

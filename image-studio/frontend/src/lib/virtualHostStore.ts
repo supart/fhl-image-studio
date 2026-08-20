@@ -28,6 +28,8 @@ type ImportedImageRecord = {
   imageB64: string;
   mimeType?: string;
   name?: string;
+  width?: number;
+  height?: number;
 };
 
 type SelectedImageRecord = {
@@ -593,17 +595,17 @@ export async function rotateVirtualImage(path: string, degrees: number): Promise
   const { record, bitmap } = await loadRecordBitmap(path);
   try {
     const normalized = ((degrees % 360) + 360) % 360;
+    const swap = normalized === 90 || normalized === 270;
     try {
       const rendered = await rotateBitmapWithGPU(bitmap, normalized);
       try {
         const result = await canvasToRegisteredImage(rendered.canvas, record, record.name);
-        return { ...result, acceleration: rendered.acceleration };
+        return { ...result, width: swap ? bitmap.height : bitmap.width, height: swap ? bitmap.width : bitmap.height, acceleration: rendered.acceleration };
       } finally {
         rendered.dispose();
       }
     } catch (error) {
       noteGPUFallback("rotate", error);
-      const swap = normalized === 90 || normalized === 270;
       const canvas = document.createElement("canvas");
       canvas.width = swap ? bitmap.height : bitmap.width;
       canvas.height = swap ? bitmap.width : bitmap.height;
@@ -613,7 +615,7 @@ export async function rotateVirtualImage(path: string, degrees: number): Promise
       ctx.rotate((normalized * Math.PI) / 180);
       ctx.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2);
       const result = await canvasToRegisteredImage(canvas, record, record.name);
-      return { ...result, acceleration: "cpu-canvas" };
+      return { ...result, width: canvas.width, height: canvas.height, acceleration: "cpu-canvas" };
     }
   } finally {
     bitmap.close();
@@ -627,7 +629,7 @@ export async function flipVirtualImage(path: string, horizontal: boolean): Promi
       const rendered = await flipBitmapWithGPU(bitmap, horizontal);
       try {
         const result = await canvasToRegisteredImage(rendered.canvas, record, record.name);
-        return { ...result, acceleration: rendered.acceleration };
+        return { ...result, width: bitmap.width, height: bitmap.height, acceleration: rendered.acceleration };
       } finally {
         rendered.dispose();
       }
@@ -642,7 +644,7 @@ export async function flipVirtualImage(path: string, horizontal: boolean): Promi
       ctx.scale(horizontal ? -1 : 1, horizontal ? 1 : -1);
       ctx.drawImage(bitmap, 0, 0);
       const result = await canvasToRegisteredImage(canvas, record, record.name);
-      return { ...result, acceleration: "cpu-canvas" };
+      return { ...result, width: canvas.width, height: canvas.height, acceleration: "cpu-canvas" };
     }
   } finally {
     bitmap.close();
@@ -666,7 +668,7 @@ export async function cropVirtualImage(
       const rendered = await cropBitmapWithGPU(bitmap, left, top, cropWidth, cropHeight);
       try {
         const result = await canvasToRegisteredImage(rendered.canvas, record, record.name);
-        return { ...result, acceleration: rendered.acceleration };
+        return { ...result, width: cropWidth, height: cropHeight, acceleration: rendered.acceleration };
       } finally {
         rendered.dispose();
       }
@@ -679,7 +681,7 @@ export async function cropVirtualImage(
       if (!ctx) throw new Error("无法创建图像画布");
       ctx.drawImage(bitmap, left, top, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
       const result = await canvasToRegisteredImage(canvas, record, record.name);
-      return { ...result, acceleration: "cpu-canvas" };
+      return { ...result, width: cropWidth, height: cropHeight, acceleration: "cpu-canvas" };
     }
   } finally {
     bitmap.close();

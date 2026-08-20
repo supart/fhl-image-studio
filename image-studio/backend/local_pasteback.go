@@ -238,7 +238,13 @@ func savePlanarTransform(img image.Image, out transformOutput, acceleration stri
 	if err := png.Encode(f, img); err != nil {
 		return ImageTransformResult{}, err
 	}
-	return ImageTransformResult{Path: out.Path, Acceleration: acceleration}, nil
+	bounds := img.Bounds()
+	return ImageTransformResult{
+		Path:         out.Path,
+		Acceleration: acceleration,
+		Width:        bounds.Dx(),
+		Height:       bounds.Dy(),
+	}, nil
 }
 
 func composePlanarImage(output *image.RGBA, edited image.Image, mask image.Image, options PlanarPastebackOptions) {

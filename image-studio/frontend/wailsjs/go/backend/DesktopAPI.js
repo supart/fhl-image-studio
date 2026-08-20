@@ -150,6 +150,10 @@ export function RegisterMediaAsset(arg1, arg2) {
   return window['go']['backend']['DesktopAPI']['RegisterMediaAsset'](arg1, arg2);
 }
 
+export function RemoveManagedImage(arg1) {
+  return window['go']['backend']['DesktopAPI']['RemoveManagedImage'](arg1);
+}
+
 export function ReversePrompt(arg1) {
   return window['go']['backend']['DesktopAPI']['ReversePrompt'](arg1);
 }

@@ -20,6 +20,8 @@ import (
 type ImageTransformResult struct {
 	Path         string `json:"path"`
 	Acceleration string `json:"acceleration,omitempty"`
+	Width        int    `json:"width,omitempty"`
+	Height       int    `json:"height,omitempty"`
 }
 
 // RotateImage rotates the image at `path` by `degrees` (multiples of 90 only)
@@ -53,6 +55,7 @@ func (s *Service) RotateImage(path string, degrees int) (ImageTransformResult, e
 		return ImageTransformResult{}, err
 	}
 	if result, err := transformWithGPU(allowed, out, gpuTransformRequest{Kind: gpuTransformRotate, Degrees: deg}); err == nil {
+		result.Width, result.Height = imageDimensionsForRotation(src, deg)
 		return result, nil
 	}
 	_ = os.Remove(out.Path)
@@ -89,6 +92,8 @@ func (s *Service) FlipImage(path string, horizontal bool) (ImageTransformResult,
 		return ImageTransformResult{}, err
 	}
 	if result, err := transformWithGPU(allowed, out, gpuTransformRequest{Kind: gpuTransformFlip, Horizontal: horizontal}); err == nil {
+		bounds := src.Bounds()
+		result.Width, result.Height = bounds.Dx(), bounds.Dy()
 		return result, nil
 	}
 	_ = os.Remove(out.Path)
@@ -135,6 +140,7 @@ func (s *Service) CropImage(path string, x, y, w, h int) (ImageTransformResult, 
 		CropW: rect.Dx(),
 		CropH: rect.Dy(),
 	}); err == nil {
+		result.Width, result.Height = rect.Dx(), rect.Dy()
 		return result, nil
 	}
 	_ = os.Remove(out.Path)
@@ -253,5 +259,19 @@ func saveTransform(img image.Image, out transformOutput, acceleration string) (I
 			return ImageTransformResult{}, err
 		}
 	}
-	return ImageTransformResult{Path: out.Path, Acceleration: acceleration}, nil
+	bounds := img.Bounds()
+	return ImageTransformResult{
+		Path:         out.Path,
+		Acceleration: acceleration,
+		Width:        bounds.Dx(),
+		Height:       bounds.Dy(),
+	}, nil
+}
+
+func imageDimensionsForRotation(src image.Image, degrees int) (int, int) {
+	bounds := src.Bounds()
+	if degrees == 90 || degrees == 270 {
+		return bounds.Dy(), bounds.Dx()
+	}
+	return bounds.Dx(), bounds.Dy()
 }

@@ -208,6 +208,10 @@ func (api *DesktopAPI) RegisterImportedImageAsset(path string) (MediaAssetRef, e
 	return api.service.RegisterImportedImageAsset(path)
 }
 
+func (api *DesktopAPI) RemoveManagedImage(path string) error {
+	return api.service.RemoveManagedImage(path)
+}
+
 func (api *DesktopAPI) RegisterMediaAsset(savedPath, thumbPath string) (MediaAssetRef, error) {
 	return api.service.RegisterMediaAsset(savedPath, thumbPath)
 }

@@ -48,6 +48,7 @@ export {
   ReadImageMetadata,
   RegisterImportedImageAsset,
   RegisterMediaAsset,
+  RemoveManagedImage,
   RotateImage,
   SaveImageAs,
   SaveImagePathAs,

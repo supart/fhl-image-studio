@@ -331,6 +331,24 @@ function assertProjectImagePath(filePath: string): string {
   return abs;
 }
 
+async function removeProjectImageFile(filePath: string): Promise<void> {
+  const abs = assertProjectImagePath(filePath);
+  const outputImagesDir = path.join(outputDir, "images");
+  if (!isInsideDir(inputDir, abs) && !isInsideDir(outputImagesDir, abs)) {
+    throw new Error("path outside temporary project image folders");
+  }
+  const derivativePaths: string[] = [];
+  for (const [id, asset] of localMediaAssets) {
+    if (asset.fullPath !== abs) continue;
+    if (asset.thumbPath) derivativePaths.push(asset.thumbPath);
+    localMediaAssets.delete(id);
+  }
+  await fs.rm(abs, { force: true });
+  for (const derivative of derivativePaths) {
+    await fs.rm(derivative, { force: true }).catch(() => undefined);
+  }
+}
+
 async function withThumbnailSlot<T>(work: () => Promise<T>): Promise<T> {
   if (activeThumbnailJobs >= 2) {
     await new Promise<void>((resolve) => thumbnailWaiters.push(resolve));
@@ -655,6 +673,12 @@ function projectFilesPlugin(): Plugin {
               String(body?.savedPath || ""),
               String(body?.thumbPath || ""),
             ));
+            return;
+          }
+          if (url.pathname === "/remove-image") {
+            const body = await readJSONBody(req, 256 * 1024);
+            await removeProjectImageFile(String(body?.path || ""));
+            sendJSON(res, 200, { ok: true });
             return;
           }
           if (url.pathname === "/paste-local-edit") {

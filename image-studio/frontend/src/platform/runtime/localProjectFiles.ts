@@ -168,6 +168,19 @@ export async function registerProjectMedia(
   }
 }
 
+export async function removeProjectImage(filePath: string): Promise<void> {
+  if (!isLocalPreviewHost() || !filePath.trim()) return;
+  const response = await fetch(`${PROJECT_FILES_PREFIX}/remove-image`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path: filePath }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({})) as { error?: string };
+    throw new Error(data.error || `本地临时图片清理接口返回 ${response.status}`);
+  }
+}
+
 export async function readProjectText(path: string): Promise<string | null> {
   if (!isLocalPreviewHost() || !path.trim()) return null;
   try {

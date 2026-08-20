@@ -184,6 +184,60 @@ func (s *Service) RegisterImportedImageAsset(path string) (MediaAssetRef, error)
 	}, nil
 }
 
+// RemoveManagedImage removes a temporary image produced by an image transform.
+// The path must remain inside the app-managed imports directory or an active
+// output/images directory; arbitrary user paths are never accepted.
+func (s *Service) RemoveManagedImage(path string) error {
+	allowed, err := s.ensureManagedReadablePath(path, managedImageFile)
+	if err != nil {
+		return err
+	}
+	if !s.isManagedTransformPath(allowed) {
+		return fmt.Errorf("拒绝删除应用托管临时图片之外的文件:%s", filepath.Base(path))
+	}
+
+	derivatives := make([]string, 0, 2)
+	s.mu.Lock()
+	for id, asset := range s.mediaAssets {
+		if asset.FullPath != allowed {
+			continue
+		}
+		if asset.ThumbPath != "" {
+			derivatives = append(derivatives, asset.ThumbPath)
+		}
+		if asset.PreviewPath != "" {
+			derivatives = append(derivatives, asset.PreviewPath)
+		}
+		delete(s.mediaAssets, id)
+	}
+	s.mu.Unlock()
+
+	if err := os.Remove(allowed); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	for _, derivative := range derivatives {
+		if !s.isManagedTransformPath(derivative) {
+			continue
+		}
+		if err := os.Remove(derivative); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) isManagedTransformPath(path string) bool {
+	if importsRoot, err := importsDir(); err == nil && isWithinRoot(path, importsRoot) {
+		return true
+	}
+	for _, root := range s.allowedWritableRoots() {
+		if isWithinRoot(path, imagesSubdir(root)) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) RegisterMediaAsset(savedPath, thumbPath string) (MediaAssetRef, error) {
 	allowedFull, err := s.ensureManagedReadablePath(savedPath, managedImageFile)
 	if err != nil {
