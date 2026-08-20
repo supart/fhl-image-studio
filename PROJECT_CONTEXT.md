@@ -2,7 +2,7 @@
 
 ## 2026-08-20 批次 31：浏览器高清局部贴回宿主通道（已完成）
 
-- 当前恢复分支：`codex/windows-v2.0.4-feature/browser-pasteback-host`；基线为 `9cb4461`，代码提交为 `61a2b50 fix(local-edit): add browser high-resolution crop and pasteback host`。
+- 当前恢复分支：`codex/windows-v2.0.4-feature/browser-pasteback-host`；基线为 `9cb4461`，代码提交为 `61a2b50 fix(local-edit): add browser high-resolution crop and pasteback host`，文档提交为 `7a63d59 docs(dev): record browser high-resolution pasteback closure`。
 - Codex 浏览器已用 `7876×10835`（约 85MP）合成大图完成“裁切局部重绘 -> 对齐 -> 确认贴回”；输出保持 `7876×10835`，裁切外像素保持，终态标记为“局部贴回”。
 - 浏览器开发服务增加路径受限的 Sharp 裁切/贴回接口；浏览器只传受管路径和参数，不把整图 Base64 放入状态；Wails 原生方法仍优先。
 - 100MP 源图和大蒙版在完整解码前分别以约 `915MiB`、`804MiB` 估算被 `768MiB` 门禁拒绝；失败不会产生输出或历史半成品。
