@@ -1,20 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { RotateCw, Save, X } from "lucide-react";
+import { Bookmark, Save, X } from "lucide-react";
 import { historyFullSrc } from "../../lib/images";
 import { tempDataURLFromB64 } from "../../state/studioStore.shared";
 import { useStudioStore } from "../../state/studioStore";
 import { ReadImageAsBase64 } from "../../platform/runtime/host";
 import type { HistoryItem, LocalEditLens, LocalEditWorkbenchDraft } from "../../types/domain";
+import { aspectPresetsForAPIMode, type AspectPreset } from "../panel/sizeCapabilities";
+import { AspectRatioPicker } from "../panel/AspectRatioPicker";
 import "./localEditWorkbench.css";
 
-const ASPECTS = [
-  { value: "free", label: "自由" },
-  { value: "1:1", label: "1:1" },
-  { value: "4:3", label: "4:3" },
-  { value: "3:2", label: "3:2" },
-  { value: "16:9", label: "16:9" },
-  { value: "2:1", label: "2:1" },
-];
+type LocalEditSaveIntent = "edit" | "lens";
 
 type DragState = {
   kind: "move" | "nw" | "ne" | "sw" | "se";
@@ -27,16 +22,6 @@ type DragKind = "move" | "nw" | "ne" | "sw" | "se";
 function ratioValue(aspect: string) {
   const [w, h] = aspect.split(":").map(Number);
   return Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0 ? w / h : null;
-}
-
-function canRotateAspect(aspect: string) {
-  return aspect !== "free" && aspect !== "1:1" && ratioValue(aspect) !== null;
-}
-
-function swapAspect(aspect: string) {
-  if (!canRotateAspect(aspect)) return aspect;
-  const [w, h] = aspect.split(":").map(Number);
-  return `${h}:${w}`;
 }
 
 function clampRect(rect: LocalEditWorkbenchDraft["cropRect"], sourceWidth: number, sourceHeight: number, aspect = "free") {
@@ -116,6 +101,7 @@ function outputThumbUrl(item: HistoryItem) {
 
 export function LocalEditWorkspaceModal() {
   const draft = useStudioStore((state) => state.localEditWorkbenchDraft);
+  const apiMode = useStudioStore((state) => state.apiMode);
   const currentImage = useStudioStore((state) => state.currentImage);
   const history = useStudioStore((state) => state.history);
   const updateDraft = useStudioStore((state) => state.updateLocalEditWorkbenchDraft);
@@ -130,6 +116,7 @@ export function LocalEditWorkspaceModal() {
   const [sourceSrc, setSourceSrc] = useState("");
   const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(null);
   const [busy, setBusy] = useState(false);
+  const aspectPresets = useMemo(() => aspectPresetsForAPIMode(apiMode, "edit"), [apiMode]);
   const sourceWidth = draft?.sourceWidth ?? 0;
   const sourceHeight = draft?.sourceHeight ?? 0;
   const sourceItem = useMemo(() => draft ? history.find((item) => item.id === draft.sourceHistoryId) ?? currentImage : currentImage, [currentImage, draft, history]);
@@ -279,15 +266,19 @@ export function LocalEditWorkspaceModal() {
     updateDraft({ aspect, cropRect: nextRect, lens: { ...nextLens, ...nextRect }, dirty: true });
   };
 
-  const toggleAspectOrientation = () => {
-    if (isPanorama || !canRotateAspect(draft.aspect)) return;
-    chooseAspect(swapAspect(draft.aspect));
+  const confirmCrop = async (intent: LocalEditSaveIntent = "edit") => {
+    setBusy(true);
+    try {
+      // Keep this cast compatible with older store snapshots while the intent-aware
+      // action is rolled out. The store remains the source of truth for both paths.
+      const commitWithIntent = commitCrop as unknown as (saveIntent?: LocalEditSaveIntent) => Promise<HistoryItem | null>;
+      await commitWithIntent(intent);
+    } finally { setBusy(false); }
   };
 
-  const confirmCrop = async () => {
-    setBusy(true);
-    try { await commitCrop(); } finally { setBusy(false); }
-  };
+  const pickerValue = draft.aspect === "free" || draft.aspect === "auto"
+    ? "auto"
+    : (aspectPresets.some((item) => item.value === draft.aspect) ? draft.aspect : "auto");
 
   return (
     <div className="lew-overlay" role="dialog" aria-modal="true" aria-label="裁切局部重绘工作台">
@@ -345,12 +336,18 @@ export function LocalEditWorkspaceModal() {
                   </section>
 
                   <section className="lew-section">
-                    <div className="lew-section-title"><span>镜头参数</span><span className="lew-muted">{draft.aspect}</span></div>
+                    <div className="lew-section-title"><span>镜头参数</span><span className="lew-muted">{draft.aspect === "free" || draft.aspect === "auto" ? "自由" : draft.aspect}</span></div>
                     <div className="lew-aspect-control">
-                      <div className="lew-aspect-select" role="group" aria-label="裁切局部重绘比例">
-                        {ASPECTS.map((item) => <button key={item.value} type="button" className={draft.aspect === item.value ? "active" : ""} onClick={() => chooseAspect(item.value)}>{item.label}</button>)}
-                      </div>
-                      <button type="button" className="lew-rotate-aspect" aria-label="横竖切换" title="横竖切换" disabled={!canRotateAspect(draft.aspect)} onClick={toggleAspectOrientation}><RotateCw size={16} /></button>
+                      <AspectRatioPicker
+                        ariaLabel="裁切局部重绘比例"
+                        value={pickerValue as AspectPreset}
+                        presets={aspectPresets}
+                        autoLabel="自由"
+                        showAutoHint={false}
+                        portalMenu
+                        className="lew-aspect-picker"
+                        onChange={(value) => chooseAspect(value === "auto" ? "free" : value)}
+                      />
                     </div>
                     <div className="lew-lens-size"><span>镜头尺寸</span><strong>{outputSize}</strong></div>
                   </section>
@@ -364,7 +361,16 @@ export function LocalEditWorkspaceModal() {
             </div>
             <footer className="lew-footer">
               <button type="button" className="lew-secondary" onClick={close}>取消</button>
-              {isPanorama ? <button type="button" className="lew-primary" onClick={() => { close(); if (currentImage) void openPanoramaViewer(currentImage); }}>打开 360 编辑器</button> : <button type="button" className="lew-primary" onClick={() => void confirmCrop()} disabled={busy || !isCropPhase}><Save size={16} />{busy ? "保存中…" : "保存并编辑"}</button>}
+              {isPanorama ? <button type="button" className="lew-primary" onClick={() => { close(); if (currentImage) void openPanoramaViewer(currentImage); }}>打开 360 编辑器</button> : (
+                <div className="lew-footer-actions">
+                  <button type="button" className="lew-secondary lew-lens-save" onClick={() => void confirmCrop("lens")} disabled={busy || !isCropPhase}>
+                    <Bookmark size={15} />保存镜头（不修改）
+                  </button>
+                  <button type="button" className="lew-primary" onClick={() => void confirmCrop("edit")} disabled={busy || !isCropPhase}>
+                    <Save size={16} />{busy ? "保存中…" : "保存并编辑"}
+                  </button>
+                </div>
+              )}
             </footer>
           </aside>
         </main>
