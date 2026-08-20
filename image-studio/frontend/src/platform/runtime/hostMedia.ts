@@ -168,6 +168,32 @@ export function SaveImagePathToDir(path: string, directory: string, suggestedNam
   return ReadImageAsBase64(path).then((b64) => SaveImageToDir(b64, directory, suggestedName));
 }
 
+/**
+ * Copy a managed image into the active desktop Output/images directory.
+ * Browser preview keeps this as a short-lived read/copy fallback; image data
+ * is never retained in the runtime state or returned from this capability.
+ */
+export function SaveImagePathToOutput(path: string, suggestedName: string): Promise<string> {
+  if (hasServiceMethod("SaveImagePathToOutput")) {
+    return invokeService<string>(unsupportedMessage, "SaveImagePathToOutput", path, suggestedName);
+  }
+  if (isLocalPreviewHost()) {
+    const name = suggestedName || fileNameFromPath(path) || "image.png";
+    return ReadImageAsBase64(path).then(async (imageB64) => {
+      const projectSaved = await saveProjectImage(
+        "output",
+        imageB64,
+        name,
+        mimeTypeForImageName(name),
+        { subdir: "images", preserveName: true },
+      );
+      if (projectSaved?.path) return projectSaved.path;
+      throw new Error(unsupportedMessage("SaveImagePathToOutput"));
+    });
+  }
+  return Promise.reject(new Error(unsupportedMessage("SaveImagePathToOutput")));
+}
+
 export function SyncMaterialGroupToOutput(
   groupKind: string,
   groupName: string,

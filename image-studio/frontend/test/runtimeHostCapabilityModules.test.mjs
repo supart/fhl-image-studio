@@ -65,6 +65,7 @@ const expectedFacadeExports = [
   "SaveImageAs",
   "SaveImagePathAs",
   "SaveImagePathToDir",
+  "SaveImagePathToOutput",
   "SaveImageToDir",
   "SetOutputDir",
   "SetStoredAPIKey",

@@ -52,6 +52,7 @@ export {
   SaveImageAs,
   SaveImagePathAs,
   SaveImagePathToDir,
+  SaveImagePathToOutput,
   SaveImageToDir,
   ShareImageAs,
   ShareImagePathAs,

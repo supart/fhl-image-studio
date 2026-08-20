@@ -7,7 +7,7 @@ export function cleanBaseURL(value: string): string {
 export function sanitizeHistoryForExport(item: HistoryItem): HistoryItem {
   const localEditRoundtrip = item.localEditRoundtrip
     ? item.localEditRoundtrip.kind === "planar"
-      ? { ...item.localEditRoundtrip, sourcePath: undefined }
+      ? { ...item.localEditRoundtrip, sourcePath: undefined, outputPath: undefined }
       : {
           ...item.localEditRoundtrip,
           sourcePath: undefined,

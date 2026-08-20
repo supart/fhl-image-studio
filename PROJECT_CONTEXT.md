@@ -1,5 +1,16 @@
 # FHL Studio Windows V2.0.4 开发交接
 
+## 2026-08-20 批次 32：局部编辑比例与保存流程（已完成）
+
+- 当前分支：`codex/windows-v2.0.4-feature/local-edit-aspect-output`，基线 `84da906`；代码提交哈希在本批 Git 收口后补写，未设置 upstream、未推送 GitHub。
+- 普通图“裁切局部重绘”复用外部比例下拉和形状预览；`Auto` 显示为“自由”，横向/竖向比例独立列出，删除重复横竖切换按钮。
+- 新增“保存并编辑”和“保存镜头（不修改）”两种保存意图。两者均按自然像素裁切并写入 Output/历史；前者同步外部比例、解除自动比例锁并填入 `保持构图不变修改画面，将...改为...`，后者保留外部所有编辑参数。
+- Wails/浏览器新增受管 `SaveImagePathToOutput` 桥接；`LocalEditPlanarRoundtripRef.outputPath` 持久化，原图不覆盖。工作区切换、取消、刷新和 EmptyState 导入恢复均有异步竞态保护。
+- 验证已通过：TypeScript、Node `660/660`、UI `116/116`、Lint `0 errors/58 warnings`、Go test/vet、Fast、Batch、`git diff --check`。
+- Codex 浏览器 `http://127.0.0.1:5174/` 已验收普通图工作台、比例 `4:3 -> 184×138`、360 模式共存和取消无历史副作用；`1252×930`、`1440×900`、`1024×768` 无溢出，控制台新增 warning/error 为 `0`。未保存草稿切换时出现的原生确认框已由用户手动确认，属于预期保护。
+- 本批 7 个输入夹具、3 个 Output 裁切结果和 SHA-256 清单已移至 `%TEMP%\fhl-v204-local-edit-aspect-output-20260820`；用户图片和既有输出未删除。详细记录：[docs/changes/2026-08-20-windows-v2.0.4-local-edit-aspect-output.md](docs/changes/2026-08-20-windows-v2.0.4-local-edit-aspect-output.md)。
+- 下一次接手：先确认工作树 clean，再从当前分支创建新功能分支；若继续增强，优先补 Output 复制成功后竞态失败的临时文件清理 API。
+
 ## 2026-08-20 批次 31：浏览器高清局部贴回宿主通道（已完成）
 
 - 当前恢复分支：`codex/windows-v2.0.4-feature/browser-pasteback-host`；基线为 `9cb4461`，代码提交为 `61a2b50 fix(local-edit): add browser high-resolution crop and pasteback host`，文档提交为 `7a63d59 docs(dev): record browser high-resolution pasteback closure`。

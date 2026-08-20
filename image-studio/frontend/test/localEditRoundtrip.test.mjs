@@ -32,8 +32,12 @@ test("Windows UI exposes local edit and keeps panorama entry points", async () =
   assert.match(menus, /手动对齐贴回全景图/);
   assert.match(modal, /输出管理/);
   assert.match(modal, /镜头参数/);
-  assert.match(modal, /横竖切换/);
+  assert.match(modal, /AspectRatioPicker/);
+  assert.match(modal, /aspectPresetsForAPIMode/);
+  assert.match(modal, /autoLabel="自由"/);
+  assert.doesNotMatch(modal, /横竖切换|RotateCw|lew-rotate-aspect/);
   assert.match(modal, /保存并编辑/);
+  assert.match(modal, /保存镜头（不修改）/);
   assert.doesNotMatch(modal, /开始局部生成|导入 PNG \/ JPG \/ WebP|进入对齐贴回|promptPrefix|optimizationGuidance|<textarea/);
 });
 
@@ -52,7 +56,16 @@ test("local edit store actions create a child crop and terminal pasteback result
   assert.match(store, /prompt: `\(局部贴回\)/);
   assert.match(store, /裁切局部重绘失败/);
   assert.match(store, /importExternalLocalPastebackImage: async/);
-  assert.match(store, /commitLocalEditWorkbenchCrop: async[\s\S]{0,9000}localEditWorkbenchDraft: null/);
+  assert.match(store, /commitLocalEditWorkbenchCrop: async \(intent = "edit"\)/);
+  assert.match(store, /saveLocalEditWorkbenchCrop: async/);
+  assert.match(store, /SaveImagePathToOutput/);
+  assert.match(store, /保持构图不变修改画面，将\.\.\.改为\.\.\./);
+  assert.match(store, /autoAspectResolution: ""/);
+  assert.match(store, /outputPath/);
+  assert.match(store, /localEditWorkbenchDraft: null/);
+  assert.match(store, /const sourceNeedsHistory = !!source\.savedPath/);
+  assert.match(store, /history: trimHistory\(\[source, \.\.\.currentState\.history/);
+  assert.match(store, /persistHistoryItem\(source\)/);
   assert.doesNotMatch(store, /promptPrefix: state\.promptPrefix/);
   assert.match(shared, /raw\.phase === "edit" \|\| raw\.phase === "align"\) return null/);
 });

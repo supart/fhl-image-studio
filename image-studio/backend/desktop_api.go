@@ -238,6 +238,10 @@ func (api *DesktopAPI) SaveImagePathToDir(path, directory, suggestedName string)
 	return api.service.SaveImagePathToDir(path, directory, suggestedName)
 }
 
+func (api *DesktopAPI) SaveImagePathToOutput(path, suggestedName string) (string, error) {
+	return api.service.SaveImagePathToOutput(path, suggestedName)
+}
+
 func (api *DesktopAPI) SaveImageToDir(imageB64, directory, suggestedName string) (string, error) {
 	return api.service.SaveImageToDir(imageB64, directory, suggestedName)
 }

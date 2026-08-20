@@ -19,7 +19,7 @@ func TestDesktopAPIBindingSurface(t *testing.T) {
 		"ListBatchInputImages", "OpenExternalURL", "OpenFile", "OpenImageDialog", "OpenImagesDialog",
 		"OpenMaterialSyncDir", "OpenOutputDir", "OptimizePrompt", "PasteLocalEdit", "ProbeUpstream", "ReadImageAsBase64",
 		"ReadImageMetadata", "ReadTextFile", "RegisterImportedImageAsset", "RegisterMediaAsset", "ReversePrompt", "RotateImage",
-		"SaveImageAs", "SaveImagePathAs", "SaveImagePathToDir", "SaveImageToDir", "SetOutputDir",
+		"SaveImageAs", "SaveImagePathAs", "SaveImagePathToDir", "SaveImagePathToOutput", "SaveImageToDir", "SetOutputDir",
 		"SetStoredAPIKey", "SyncCLIConfig", "SyncMaterialGroupToOutput", "SyncPSBridgeProfile", "UpdatePSBridgeRemoteJob",
 	}
 	if !reflect.DeepEqual(methods, expected) {

@@ -8,6 +8,7 @@ import type {
   EditSourceMode,
   HistoryGallerySort,
   HistoryItem,
+  LocalEditSaveIntent,
   LocalEditWorkbenchDraft,
   LocalEditWorkbenchMode,
   JobGroupSnapshot,
@@ -284,7 +285,8 @@ export interface StudioState {
   recoverAPIMartTaskResult: (apimartTaskId: string, options?: { rawPath?: string }) => Promise<HistoryItem | null>;
   reuseAsSource: (item: HistoryItem) => Promise<void>;
   startLocalEditRoundtrip: (rect?: { x: number; y: number; width: number; height: number }) => Promise<HistoryItem | null>;
-  commitLocalEditWorkbenchCrop: () => Promise<HistoryItem | null>;
+  commitLocalEditWorkbenchCrop: (intent?: LocalEditSaveIntent) => Promise<HistoryItem | null>;
+  saveLocalEditWorkbenchCrop: (intent: LocalEditSaveIntent) => Promise<HistoryItem | null>;
   updateLocalEditWorkbenchDraft: (patch: Partial<LocalEditWorkbenchDraft>) => void;
   switchLocalEditWorkbenchMode: (mode: LocalEditWorkbenchMode) => void;
   closeLocalEditWorkbench: () => void;

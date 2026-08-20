@@ -170,6 +170,10 @@ export function SaveImagePathToDir(arg1, arg2, arg3) {
   return window['go']['backend']['DesktopAPI']['SaveImagePathToDir'](arg1, arg2, arg3);
 }
 
+export function SaveImagePathToOutput(arg1, arg2) {
+  return window['go']['backend']['DesktopAPI']['SaveImagePathToOutput'](arg1, arg2);
+}
+
 export function SaveImageToDir(arg1, arg2, arg3) {
   return window['go']['backend']['DesktopAPI']['SaveImageToDir'](arg1, arg2, arg3);
 }

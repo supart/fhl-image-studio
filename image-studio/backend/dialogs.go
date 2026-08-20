@@ -385,6 +385,39 @@ func (s *Service) SaveImagePathToDir(path, directory, suggestedName string) (str
 	return writeImageBytes(validated.Bytes, dst)
 }
 
+// SaveImagePathToOutput copies an existing managed image into the active
+// output/images directory. The caller cannot choose an arbitrary destination;
+// this keeps automatic crop/lens saves inside the app-managed output boundary.
+func (s *Service) SaveImagePathToOutput(path, suggestedName string) (string, error) {
+	allowed, err := s.ensureManagedReadablePath(path, managedImageFile)
+	if err != nil {
+		return "", err
+	}
+	root, err := s.resolvedOutputDir()
+	if err != nil {
+		return "", err
+	}
+	targetDir := imagesSubdir(root)
+	if err := os.MkdirAll(targetDir, secureDirMode); err != nil {
+		return "", fmt.Errorf("无法创建输出图片目录: %w", err)
+	}
+	managedTargetDir, err := s.ensureManagedWritableDirectory(targetDir)
+	if err != nil {
+		return "", err
+	}
+	validated, err := readValidatedImageFile(allowed)
+	if err != nil {
+		return "", err
+	}
+	name := ensureTargetFileName(suggestedName, filepath.Base(allowed))
+	name = filepath.Base(forceImageExtension(name, validated.Extension))
+	dst, err := uniqueTargetPath(managedTargetDir, name)
+	if err != nil {
+		return "", err
+	}
+	return writeImageBytes(validated.Bytes, dst)
+}
+
 // GetOutputDir returns the directory where generated images and raw response
 // dumps are written —— 用户自定义优先,空时回退到默认。
 func (s *Service) GetOutputDir() (string, error) {

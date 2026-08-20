@@ -12,6 +12,7 @@ import {
   PasteLocalEdit,
   ReadImageAsBase64,
   GetOutputDir,
+  SaveImagePathToOutput,
   SetOutputDir,
   DeleteStoredAPIKey,
   GetStoredAPIKey,
@@ -58,6 +59,7 @@ import {
   type EditSourceMode,
   HistoryItem,
   LocalEditLens,
+  LocalEditSaveIntent,
   JobGroupSnapshot,
   Mode,
   OutputFormatValue,
@@ -158,7 +160,13 @@ import {
   type WorkspacePatch,
 } from "./workspaceRuntime";
 import {
+  aspectPresetsForAPIMode,
+  buildAspectSizeSelection,
+  deriveResolutionPreset,
+  normalizeAspectSelection,
   normalizeSizeSelection,
+  type AspectPreset,
+  type ResolutionPreset,
 } from "../components/panel/sizeCapabilities";
 import { DEFAULT_FHL_SIZE } from "../lib/generationDefaults";
 import { buildMacWorkspacePreview, readPreviewScenario } from "../app/dev/previewData";
@@ -4358,11 +4366,18 @@ const PLANAR_LOCAL_EDIT_ASPECTS = [
   { value: "2:1", ratio: 2 },
 ] as const;
 
-function nearestPlanarLocalEditAspect(width: number, height: number): string {
+type PlanarLocalEditAspectOption = { value: string; ratio: number };
+
+function nearestPlanarLocalEditAspect(
+  width: number,
+  height: number,
+  options: readonly PlanarLocalEditAspectOption[] = PLANAR_LOCAL_EDIT_ASPECTS,
+): string {
   const ratio = Math.max(0.01, width / Math.max(1, height));
-  return PLANAR_LOCAL_EDIT_ASPECTS.reduce((best, current) => (
+  const candidates = options.length > 0 ? options : PLANAR_LOCAL_EDIT_ASPECTS;
+  return candidates.reduce((best, current) => (
     Math.abs(Math.log(ratio / current.ratio)) < Math.abs(Math.log(ratio / best.ratio)) ? current : best
-  )).value;
+  ), candidates[0]).value;
 }
 
 function clampLocalEditLens(lens: LocalEditLens, sourceWidth: number, sourceHeight: number): LocalEditLens {
@@ -4379,10 +4394,17 @@ function clampLocalEditLens(lens: LocalEditLens, sourceWidth: number, sourceHeig
   };
 }
 
-function createPlanarLocalEditLens(sourceWidth: number, sourceHeight: number, rect?: { x: number; y: number; width: number; height: number }): LocalEditLens {
+function createPlanarLocalEditLens(
+  sourceWidth: number,
+  sourceHeight: number,
+  rect?: { x: number; y: number; width: number; height: number },
+  options: readonly PlanarLocalEditAspectOption[] = PLANAR_LOCAL_EDIT_ASPECTS,
+): LocalEditLens {
   const hasRect = !!rect && rect.width > 3 && rect.height > 3;
-  const aspect = nearestPlanarLocalEditAspect(hasRect ? rect!.width : 1, hasRect ? rect!.height : 1);
-  const ratio = PLANAR_LOCAL_EDIT_ASPECTS.find((item) => item.value === aspect)?.ratio ?? 1;
+  const aspect = nearestPlanarLocalEditAspect(hasRect ? rect!.width : 1, hasRect ? rect!.height : 1, options);
+  const ratio = options.find((item) => item.value === aspect)?.ratio
+    ?? PLANAR_LOCAL_EDIT_ASPECTS.find((item) => item.value === aspect)?.ratio
+    ?? 1;
   const baseWidth = hasRect
     ? Math.max(8, Math.min(sourceWidth, Math.round(rect!.width)))
     : Math.max(8, Math.min(sourceWidth, Math.round(Math.min(sourceWidth, sourceHeight) * 0.6)));
@@ -4398,6 +4420,62 @@ function createPlanarLocalEditLens(sourceWidth: number, sourceHeight: number, re
     outputWidth: width,
     outputHeight: height,
   }, sourceWidth, sourceHeight);
+}
+
+const LOCAL_EDIT_DEFAULT_PROMPT = "保持构图不变修改画面，将...改为...";
+
+/**
+ * Crop/output work is asynchronous. Do not commit an old draft after the
+ * user has switched tabs or changed/closed the workbench in the meantime.
+ */
+function isCurrentLocalEditDraft(
+  state: StudioState,
+  workspaceId: string,
+  draft: NonNullable<StudioState["localEditWorkbenchDraft"]>,
+): boolean {
+  if (state.isResettingApplication || state.activeWorkspaceId !== workspaceId) return false;
+  const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
+  return state.localEditWorkbenchDraft === draft
+    && workspace?.localEditWorkbenchDraft === draft;
+}
+
+function planarLocalEditAspectOptions(
+  state: Pick<StudioState, "apiMode">,
+): PlanarLocalEditAspectOption[] {
+  const options = aspectPresetsForAPIMode(state.apiMode, "edit")
+    .map((item): PlanarLocalEditAspectOption | null => {
+      const [w, h] = String(item.value).split(":").map(Number);
+      return Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0
+        ? { value: String(item.value), ratio: w / h }
+        : null;
+    })
+    .filter((item): item is PlanarLocalEditAspectOption => !!item);
+  return options.length > 0 ? options : [...PLANAR_LOCAL_EDIT_ASPECTS];
+}
+
+function syncedLocalEditSize(
+  state: Pick<StudioState, "apiMode" | "requestPolicy" | "imageModelID" | "size" | "batchProcess">,
+  aspectValue: string,
+): SizeValue {
+  // "自由" deliberately leaves the external request size untouched. It is a
+  // crop-frame choice, not a fabricated provider aspect value.
+  if (!aspectValue || aspectValue === "free" || aspectValue === "auto") return state.size;
+  const input = {
+    apiMode: state.apiMode,
+    requestPolicy: state.requestPolicy,
+    imageModelID: state.imageModelID,
+    mode: "edit" as const,
+  };
+  const available = aspectPresetsForAPIMode(input.apiMode, input.mode);
+  if (!available.some((item) => item.value === aspectValue)) return state.size;
+  const normalizedAspect = normalizeAspectSelection(aspectValue as AspectPreset, input);
+  const requestedResolution = String(state.batchProcess.autoAspectResolution || "").trim();
+  const resolution: ResolutionPreset = requestedResolution === "1k"
+    || requestedResolution === "2k"
+    || requestedResolution === "4k"
+    ? requestedResolution
+    : deriveResolutionPreset(state.size);
+  return buildAspectSizeSelection(normalizedAspect, resolution, input);
 }
 
 export const useStudioStore = create<StudioState>((set, get) => ({
@@ -5424,7 +5502,12 @@ export const useStudioStore = create<StudioState>((set, get) => ({
             height: Math.max(8, Math.min(sourceHeight, Math.round(rect.height * scaleY))),
           }
         : undefined;
-      const lens = createPlanarLocalEditLens(sourceWidth, sourceHeight, naturalRect);
+      const lens = createPlanarLocalEditLens(
+        sourceWidth,
+        sourceHeight,
+        naturalRect,
+        planarLocalEditAspectOptions(state),
+      );
       const draft = {
         mode: "planar" as const,
         phase: "crop" as const,
@@ -5437,13 +5520,26 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         aspect: lens.aspect,
         dirty: false,
       };
+      // EmptyState imports are intentionally lightweight and historically did
+      // not enter history. A workspace snapshot can only restore currentImage
+      // by history ID, though, so retain this source before opening the
+      // workbench when it has a managed path.
+      const sourceNeedsHistory = !!source.savedPath
+        && !state.history.some((item) => item.id === source.id);
       set((currentState) => ({
+        ...(sourceNeedsHistory
+          ? { history: trimHistory([source, ...currentState.history.filter((item) => item.id !== source.id)]) }
+          : {}),
         localEditWorkbenchDraft: draft,
         workspaces: patchWorkspaceRuntime(currentState.workspaces, currentState.activeWorkspaceId, {
           localEditWorkbenchDraft: draft,
         }),
       } as Partial<StudioState>));
       scheduleWorkspaceSessionPersistence(get(), true);
+      if (sourceNeedsHistory) {
+        await persistHistoryItem(source).catch(() => undefined);
+        persistTrimmedHistory(get().history);
+      }
       state.pushToast("已打开裁切局部重绘工作台，请拖动镜头框定位区域", "info", 3000);
       return null;
     } catch (error: any) {
@@ -5451,7 +5547,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       return null;
     }
   },
-  commitLocalEditWorkbenchCrop: async () => {
+  commitLocalEditWorkbenchCrop: async (intent = "edit") => get().saveLocalEditWorkbenchCrop(intent),
+  saveLocalEditWorkbenchCrop: async (intent) => {
+    const saveIntent: LocalEditSaveIntent = intent === "lens" ? "lens" : "edit";
     const draft = get().localEditWorkbenchDraft;
     if (!draft) {
       get().pushToast("没有可提交的裁切局部重绘草稿", "warn", 2800);
@@ -5462,7 +5560,27 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       : draft.cropRect;
     const state = get();
     const workspaceId = state.activeWorkspaceId;
-    const current = state.currentImage;
+    const ensureCurrentDraft = () => isCurrentLocalEditDraft(get(), workspaceId, draft);
+    if (!ensureCurrentDraft()) return null;
+    const draftSourceFallback: HistoryItem | null = draft.sourcePath
+      ? {
+          id: draft.sourceHistoryId,
+          prompt: state.prompt,
+          mode: state.mode,
+          size: state.size,
+          quality: state.quality,
+          outputFormat: state.outputFormat,
+          createdAt: Date.now(),
+          savedPath: draft.sourcePath,
+          width: draft.sourceWidth,
+          height: draft.sourceHeight,
+          previewWidth: draft.sourceWidth,
+          previewHeight: draft.sourceHeight,
+        }
+      : null;
+    const current = state.history.find((item) => item.id === draft.sourceHistoryId)
+      ?? state.currentImage
+      ?? draftSourceFallback;
     if (!current) {
       state.pushToast("当前没有图片", "warn", 2600);
       return null;
@@ -5473,11 +5591,13 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
     try {
       const source = await materializeHistoryItem(current);
+      if (!ensureCurrentDraft()) return null;
       if (!source?.savedPath) throw new Error("当前图片暂时无法读取原图");
       let sourceWidth = Number(source.width || source.previewWidth || 0);
       let sourceHeight = Number(source.height || source.previewHeight || 0);
       if (!sourceWidth || !sourceHeight) {
         const b64 = await ReadImageAsBase64(source.savedPath);
+        if (!ensureCurrentDraft()) return null;
         const dimensions = getImageDimensionsFromBase64(b64);
         if (dimensions) {
           sourceWidth = dimensions.w;
@@ -5492,27 +5612,60 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       const height = Math.max(8, Math.min(sourceHeight - y, Math.round(rect.height)));
       if (width < 8 || height < 8) throw new Error("选择区域太小，请扩大矩形后重试");
       const cropped = await CropImage(source.savedPath, x, y, width, height);
+      if (!ensureCurrentDraft()) return null;
+      if (!cropped?.path) throw new Error("裁切结果没有可保存的文件");
+      const outputPath = await SaveImagePathToOutput(
+        cropped.path,
+        `local-edit-crop-${Date.now()}.png`,
+      );
+      if (!ensureCurrentDraft()) return null;
+      if (!String(outputPath || "").trim()) throw new Error("无法将裁切结果保存到 Output");
       const ref = await RegisterImportedImageAsset(cropped.path).catch(() => null);
+      if (!ensureCurrentDraft()) return null;
+      // Read the live active workspace after all awaits. The user may have
+      // changed provider/size settings while the desktop crop was running.
+      const latestState = get();
+      if (!isCurrentLocalEditDraft(latestState, workspaceId, draft)) return null;
       const localEditRoundtrip = {
         version: 1 as const,
         kind: "planar" as const,
         sourceHistoryId: source.id,
         sourcePath: source.savedPath,
+        outputPath: String(outputPath).trim(),
         sourceWidth,
         sourceHeight,
         cropRect: { x, y, width, height },
         editWidth: width,
         editHeight: height,
       };
+      const cropSource: SourceImage = {
+        path: cropped.path,
+        name: cropped.path.split(/[\\/]/).pop() || "local-edit-crop.png",
+        size: 0,
+        width,
+        height,
+        previewUrl: ref?.previewUrl,
+        localEditRoundtrip,
+      };
+      const nextSize = saveIntent === "edit"
+        ? syncedLocalEditSize(latestState, draft.aspect)
+        : latestState.size;
+      const nextBatchProcess = saveIntent === "edit"
+        ? { ...latestState.batchProcess, autoAspectResolution: "" as const }
+        : latestState.batchProcess;
+      const nextEditAutoAspectUserLocked = saveIntent === "edit"
+        ? false
+        : latestState.editAutoAspectUserLocked;
+      const nextPrompt = saveIntent === "edit" ? LOCAL_EDIT_DEFAULT_PROMPT : latestState.prompt;
       const cropItem: HistoryItem = {
         id: cryptoIDFallback(),
         imageId: ref?.imageId,
         previewUrl: ref?.previewUrl,
         fullUrl: ref?.fullUrl,
         previewOnly: !!ref,
-        prompt: `(裁切局部重绘)${source.prompt || ""}`,
+        prompt: saveIntent === "edit" ? LOCAL_EDIT_DEFAULT_PROMPT : (source.prompt || ""),
         revisedPrompt: source.revisedPrompt,
-        mode: "edit",
+        mode: saveIntent === "edit" ? "edit" : source.mode,
         apiMode: source.apiMode,
         apiProfileId: source.apiProfileId,
         apiProfileName: source.apiProfileName,
@@ -5523,15 +5676,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         parentId: source.savedPath,
         createdAt: Date.now(),
         savedPath: cropped.path,
-        sourceImages: [{
-          path: cropped.path,
-          name: cropped.path.split(/[\\/]/).pop() || "local-edit-crop.png",
-          size: 0,
-          width,
-          height,
-          previewUrl: ref?.previewUrl,
-          localEditRoundtrip,
-        }],
+        sourceImages: [cropSource],
         localEditRoundtrip,
         width,
         height,
@@ -5539,38 +5684,73 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         previewHeight: ref?.previewHeight || height,
       };
       const next = ref ? withMediaAssetRef(cropItem, ref) : cropItem;
-      set((currentState) => ({
-        history: trimHistory([next, ...currentState.history.filter((item) => item.id !== next.id)]),
-        currentImage: next,
-        mode: "edit",
-        editSourceMode: "manual",
-        sources: next.sourceImages || [],
-        resultGridOpen: false,
-        historyGalleryOpen: false,
-        historyGallerySinglePreviewId: null,
-        compareB: null,
-        maskDataURL: null,
-        strokes: [],
-        annotations: [],
-        selectedAnnotationId: null,
-        tool: "pan",
-        localEditWorkbenchDraft: null,
-        workspaces: patchWorkspaceRuntime(currentState.workspaces, workspaceId, {
-          currentImageId: next.id,
-          resultGridOpen: false,
-          historyGalleryOpen: false,
-          sources: next.sourceImages || [],
-          mode: "edit",
-          editSourceMode: "manual",
-          localEditWorkbenchDraft: null,
-        }),
-      } as Partial<StudioState>));
+      let committed = false;
+      set((currentState) => {
+        if (!isCurrentLocalEditDraft(currentState, workspaceId, draft)) return currentState;
+        committed = true;
+        const isActiveWorkspace = currentState.activeWorkspaceId === workspaceId;
+        const activePatch: Partial<StudioState> = isActiveWorkspace
+          ? {
+              currentImage: next,
+              mode: saveIntent === "edit" ? "edit" : currentState.mode,
+              editSourceMode: saveIntent === "edit" ? "manual" : currentState.editSourceMode,
+              sources: saveIntent === "edit" ? [cropSource] : currentState.sources,
+              ...(saveIntent === "edit"
+                ? {
+                    size: nextSize,
+                    batchProcess: nextBatchProcess,
+                    editAutoAspectUserLocked: nextEditAutoAspectUserLocked,
+                    prompt: nextPrompt,
+                  }
+                : {}),
+              resultGridOpen: false,
+              historyGalleryOpen: false,
+              historyGallerySinglePreviewId: null,
+              compareB: null,
+              maskDataURL: null,
+              strokes: [],
+              annotations: [],
+              selectedAnnotationId: null,
+              tool: "pan",
+              localEditWorkbenchDraft: null,
+            }
+          : {};
+        return {
+          history: trimHistory([next, ...currentState.history.filter((item) => item.id !== next.id)]),
+          workspaces: patchWorkspaceRuntime(currentState.workspaces, workspaceId, {
+            currentImageId: next.id,
+            resultGridOpen: false,
+            historyGalleryOpen: false,
+            ...(saveIntent === "edit"
+              ? {
+                  sources: [cropSource],
+                  mode: "edit" as const,
+                  editSourceMode: "manual" as const,
+                  size: nextSize,
+                  batchProcess: nextBatchProcess,
+                  editAutoAspectUserLocked: nextEditAutoAspectUserLocked,
+                  prompt: nextPrompt,
+                }
+              : {}),
+            localEditWorkbenchDraft: null,
+          }),
+          ...activePatch,
+        } as Partial<StudioState>;
+      });
+      if (!committed) return null;
+      scheduleWorkspaceSessionPersistence(get(), true);
       await persistHistoryItem(next).catch(() => undefined);
       persistTrimmedHistory(get().history);
-      state.pushToast(`已创建 ${width}×${height} 裁切局部重绘副本`, "success", 3200);
+      get().pushToast(
+        saveIntent === "edit"
+          ? `已创建 ${width}×${height} 裁切局部重绘副本，并同步外部编辑参数`
+          : `已保存 ${width}×${height} 镜头裁切到 Output（未修改编辑参数）`,
+        "success",
+        3200,
+      );
       return next;
     } catch (error: any) {
-      state.pushToast(`裁切局部重绘失败: ${error?.message ?? error}`, "warn", 4600);
+      get().pushToast(`裁切局部重绘失败: ${error?.message ?? error}`, "warn", 4600);
       return null;
     }
   },

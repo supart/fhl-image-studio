@@ -86,6 +86,8 @@ export function SaveImagePathAs(arg1:string,arg2:string):Promise<string>;
 
 export function SaveImagePathToDir(arg1:string,arg2:string,arg3:string):Promise<string>;
 
+export function SaveImagePathToOutput(arg1:string,arg2:string):Promise<string>;
+
 export function SaveImageToDir(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function SetOutputDir(arg1:string):Promise<void>;

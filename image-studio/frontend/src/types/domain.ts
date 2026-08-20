@@ -126,6 +126,8 @@ export interface LocalEditPlanarRoundtripRef {
   kind: "planar";
   sourceHistoryId: string;
   sourcePath?: string;
+  /** Managed copy written to the user's Output/images directory, when available. */
+  outputPath?: string;
   sourceWidth: number;
   sourceHeight: number;
   cropRect: { x: number; y: number; width: number; height: number };
@@ -148,6 +150,9 @@ export interface LocalEditPanoramaRoundtripRef {
 export type LocalEditRoundtripRef =
   | LocalEditPlanarRoundtripRef
   | LocalEditPanoramaRoundtripRef;
+
+/** The operation requested when committing a planar crop workbench draft. */
+export type LocalEditSaveIntent = "edit" | "lens";
 
 export type LocalEditWorkbenchMode = "planar" | "panorama";
 export type LocalEditWorkbenchPhase = "crop" | "edit" | "align";
