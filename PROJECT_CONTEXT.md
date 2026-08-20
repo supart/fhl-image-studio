@@ -1,5 +1,16 @@
 # FHL Studio Windows V2.0.4 开发交接
 
+## 2026-08-20 批次 34：局部编辑镜头预览拖动（已完成）
+
+- 当前分支：`codex/windows-v2.0.4-feature/local-edit-360-parity`；基线 `f105c40`，代码提交 `86b99c0 feat(local-edit): make lens preview draggable`；文档提交随后完成。未设置 upstream、未推送 GitHub。
+- 普通图工作台镜头预览标题栏支持 Pointer Events 拖动，位置只保存在 modal 本地状态；`clampLocalEditPreviewPosition` 将浮窗限制在 `.lew-stage` 内，展开/收起、舞台尺寸变化和窗口 resize 后重新约束。
+- 舞台 `frameSize` 更新改为按宽高值比较，预览观察回调只在坐标变化时写状态；修复首次展开时发现的 `Maximum update depth exceeded`。
+- 新增 `frontend/test/localEditPreviewPosition.test.mjs`，扩展 `localEditRoundtrip.test.mjs`；定向测试 `7/7`、Node `669/669`、UI `116/116`、TypeScript 和 `git diff --check` 已通过，Lint 为 `0 errors / 58 existing warnings`。
+- 桌面/CLI Go test/vet、Worker `5/5`、Fast、Batch 和离线 smoke 全部通过。
+- Codex 浏览器隔离验收：拖动位移约 `-119,+81`；展开/收起及 `1252×930`、`1440×900`、`1024×768` 均在舞台边界内、无横向溢出，新增控制台 warning/error 为 `0`。未保存、生成或改变历史。
+- 详细记录：[docs/changes/2026-08-20-windows-v2.0.4-local-edit-preview-drag.md](docs/changes/2026-08-20-windows-v2.0.4-local-edit-preview-drag.md)。
+- 回退点：`git revert 86b99c0`；文档提交按对应提交单独回退。回退只用 `git revert`。
+
 ## 2026-08-20 批次 33：局部编辑 360 交互对齐（已完成）
 
 - 当前分支：`codex/windows-v2.0.4-feature/local-edit-360-parity`；基线 `e7f8475`，代码提交 `f105c40 feat(local-edit): add 360-style planar lens toolbar`；未设置 upstream、未推送 GitHub。
