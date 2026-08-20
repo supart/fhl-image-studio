@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Bookmark, Eye, EyeOff, Maximize2, Redo2, RotateCcw, Save, Trash2, Undo2, X } from "lucide-react";
 import { historyFullSrc } from "../../lib/images";
 import {
+  clampLocalEditPreviewPosition,
   clampLocalEditRect,
   createCenteredLocalEditLens,
   localEditLensRect,
   resizeLocalEditLensToAspect,
   resizeLocalEditRectFromCorner,
 } from "../../localEdit/lens";
+import type { LocalEditPreviewPosition } from "../../localEdit/lens";
 import { tempDataURLFromB64 } from "../../state/studioStore.shared";
 import { useStudioStore } from "../../state/studioStore";
 import { ReadImageAsBase64 } from "../../platform/runtime/host";
@@ -31,6 +33,12 @@ type LensSnapshot = {
   cropRect: LocalEditWorkbenchDraft["cropRect"];
   aspect: string;
   lensActive: boolean;
+};
+type PreviewDragState = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startPosition: LocalEditPreviewPosition;
 };
 
 function clampRect(rect: LocalEditWorkbenchDraft["cropRect"], sourceWidth: number, sourceHeight: number, aspect = "free") {
@@ -105,14 +113,19 @@ export function LocalEditWorkspaceModal() {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const imageFrameRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState>(null);
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  const previewDragRef = useRef<PreviewDragState | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewImageRef = useRef<{ src: string; image: HTMLImageElement } | null>(null);
   const [sourceSrc, setSourceSrc] = useState("");
   const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [previewExpanded, setPreviewExpanded] = useState(false);
+  const [previewPosition, setPreviewPosition] = useState<LocalEditPreviewPosition | null>(null);
+  const [previewDragging, setPreviewDragging] = useState(false);
   const [undoStack, setUndoStack] = useState<LensSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<LensSnapshot[]>([]);
+  const previewPositionActive = previewPosition !== null;
   const aspectPresets = useMemo(() => aspectPresetsForAPIMode(apiMode, "edit"), [apiMode]);
   const sourceWidth = draft?.sourceWidth ?? 0;
   const sourceHeight = draft?.sourceHeight ?? 0;
@@ -165,7 +178,10 @@ export function LocalEditWorkspaceModal() {
     setUndoStack([]);
     setRedoStack([]);
     setPreviewExpanded(false);
+    setPreviewPosition(null);
+    setPreviewDragging(false);
     dragRef.current = null;
+    previewDragRef.current = null;
   }, [activeWorkspaceId, draft?.sourceHistoryId, draft?.mode]);
 
   useEffect(() => {
@@ -174,16 +190,97 @@ export function LocalEditWorkspaceModal() {
     const updateFrameSize = () => {
       const bounds = stage.getBoundingClientRect();
       const scale = Math.min(bounds.width / sourceWidth, bounds.height / sourceHeight);
-      setFrameSize({
+      const nextSize = {
         width: Math.max(1, Math.floor(sourceWidth * scale)),
         height: Math.max(1, Math.floor(sourceHeight * scale)),
-      });
+      };
+      setFrameSize((current) => current?.width === nextSize.width && current.height === nextSize.height ? current : nextSize);
     };
     updateFrameSize();
     const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateFrameSize) : null;
     observer?.observe(stage);
     return () => observer?.disconnect();
   }, [sourceWidth, sourceHeight, sourceSrc]);
+
+  const clampPreviewPosition = useCallback((position: LocalEditPreviewPosition) => {
+    const stage = stageRef.current;
+    const preview = previewRef.current;
+    if (!stage || !preview) return position;
+    const stageBounds = stage.getBoundingClientRect();
+    const previewBounds = preview.getBoundingClientRect();
+    return clampLocalEditPreviewPosition(
+      position,
+      { width: stageBounds.width, height: stageBounds.height },
+      { width: previewBounds.width, height: previewBounds.height },
+    );
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!previewPositionActive || !previewRef.current || !stageRef.current) return undefined;
+    const updatePreviewPosition = () => {
+      setPreviewPosition((current) => {
+        if (!current) return current;
+        const next = clampPreviewPosition(current);
+        return next.left !== current.left || next.top !== current.top ? next : current;
+      });
+    };
+    updatePreviewPosition();
+    const stage = stageRef.current;
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(updatePreviewPosition) : null;
+    observer?.observe(stage);
+    window.addEventListener("resize", updatePreviewPosition);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updatePreviewPosition);
+    };
+  }, [clampPreviewPosition, previewPositionActive, previewExpanded, sourceSrc, sourceWidth, sourceHeight]);
+
+  const handlePreviewPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if ((event.target as HTMLElement).closest("button")) return;
+    const stage = stageRef.current;
+    const preview = previewRef.current;
+    if (!stage || !preview) return;
+    const stageBounds = stage.getBoundingClientRect();
+    const previewBounds = preview.getBoundingClientRect();
+    const currentPosition = clampLocalEditPreviewPosition(
+      {
+        left: previewBounds.left - stageBounds.left,
+        top: previewBounds.top - stageBounds.top,
+      },
+      { width: stageBounds.width, height: stageBounds.height },
+      { width: previewBounds.width, height: previewBounds.height },
+    );
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    previewDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startPosition: currentPosition,
+    };
+    setPreviewPosition(currentPosition);
+    setPreviewDragging(true);
+  };
+
+  const handlePreviewPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = previewDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const next = clampPreviewPosition({
+      left: drag.startPosition.left + event.clientX - drag.startX,
+      top: drag.startPosition.top + event.clientY - drag.startY,
+    });
+    setPreviewPosition(next);
+  };
+
+  const finishPreviewDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = previewDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    previewDragRef.current = null;
+    setPreviewDragging(false);
+  };
 
   useEffect(() => {
     const canvas = previewCanvasRef.current;
@@ -463,8 +560,26 @@ export function LocalEditWorkspaceModal() {
                 </div>
               ) : <div className="lew-empty">正在加载原图…</div>}
               {!isPanorama && isCropPhase && lensActive && sourceSrc ? (
-                <div className={`lew-output-preview${previewExpanded ? " is-expanded" : ""}`}>
-                  <div className="lew-output-preview-head"><span>镜头预览</span><span>{outputSize}</span></div>
+                <div
+                  ref={previewRef}
+                  data-testid="local-edit-output-preview"
+                  className={`lew-output-preview${previewExpanded ? " is-expanded" : ""}${previewDragging ? " is-dragging" : ""}`}
+                  style={previewPosition ? { left: `${previewPosition.left}px`, top: `${previewPosition.top}px`, right: "auto" } : undefined}
+                >
+                  <div
+                    className="lew-output-preview-head"
+                    role="group"
+                    aria-label="拖动镜头预览"
+                    tabIndex={0}
+                    aria-grabbed={previewDragging}
+                    onPointerDown={handlePreviewPointerDown}
+                    onPointerMove={handlePreviewPointerMove}
+                    onPointerUp={finishPreviewDrag}
+                    onPointerCancel={finishPreviewDrag}
+                    onLostPointerCapture={finishPreviewDrag}
+                  >
+                    <span>镜头预览</span><span>{outputSize}</span>
+                  </div>
                   <canvas ref={previewCanvasRef} className="lew-output-preview-canvas" aria-label="当前镜头输出预览" />
                   <button
                     type="button"

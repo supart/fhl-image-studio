@@ -117,7 +117,9 @@
   backdrop-filter: blur(12px);
 }
 .lew-output-preview.is-expanded { width: min(520px, calc(100% - 32px)); }
-.lew-output-preview-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; color: #dce8f8; font-size: 11px; }
+.lew-output-preview-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; padding-right: 30px; color: #dce8f8; font-size: 11px; cursor: grab; touch-action: none; user-select: none; }
+.lew-output-preview.is-dragging .lew-output-preview-head { cursor: grabbing; }
+.lew-output-preview-head:focus-visible { outline: 2px solid #5ba3ff; outline-offset: 2px; border-radius: 4px; }
 .lew-output-preview-head span:last-child { color: #8ea1b7; white-space: nowrap; }
 .lew-output-preview-canvas { display: block; width: 100%; max-height: 320px; border-radius: 6px; background: #05070a; object-fit: contain; }
 .lew-output-preview-toggle { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 999px; color: #eef5ff; background: rgba(0,0,0,.58); cursor: pointer; }

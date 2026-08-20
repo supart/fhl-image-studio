@@ -46,6 +46,23 @@ test("Windows UI exposes local edit and keeps panorama entry points", async () =
   assert.doesNotMatch(modal, /开始局部生成|导入 PNG \/ JPG \/ WebP|进入对齐贴回|promptPrefix|optimizationGuidance|<textarea/);
 });
 
+test("planar lens preview exposes bounded pointer dragging without draft persistence", async () => {
+  const modal = await read("components/localEdit/LocalEditWorkspaceModal.tsx");
+  const css = await read("components/localEdit/localEditWorkbench.css");
+  assert.match(modal, /clampLocalEditPreviewPosition/);
+  assert.match(modal, /previewDragRef/);
+  assert.match(modal, /data-testid="local-edit-output-preview"/);
+  assert.match(modal, /aria-label="拖动镜头预览"/);
+  assert.match(modal, /setPointerCapture\(event\.pointerId\)/);
+  assert.match(modal, /releasePointerCapture\(event\.pointerId\)/);
+  assert.match(modal, /onPointerMove=\{handlePreviewPointerMove\}/);
+  assert.match(modal, /onPointerCancel=\{finishPreviewDrag\}/);
+  assert.match(modal, /style=\{previewPosition \? \{ left:/);
+  assert.match(css, /\.lew-output-preview-head[^\{]*\{[\s\S]*cursor:\s*grab/);
+  assert.match(css, /\.lew-output-preview-head[^\{]*\{[\s\S]*touch-action:\s*none/);
+  assert.match(css, /\.lew-output-preview-head[^\{]*\{[\s\S]*padding-right:\s*30px/);
+});
+
 test("local edit store actions create a child crop and terminal pasteback result", async () => {
   const store = await read("state/studioStore.ts");
   const shared = await read("state/studioStore.shared.ts");

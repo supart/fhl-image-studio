@@ -2,8 +2,33 @@ import type { LocalEditLens } from "../types/domain";
 
 export type LocalEditRect = { x: number; y: number; width: number; height: number };
 export type LocalEditCorner = "nw" | "ne" | "sw" | "se";
+export type LocalEditPreviewPosition = { left: number; top: number };
 
 export const LOCAL_EDIT_LENS_MIN_SIZE = 8;
+
+/** Keep the floating planar preview inside its stage without persisting UI pixels. */
+export function clampLocalEditPreviewPosition(
+  position: LocalEditPreviewPosition,
+  stageSize: { width: number; height: number },
+  previewSize: { width: number; height: number },
+  padding = 12,
+): LocalEditPreviewPosition {
+  const stageWidth = Math.max(0, finite(stageSize?.width, 0));
+  const stageHeight = Math.max(0, finite(stageSize?.height, 0));
+  const previewWidth = Math.max(0, finite(previewSize?.width, 0));
+  const previewHeight = Math.max(0, finite(previewSize?.height, 0));
+  const safePadding = Math.max(0, finite(padding, 0));
+  const minLeft = Math.min(safePadding, Math.max(0, stageWidth - previewWidth));
+  const minTop = Math.min(safePadding, Math.max(0, stageHeight - previewHeight));
+  const maxLeft = Math.max(minLeft, stageWidth - previewWidth - safePadding);
+  const maxTop = Math.max(minTop, stageHeight - previewHeight - safePadding);
+  const left = finite(position?.left, minLeft);
+  const top = finite(position?.top, minTop);
+  return {
+    left: Math.round(Math.max(minLeft, Math.min(maxLeft, left))),
+    top: Math.round(Math.max(minTop, Math.min(maxTop, top))),
+  };
+}
 
 export function localEditAspectRatio(aspect: string): number | null {
   const [width, height] = String(aspect || "").split(":").map(Number);
