@@ -2,7 +2,7 @@
 
 ## 2026-08-20 批次 32：局部编辑比例与保存流程（已完成）
 
-- 当前分支：`codex/windows-v2.0.4-feature/local-edit-aspect-output`，基线 `84da906`；代码提交为 `6b40095`、`70e837d`，文档回写提交待本轮收口，未设置 upstream、未推送 GitHub。
+- 当前分支：`codex/windows-v2.0.4-feature/local-edit-aspect-output`，基线 `84da906`；代码提交为 `6b40095`、`70e837d`，文档回写提交为 `7dae114`，未设置 upstream、未推送 GitHub。
 - 普通图“裁切局部重绘”复用外部比例下拉和形状预览；`Auto` 显示为“自由”，横向/竖向比例独立列出，删除重复横竖切换按钮。
 - 新增“保存并编辑”和“保存镜头（不修改）”两种保存意图。两者均按自然像素裁切并写入 Output/历史；前者同步外部比例、解除自动比例锁并填入 `保持构图不变修改画面，将...改为...`，后者保留外部所有编辑参数。
 - Wails/浏览器新增受管 `SaveImagePathToOutput` 桥接；`LocalEditPlanarRoundtripRef.outputPath` 持久化，原图不覆盖。工作区切换、取消、刷新和 EmptyState 导入恢复均有异步竞态保护。
