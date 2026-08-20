@@ -1,5 +1,16 @@
 # FHL Studio Windows V2.0.4 开发交接
 
+## 2026-08-20 批次 31：浏览器高清局部贴回宿主通道（已完成）
+
+- 当前恢复分支：`codex/windows-v2.0.4-feature/browser-pasteback-host`；基线为 `9cb4461`，代码提交为 `61a2b50 fix(local-edit): add browser high-resolution crop and pasteback host`。
+- Codex 浏览器已用 `7876×10835`（约 85MP）合成大图完成“裁切局部重绘 -> 对齐 -> 确认贴回”；输出保持 `7876×10835`，裁切外像素保持，终态标记为“局部贴回”。
+- 浏览器开发服务增加路径受限的 Sharp 裁切/贴回接口；浏览器只传受管路径和参数，不把整图 Base64 放入状态；Wails 原生方法仍优先。
+- 100MP 源图和大蒙版在完整解码前分别以约 `915MiB`、`804MiB` 估算被 `768MiB` 门禁拒绝；失败不会产生输出或历史半成品。
+- 已通过 Fast、Batch、TypeScript、Node `658/658`、UI `116/116`、Go test/vet、Worker `5/5`、Windows `1982 modules` 构建和浏览器三档视口验收；Lint 为 `0 errors / 58 warnings`。
+- 本轮合成夹具已移出项目 `input`，可恢复副本位于 `%TEMP%\fhl-v204-cleanup-20260820`；未修改用户图片、Android、V2.0.3、正式附件或远程 GitHub。
+- 回退点：`git revert 61a2b50`；文档提交单独回退。未创建标签或发布物。
+- 详细记录：[docs/changes/2026-08-20-windows-v2.0.4-browser-pasteback-host.md](docs/changes/2026-08-20-windows-v2.0.4-browser-pasteback-host.md)。
+
 ## 2026-08-19 批次 30：参考图同步与高清裁切局部重绘（已完成）
 
 - 当前分支：`codex/windows-v2.0.4-feature/reference-slot-workspace-sync`；代码提交为 `5df05a9 fix(state): close reference slot workspace restore race` 和 `70be0a5 fix(local-edit): harden high-resolution planar pasteback`。文档提交完成后工作区应保持干净，未设置 upstream、未推送 GitHub。
