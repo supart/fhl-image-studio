@@ -1,5 +1,17 @@
 # FHL Studio Windows V2.0.4 开发交接
 
+## 2026-08-20 批次 33：局部编辑 360 交互对齐（已完成）
+
+- 当前分支：`codex/windows-v2.0.4-feature/local-edit-360-parity`；基线 `e7f8475`，代码提交 `f105c40 feat(local-edit): add 360-style planar lens toolbar`；未设置 upstream、未推送 GitHub。
+- 普通图工作台新增 360 风格底部工具栏、镜头预览、撤销/重做、清除/重置和 `lensActive` 草稿恢复；几何辅助统一在 `frontend/src/localEdit/lens.ts`。
+- 预览优先使用完整媒体 URL；原生/浏览器裁切结果核对实际宽高，并在取消、失败、工作区切换或尺寸不一致时清理受管临时文件和 Output 副本。
+- 360 现有实现实际是单 `shot`；本批只复用交互结构和交接入口，不引入 `shots[]`、批量镜头保存或球面投影改写。
+- 验证通过：TypeScript、Node `665/665`、UI `116/116`、Lint `0 errors/58 warnings`、Go test/vet、Fast、Batch、`git diff --check`。
+- Codex 浏览器 `http://127.0.0.1:5174/` 已完成普通图工作台、比例下拉、镜头拖动/垂直角点缩放、撤销/重做、预览、清除/重置、360 交接和取消验收；`1252×930`、`1440×900`、`1024×768` 越界计数均为 `0`，控制台新增 warning/error 为 `0`，历史数量未改变。
+- 中断原因：旧 `5174` Vite 进程停止导致空 HTML；已重启同一源码版本。脏草稿切换时的原生确认框是预期保护，重连后在干净草稿完成验收。
+- 详细记录：[docs/changes/2026-08-20-windows-v2.0.4-local-edit-360-parity.md](docs/changes/2026-08-20-windows-v2.0.4-local-edit-360-parity.md)。
+- 下一次接手：先确认工作树 clean；若继续增强，补 Output 复制成功后媒体注册失败的清理合同测试，不把大图 Base64 放入状态，不修改 360 球面投影。
+
 ## 2026-08-20 批次 32：局部编辑比例与保存流程（已完成）
 
 - 当前分支：`codex/windows-v2.0.4-feature/local-edit-aspect-output`，基线 `84da906`；代码提交为 `6b40095`、`70e837d`，文档回写提交为 `7dae114`、`15c1008`，未设置 upstream、未推送 GitHub。
