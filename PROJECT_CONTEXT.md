@@ -1,13 +1,15 @@
 # FHL Studio Windows V2.0.4 开发交接
 
-## 2026-08-21 批次 35：卷帘对比使用原始参考图（收口中）
+## 2026-08-21 批次 35：卷帘对比使用原始参考图（已完成）
 
 - 当前分支：`codex/windows-v2.0.4-feature/local-edit-360-parity`。本批修复普通图双图/卷帘对比左侧误用缩略图的问题；不修改 Android、V2.0.3、用户原图、历史、API 配置或远程 GitHub。
 - 根因：参考图已有 `previewUrl` 时旧物化逻辑跳过完整媒体注册，并把缩略图作为 `fullUrl`；画布对比组件直接放大该地址，导致左侧自然尺寸约 `384×216`。
 - 修改范围：`compareSourceSelection.ts` 始终按源路径注册完整媒体，外部路径失败时导入受管副本后重试；`historyFullSrc()` 拒绝 thumb/preview 误存地址；`CanvasStage.tsx` 的双图和卷帘左右地址统一走完整媒体 helper。缩略图仅在完整媒体和原始字节均不可用时降级。
 - 自动化已通过：TypeScript、定向 Node `19/19`、Node `672/672`、UI `116/116`、Lint `0 errors / 58 existing warnings`、桌面/CLI `go test ./...` 与 `go vet ./...`、Fast、Batch（含 Worker `5/5`、离线 smoke）和 `git diff --check`。源码根目录没有 Go module，Go 门禁在 `image-studio` 与 `go-cli` 两个实际 module 目录执行。
 - Codex 浏览器 `http://127.0.0.1:5174/` 已用离线历史验收：修复后左侧地址为受管 `/media/full/...`，自然尺寸 `1753×986`，右侧为 `2048×1152`；修复前同位置为 `/media/thumb/...`、`384×216`。`1252×930`、`1440×900`、`1024×768` 无横向溢出，新增 warning/error 为 `0`；未提交生图、删除历史或源文件。
-- 详细记录：[docs/changes/2026-08-21-windows-v2.0.4-compare-original-source.md](docs/changes/2026-08-21-windows-v2.0.4-compare-original-source.md)。代码提交和文档回写完成后补充精确回退点。
+- 提交：`8c4bedf fix(compare): use original source in curtain comparison`；回退使用 `git revert 8c4bedf`，不使用 reset。未设置 upstream、未推送 GitHub。
+- 提交后再次在 Codex 浏览器加载 `http://127.0.0.1:5174/` 完成双图/卷帘真实验收：两种模式均读取 `1753×986` 原图与 `2048×1152` 成图的 `/media/full/` 地址；三档视口无横向溢出，控制台 warning/error 为 `0`。浏览器页面已保留给用户继续试用。
+- 详细记录：[docs/changes/2026-08-21-windows-v2.0.4-compare-original-source.md](docs/changes/2026-08-21-windows-v2.0.4-compare-original-source.md)。
 
 ## 2026-08-20 批次 34：局部编辑镜头预览拖动（已完成）
 
