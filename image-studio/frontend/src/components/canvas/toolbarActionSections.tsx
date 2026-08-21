@@ -34,7 +34,6 @@ export function BaseToolSection({
   onRedo: () => void;
 }) {
   const { isMac } = usePlatform();
-  if (!hasImage) return null;
   return (
     <>
       <ToolBtn active={tool === "pan"} disabled={!hasImage} onClick={() => onSetTool("pan")} title="拖动 / 缩放 (1)" label={isMac ? "拖动" : undefined}>
@@ -46,10 +45,10 @@ export function BaseToolSection({
       <ToolBtn active={tool === "annotate"} disabled={!hasImage} onClick={() => onSetTool("annotate")} title="画框标注 (3)" label={isMac ? "标注" : undefined}>
         <Square className="w-3.5 h-3.5" />
       </ToolBtn>
-      <ToolBtn disabled={undoDisabled} onClick={onUndo} title={`撤销 (${undoShortcutLabel})`} label={isMac ? "撤销" : undefined}>
+      <ToolBtn disabled={!hasImage || undoDisabled} onClick={onUndo} title={`撤销 (${undoShortcutLabel})`} label={isMac ? "撤销" : undefined}>
         <RotateCcw className="w-3.5 h-3.5" />
       </ToolBtn>
-      <ToolBtn disabled={redoDisabled} onClick={onRedo} title={`重做 (${redoShortcutLabel})`} label={isMac ? "重做" : undefined}>
+      <ToolBtn disabled={!hasImage || redoDisabled} onClick={onRedo} title={`重做 (${redoShortcutLabel})`} label={isMac ? "重做" : undefined}>
         <RotateCw className="w-3.5 h-3.5" />
       </ToolBtn>
     </>
@@ -186,6 +185,7 @@ export function TransformSection({
         <ToolbarTextButton
           onClick={onToggleMobileAdjust}
           selected={mobileAdjustOpen}
+          disabled={!currentImageSavedPath}
           title="旋转 / 翻转"
         >
           调整

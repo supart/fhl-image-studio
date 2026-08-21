@@ -76,7 +76,10 @@ export function Toolbar() {
     && !resultGridOpen
     && !historyGalleryOpen
     && !!currentImage;
-  const showCompareToggle = !!currentImage && !resultGridOpen && !historyGalleryOpen;
+  // Keep the compare affordances mounted after the current view is cleared.
+  // They remain disabled until an image/source is selected, which prevents the
+  // toolbar from collapsing and makes the empty canvas state reversible.
+  const showCompareToggle = !resultGridOpen && !historyGalleryOpen;
   const showReturnFromSourcePreview = currentImage?.id?.startsWith("source-preview-") === true
     && !resultGridOpen
     && !historyGalleryOpen;
@@ -87,7 +90,7 @@ export function Toolbar() {
   const compareActive = !!compareB;
   const sideBySideActive = compareActive && compareMode === "sideBySide";
   const curtainActive = compareActive && compareMode !== "sideBySide";
-  const compareDisabled = !compareActive && !compareSource;
+  const compareDisabled = !currentImage || (!compareActive && !compareSource);
   const sideBySideTitle = sideBySideActive
     ? "退出双图对比"
     : compareDisabled
@@ -98,11 +101,11 @@ export function Toolbar() {
     : compareDisabled
       ? "当前图片没有可用原图可对比"
       : "查看原图和成图的卷帘对比";
-  const showToolSection = hasImage;
-  const showAnnotationTools = tool === "annotate";
-  const showMaskTools = tool === "mask";
+  const showToolSection = true;
+  const showAnnotationTools = tool === "annotate" && hasImage;
+  const showMaskTools = tool === "mask" && hasImage;
   const showViewReset = tool === "pan" && hasImage;
-  const showTransformSection = !!currentImage;
+  const showTransformSection = true;
   const localEditAction = currentImage
     ? () => void startLocalEditRoundtrip(selRect && selRect.width && selRect.height
       ? { x: selRect.x, y: selRect.y, width: selRect.width, height: selRect.height }
@@ -112,7 +115,7 @@ export function Toolbar() {
   const hasViewContent = hasImage || resultGridOpen || historyGalleryOpen;
   const mergeViewTransformSection = isMac && showViewReset && !showMaskTools && !showAnnotationTools;
   const hasContextSection = showMaskTools || showAnnotationTools || (showViewReset && !mergeViewTransformSection);
-  const hasTransformTools = !!currentImage;
+  const hasTransformTools = true;
   const contextCaption = showMaskTools ? "蒙版" : showAnnotationTools ? "标注" : showViewReset ? "视图" : undefined;
   const contextualGroupClassName = `toolbar-group-inline toolbar-group-card toolbar-contextual ${
     showMaskTools || showAnnotationTools ? "toolbar-contextual-expansive" : "toolbar-contextual-compact"
@@ -186,8 +189,8 @@ export function Toolbar() {
               <BaseToolSection
                 hasImage={hasImage}
                 tool={tool}
-                undoDisabled={undoStack.length === 0}
-                redoDisabled={redoStack.length === 0}
+                undoDisabled={!hasImage || undoStack.length === 0}
+                redoDisabled={!hasImage || redoStack.length === 0}
                 onSetTool={(nextTool) => setField("tool", nextTool)}
                 onUndo={undo}
                 onRedo={redo}
@@ -282,8 +285,8 @@ export function Toolbar() {
             <BaseToolSection
               hasImage={hasImage}
               tool={tool}
-              undoDisabled={undoStack.length === 0}
-              redoDisabled={redoStack.length === 0}
+              undoDisabled={!hasImage || undoStack.length === 0}
+              redoDisabled={!hasImage || redoStack.length === 0}
               onSetTool={(nextTool) => setField("tool", nextTool)}
               onUndo={undo}
               onRedo={redo}
