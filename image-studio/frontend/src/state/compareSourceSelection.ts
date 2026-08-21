@@ -4,8 +4,24 @@ import { sourceImagesFromHistoryItem } from "./historySourceImages.ts";
 
 const TEMP_SOURCE_COMPARE_PREFIX = "compare-source:";
 
-function cloneSource(source: SourceImage | null | undefined): SourceImage | null {
+type ComparableSourceImage = SourceImage & {
+  // These fields may exist on a live source object even though old persisted
+  // workspace snapshots only retain path + previewUrl.
+  imageId?: string;
+  fullUrl?: string;
+};
+
+function isUsableFullUrl(value: unknown): value is string {
+  const url = typeof value === "string" ? value.trim() : "";
+  if (!url) return false;
+  // The media preview endpoints are AVIF/thumbnail derivatives, never the
+  // source that should be enlarged in a compare canvas.
+  return !/\/media\/(?:thumb|preview)\//i.test(url);
+}
+
+function cloneSource(source: SourceImage | null | undefined): ComparableSourceImage | null {
   if (!source?.path) return null;
+  const raw = source as ComparableSourceImage;
   return {
     path: source.path,
     name: source.name || source.path.split(/[\\/]/).pop() || "source.png",
@@ -13,6 +29,8 @@ function cloneSource(source: SourceImage | null | undefined): SourceImage | null
     previewUrl: source.previewUrl || undefined,
     imageB64: source.imageB64 || undefined,
     imageBlob: source.imageBlob ?? null,
+    imageId: raw.imageId || undefined,
+    fullUrl: isUsableFullUrl(raw.fullUrl) ? raw.fullUrl : undefined,
   };
 }
 
@@ -41,27 +59,55 @@ export async function materializeCompareSourceAsHistoryItem(
   if (!resolvedSource?.path) return null;
 
   let previewUrl = resolvedSource.previewUrl || undefined;
-  let fullUrl = resolvedSource.previewUrl || undefined;
+  let fullUrl = resolvedSource.fullUrl || undefined;
   let savedPath = resolvedSource.path;
-  let imageId: string | undefined;
+  let imageId: string | undefined = resolvedSource.imageId;
   let imageB64 = resolvedSource.imageB64 || undefined;
   let imageBlob = resolvedSource.imageBlob ?? null;
 
-  if (!previewUrl && !imageB64 && !imageBlob) {
-    const { ImportImagePath, RegisterImportedImageAsset, ReadImageAsBase64 } = await import("../platform/runtime/host");
-    const imported = await ImportImagePath(resolvedSource.path).catch(() => null);
-    if (imported?.path) {
-      savedPath = imported.path;
-      imageId = imported.imageId || undefined;
-      previewUrl = imported.previewUrl || undefined;
-      fullUrl = imported.imageId ? `/media/full/${imported.imageId}` : previewUrl;
+  // A source preview is intentionally present for the reference strip, but it
+  // is usually a 384px derivative. Resolve the managed full media by path even
+  // when that preview already exists; only keep the preview as a last-resort
+  // fallback when the host cannot expose the original.
+  if (!imageB64 && !imageBlob) {
+    const { ImportImagePath, RegisterImportedImageAsset, ReadImageAsBase64 } = await import("../platform/runtime/host.ts");
+    const applyMediaRef = (ref: {
+      savedPath?: string;
+      imageId?: string;
+      previewUrl?: string;
+      fullUrl?: string;
+    } | null | undefined) => {
+      if (!ref) return;
+      savedPath = ref.savedPath || savedPath;
+      imageId = ref.imageId || imageId;
+      previewUrl = ref.previewUrl || previewUrl;
+      if (isUsableFullUrl(ref.fullUrl)) fullUrl = ref.fullUrl;
+    };
+
+    const registerCurrentPath = async () => {
+      const ref = await RegisterImportedImageAsset(savedPath).catch(() => null);
+      applyMediaRef(ref);
+      return !!fullUrl;
+    };
+
+    let hasFullMedia = await registerCurrentPath();
+    if (!hasFullMedia) {
+      // External paths may not be in the host's managed roots yet. Import once,
+      // then register the managed copy so the compare view still gets a full URL.
+      const imported = await ImportImagePath(savedPath).catch(() => null);
+      if (imported?.path) {
+        savedPath = imported.path;
+        imageId = imported.imageId || imageId;
+        previewUrl = imported.previewUrl || previewUrl;
+        if (imported.imageB64) {
+          imageB64 = imported.imageB64;
+          imageBlob = base64ToBlob(imported.imageB64);
+        }
+        hasFullMedia = await registerCurrentPath();
+      }
     }
-    const ref = await RegisterImportedImageAsset(savedPath).catch(() => null);
-    previewUrl = ref?.previewUrl || previewUrl;
-    fullUrl = ref?.fullUrl || ref?.previewUrl || fullUrl;
-    savedPath = ref?.savedPath || savedPath;
-    imageId = ref?.imageId || undefined;
-    if (!previewUrl && !fullUrl) {
+
+    if (!hasFullMedia && !imageB64 && !imageBlob && !previewUrl) {
       const fullB64 = await ReadImageAsBase64(savedPath).catch(() => "");
       if (fullB64) {
         imageB64 = fullB64;
@@ -76,7 +122,7 @@ export async function materializeCompareSourceAsHistoryItem(
     id: `${TEMP_SOURCE_COMPARE_PREFIX}${currentImage.id}:${savedPath}`,
     imageId,
     previewUrl,
-    fullUrl: fullUrl || previewUrl,
+    fullUrl,
     imageB64,
     imageBlob,
     prompt: currentImage.prompt,

@@ -1489,10 +1489,10 @@ export function CanvasStage() {
           <SideBySideCompareOverlay
             leftBlob={compareB.imageBlob ?? null}
             leftB64={compareB.imageB64}
-            leftUrl={compareB.fullUrl || compareB.previewUrl}
+            leftUrl={historyFullSrc(compareB, null)}
             rightBlob={currentImage.imageBlob ?? null}
             rightB64={currentImage.imageB64}
-            rightUrl={currentImage.fullUrl || currentImage.previewUrl}
+            rightUrl={historyFullSrc(currentImage, null)}
             leftLabel={compareUsesSourceImage ? "原图" : "对比图"}
             rightLabel={compareUsesSourceImage ? "成图" : "当前图"}
           />
@@ -1501,10 +1501,10 @@ export function CanvasStage() {
           <CompareOverlay
             leftBlob={compareB.imageBlob ?? null}
             leftB64={compareB.imageB64}
-            leftUrl={compareB.fullUrl || compareB.previewUrl}
+            leftUrl={historyFullSrc(compareB, null)}
             rightBlob={currentImage.imageBlob ?? null}
             rightB64={currentImage.imageB64}
-            rightUrl={currentImage.fullUrl || currentImage.previewUrl}
+            rightUrl={historyFullSrc(currentImage, null)}
             split={compareSplit}
             onSplit={setCompareSplit}
             leftLabel={compareUsesSourceImage ? "原图" : "对比图"}

@@ -49,7 +49,7 @@ test("primaryCompareSourceFromCurrentImage falls back to restored parent source 
   assert.equal(source?.name, "original.png");
 });
 
-test("materializeCompareSourceAsHistoryItem creates a temporary compare record without history persistence fields", async () => {
+test("materializeCompareSourceAsHistoryItem resolves full media even when a thumbnail already exists", async () => {
   const currentImage = {
     id: "result-3",
     prompt: "prompt",
@@ -61,17 +61,84 @@ test("materializeCompareSourceAsHistoryItem creates a temporary compare record w
     createdAt: 1,
   };
 
-  const item = await compareSourceSelection.materializeCompareSourceAsHistoryItem({
-    path: "I:\\picked\\original.png",
-    name: "original.png",
-    size: 1,
-    previewUrl: "preview://original",
-  }, currentImage);
+  const previousWindow = globalThis.window;
+  let registerCalls = 0;
+  globalThis.window = {
+    go: {
+      backend: {
+        DesktopAPI: {
+          async RegisterImportedImageAsset(path) {
+            registerCalls += 1;
+            return {
+              savedPath: path,
+              imageId: "asset-original",
+              previewUrl: "/media/preview/asset-original",
+              fullUrl: "/media/full/asset-original",
+            };
+          },
+        },
+      },
+    },
+  };
+  try {
+    const item = await compareSourceSelection.materializeCompareSourceAsHistoryItem({
+      path: "I:\\picked\\original.png",
+      name: "original.png",
+      size: 1,
+      previewUrl: "/media/thumb/source-preview",
+    }, currentImage);
 
-  assert.ok(item?.id.startsWith("compare-source:result-3:"));
-  assert.equal(item?.fullUrl, "preview://original");
-  assert.equal(item?.savedPath, "I:\\picked\\original.png");
-  assert.equal(item?.mode, "edit");
+    assert.ok(item?.id.startsWith("compare-source:result-3:"));
+    assert.equal(registerCalls, 1);
+    assert.equal(item?.fullUrl, "/media/full/asset-original");
+    assert.equal(item?.previewUrl, "/media/preview/asset-original");
+    assert.equal(item?.imageId, "asset-original");
+    assert.equal(item?.savedPath, "I:\\picked\\original.png");
+    assert.equal(item?.mode, "edit");
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});
+
+test("materializeCompareSourceAsHistoryItem keeps a preview-only fallback when full media is unavailable", async () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = {
+    go: {
+      backend: {
+        DesktopAPI: {
+          async RegisterImportedImageAsset() {
+            throw new Error("host unavailable");
+          },
+          async ImportImagePath() {
+            throw new Error("host unavailable");
+          },
+        },
+      },
+    },
+  };
+  try {
+    const item = await compareSourceSelection.materializeCompareSourceAsHistoryItem({
+      path: "I:\\picked\\fallback.png",
+      name: "fallback.png",
+      size: 1,
+      previewUrl: "/media/thumb/fallback",
+    }, {
+      id: "result-fallback",
+      prompt: "prompt",
+      mode: "edit",
+      size: "1024x1024",
+      quality: "medium",
+      outputFormat: "png",
+      createdAt: 1,
+    });
+
+    assert.equal(item?.fullUrl, undefined);
+    assert.equal(item?.previewUrl, "/media/thumb/fallback");
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
 });
 
 test("temporary compare ids are detectable", () => {

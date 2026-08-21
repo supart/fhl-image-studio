@@ -203,7 +203,10 @@ export function historyFullSrc(
 ): string {
   if (!item) return "";
   const mediaFullUrl = isTransientPreviewItem(item) ? "" : mediaFullUrlFromImageId(item.imageId);
-  return item.fullUrl || mediaFullUrl || objectURL || item.previewUrl || (item.imageB64 ? dataURLFromBase64(item.imageB64) : "");
+  const explicitFullUrl = item.fullUrl && !/\/media\/(?:thumb|preview)\//i.test(item.fullUrl)
+    ? item.fullUrl
+    : "";
+  return explicitFullUrl || mediaFullUrl || objectURL || item.previewUrl || (item.imageB64 ? dataURLFromBase64(item.imageB64) : "");
 }
 
 export function useImageElement(source?: Blob | string | null): HTMLImageElement | null {

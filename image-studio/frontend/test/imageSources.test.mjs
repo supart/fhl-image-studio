@@ -26,6 +26,17 @@ test("historyFullSrc derives full media URL from persisted image id", () => {
   assert.equal(images.historyFullSrc(item, null), "/media/full/asset-2");
 });
 
+test("historyFullSrc rejects a thumbnail URL incorrectly stored in fullUrl", () => {
+  const item = {
+    id: "img-thumb-full",
+    fullUrl: "/media/thumb/asset-thumb-full",
+    previewUrl: "/media/thumb/asset-thumb-full",
+    imageId: "asset-thumb-full",
+  };
+
+  assert.equal(images.historyFullSrc(item, null), "/media/full/asset-thumb-full");
+});
+
 test("historyFullSrc keeps transient stream previews on preview media", () => {
   const item = {
     id: "preview-job-1",

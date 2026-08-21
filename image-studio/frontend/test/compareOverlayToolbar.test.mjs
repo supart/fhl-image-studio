@@ -53,6 +53,12 @@ test("canvas supports side-by-side compare mode while preserving curtain compare
   assert.match(canvasStageSource, /CompareOverlay/);
 });
 
+test("windows compare overlays resolve the left source through the full-media helper", () => {
+  assert.match(canvasStageSource, /leftUrl=\{historyFullSrc\(compareB, null\)\}/);
+  assert.match(canvasStageSource, /rightUrl=\{historyFullSrc\(currentImage, null\)\}/);
+  assert.doesNotMatch(canvasStageSource, /leftUrl=\{compareB\.fullUrl \|\| compareB\.previewUrl\}/);
+});
+
 test("toolbar buttons keep framed and selected states", () => {
   assert.ok(toolbarPrimitivesSource.includes("border border-black/[0.14] bg-[var(--surface)]"));
   assert.ok(toolbarPrimitivesSource.includes("aria-pressed={active !== undefined ? active : undefined}"));
