@@ -1,5 +1,14 @@
 # FHL Studio Windows V2.0.4 开发交接
 
+## 2026-08-21 批次 36：清空视图后工具栏保留（已完成）
+
+- 当前分支：`codex/windows-v2.0.4-feature/local-edit-360-parity`；代码提交 `7b72287 fix(canvas): keep toolbar after clearing view`。本批仅修复空画布工具栏挂载，不修改 Android、V2.0.3、历史/源文件、API 配置或远程 GitHub。
+- 根因：`Toolbar.tsx` 和 `BaseToolSection` 在 `currentImage` 为空时卸载工具、变换和对比入口；“清空视图”后只剩空状态，用户无法从同一工具栏恢复操作。
+- 修复后工具、变换和对比入口继续挂载；没有当前图时图像相关按钮禁用，全屏保持可用，清空按钮按原语义隐藏。新增 `frontend/test/clearViewToolbar.test.mjs`，锁定挂载与禁用契约。
+- 自动化已通过：TypeScript、Node `675/675`、UI `116/116`、Lint `0 errors / 58 existing warnings`、桌面/CLI Go test+vet、Worker `5/5`、`scripts\dev-check.ps1 -Level Batch`、`git diff --check`。
+- Codex 浏览器 `http://127.0.0.1:5174/` 新标签真实验收：点击“清空视图”后 12 个工具按钮仍可见，图像操作均禁用、全屏可用；`1252×930`、`1440×900`、`1024×768` 无横向溢出，控制台新增 warning/error 为 `0`。未生成任务、删除历史或源文件。
+- 详细记录：[docs/changes/2026-08-21-windows-v2.0.4-clear-view-toolbar.md](docs/changes/2026-08-21-windows-v2.0.4-clear-view-toolbar.md)。回退使用 `git revert 7b72287`，不使用 reset。
+
 ## 2026-08-21 批次 35：卷帘对比使用原始参考图（已完成）
 
 - 当前分支：`codex/windows-v2.0.4-feature/local-edit-360-parity`。本批修复普通图双图/卷帘对比左侧误用缩略图的问题；不修改 Android、V2.0.3、用户原图、历史、API 配置或远程 GitHub。
