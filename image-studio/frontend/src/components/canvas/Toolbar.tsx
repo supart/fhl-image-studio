@@ -149,7 +149,7 @@ export function Toolbar() {
         onToggleMobileAdjust={() => setMobileAdjustOpen((v) => !v)}
         onRotate={rotateCurrent}
         onFlip={flipCurrent}
-        cropAction={!isAndroidPhone && selRect && selRect.width && selRect.height
+        cropAction={hasImage && !isAndroidPhone && selRect && selRect.width && selRect.height
           ? () => cropToRect(selRect.x, selRect.y, selRect.width!, selRect.height!)
           : null}
         localEditAction={localEditAction}
@@ -164,7 +164,7 @@ export function Toolbar() {
         onToggleMobileAdjust={() => setMobileAdjustOpen((v) => !v)}
         onRotate={rotateCurrent}
         onFlip={flipCurrent}
-        cropAction={!isAndroidPhone && selRect && selRect.width && selRect.height
+        cropAction={hasImage && !isAndroidPhone && selRect && selRect.width && selRect.height
           ? () => cropToRect(selRect.x, selRect.y, selRect.width!, selRect.height!)
           : null}
         localEditAction={localEditAction}
@@ -322,7 +322,7 @@ export function Toolbar() {
               onToggleMobileAdjust={() => setMobileAdjustOpen((v) => !v)}
               onRotate={rotateCurrent}
               onFlip={flipCurrent}
-              cropAction={!isAndroidPhone && selRect && selRect.width && selRect.height
+              cropAction={hasImage && !isAndroidPhone && selRect && selRect.width && selRect.height
                 ? () => cropToRect(selRect.x, selRect.y, selRect.width!, selRect.height!)
                 : null}
               localEditAction={localEditAction}
