@@ -18,8 +18,8 @@ val customKeystorePath = providers.environmentVariable("IMAGE_STUDIO_KEYSTORE_PA
 val customKeystorePassword = providers.environmentVariable("IMAGE_STUDIO_KEYSTORE_PASSWORD")
 val customKeystoreAlias = providers.environmentVariable("IMAGE_STUDIO_KEY_ALIAS")
 val customKeyPassword = providers.environmentVariable("IMAGE_STUDIO_KEY_PASSWORD")
-val appVersionName = providers.environmentVariable("IMAGE_STUDIO_ANDROID_VERSION_NAME").orElse("V2.0.3")
-val appVersionCode = providers.environmentVariable("IMAGE_STUDIO_ANDROID_VERSION_CODE").orElse("1050003").map(String::toInt)
+val appVersionName = providers.environmentVariable("IMAGE_STUDIO_ANDROID_VERSION_NAME").orElse("V2.0.4")
+val appVersionCode = providers.environmentVariable("IMAGE_STUDIO_ANDROID_VERSION_CODE").orElse("1050004").map(String::toInt)
 val npmCommand = if (System.getProperty("os.name").lowercase().contains("windows")) "npm.cmd" else "npm"
 val usePrebuiltFrontend = providers.environmentVariable("IMAGE_STUDIO_ANDROID_USE_PREBUILT_FRONTEND")
     .map { value -> value == "1" || value.equals("true", ignoreCase = true) }
@@ -118,7 +118,7 @@ android {
         targetSdk = 34
         versionCode = appVersionCode.get()
         versionName = appVersionName.get()
-        manifestPlaceholders["appLabel"] = "FHL Image Studio 方汤圆版 V2.0.3"
+        manifestPlaceholders["appLabel"] = "FHL Image Studio 方汤圆版 V2.0.4"
         buildConfigField("String", "TARGET_PLATFORM", "\"android\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

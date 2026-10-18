@@ -40,6 +40,17 @@ export const RUNNINGHUB_IMAGE_G2_PROFILE_NAME = "RH-1 全能图像G2";
 export const RUNNINGHUB_BASE_URL = "http://10.0.2.2:8117";
 export const RUNNINGHUB_LOCALHOST_BASE_URL = "http://127.0.0.1:8117";
 export const RUNNINGHUB_DEFAULT_MODEL_ID = "banana2";
+
+export function chooseAndroidTextModel(models: string[], currentModel: string): string {
+  const choices = [...new Set(models.map((model) => model.trim()).filter(Boolean))];
+  const current = currentModel.trim();
+  if (choices.includes(current)) return current;
+  if (choices.includes(FHL_TEXT_MODEL_ID)) return FHL_TEXT_MODEL_ID;
+  // ponytail: Only skip obvious image-only IDs; upstream order decides among unknown text models.
+  return choices.find((model) => !/(?:^|[-_.:])(image|images|imagen|dall-e)(?:$|[-_.:])/i.test(model))
+    ?? choices[0]
+    ?? current;
+}
 export const RUNNINGHUB_IMAGE_G2_MODEL_ID = "image_g2";
 
 type UpstreamConfigInput = {

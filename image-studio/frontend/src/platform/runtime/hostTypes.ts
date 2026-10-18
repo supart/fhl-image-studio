@@ -97,6 +97,7 @@ export type ProbeUpstreamOptionsLike = {
 
 export type ProbeUpstreamResultLike = {
   modelCount?: number;
+  models?: string[];
   ok?: boolean;
 };
 

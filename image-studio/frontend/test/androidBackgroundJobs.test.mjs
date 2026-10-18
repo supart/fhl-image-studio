@@ -85,7 +85,7 @@ test("Android GitHub workflow only creates manually reviewed artifacts", () => {
   assert.match(androidReleaseWorkflow, /workflow_dispatch:/);
   assert.match(androidReleaseWorkflow, /permissions:\s*\n\s*contents: read/);
   assert.match(androidReleaseWorkflow, /IMAGE_STUDIO_GIT_COMMIT: \$\{\{ github\.sha \}\}/);
-  assert.match(androidReleaseWorkflow, /IMAGE_STUDIO_BUILD_ID: android-v2\.0\.3-release/);
+  assert.match(androidReleaseWorkflow, /IMAGE_STUDIO_BUILD_ID: android-v2\.0\.4-release/);
   assert.match(androidReleaseWorkflow, /Upload review artifacts/);
   assert.doesNotMatch(androidReleaseWorkflow, /\bpush:/);
   assert.doesNotMatch(androidReleaseWorkflow, /action-gh-release|Publish GitHub Release|contents: write/);

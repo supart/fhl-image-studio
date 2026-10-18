@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ensureAPIMartAsyncProfile, focusAPIMartAPIKeyInput } from "../../../lib/apimartAPI";
+import { validateAPIKeyForHeader } from "../../../lib/apiKey";
 import { ensureFHLImagesProfile, ensureFHLResponsesProfile, focusFHLAPIKeyInput } from "../../../lib/fhlAPI";
-import { isOfficialFHLTextProfile, keyringUserFor } from "../../../lib/profiles";
+import { chooseAndroidTextModel, isOfficialFHLTextProfile, keyringUserFor } from "../../../lib/profiles";
 import { useStudioStore } from "../../../state/studioStore";
 import type { APIMode, RequestPolicy, UpstreamProfile } from "../../../types/domain";
-import { GetStoredAPIKey, ReadClipboardText } from "../../runtime/host";
+import { GetStoredAPIKey, probeCurrentUpstream, ReadClipboardText } from "../../runtime/host";
 
 export type AndroidUpstreamModeId = "fhl-images" | "fhl-responses" | "apimart" | "runninghub";
 
@@ -51,6 +52,8 @@ export function useAndroidUpstreamConfig(open: boolean) {
     testProfileConnection,
     isTestingKey,
     pushToast,
+    proxyMode,
+    proxyURL,
   } = useStudioStore();
 
   const [selectedId, setSelectedId] = useState(activeProfileId);
@@ -60,9 +63,19 @@ export function useAndroidUpstreamConfig(open: boolean) {
   const [savedKeyLoaded, setSavedKeyLoaded] = useState(false);
   const [savedKeyPresent, setSavedKeyPresent] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [textModels, setTextModels] = useState<string[]>([]);
+  const [textModelsLoading, setTextModelsLoading] = useState(false);
+  const textModelFetchVersion = useRef(0);
+
+  function clearTextModels() {
+    textModelFetchVersion.current += 1;
+    setTextModels([]);
+    setTextModelsLoading(false);
+  }
 
   function loadKeyForProfile(profileId: string) {
     let cancelled = false;
+    clearTextModels();
     setDraftKey("");
     setShowKey(false);
     setSavedKeyLoaded(false);
@@ -138,7 +151,54 @@ export function useAndroidUpstreamConfig(open: boolean) {
     && !saving;
 
   function patchDraft(patch: Partial<UpstreamProfile>) {
+    if (patch.baseURL !== undefined && patch.baseURL !== draft?.baseURL) clearTextModels();
     setDraft((current) => (current ? { ...current, ...patch } : current));
+  }
+
+  function handleChangeDraftKey(value: string) {
+    clearTextModels();
+    setDraftKey(value);
+  }
+
+  async function handleFetchTextModels() {
+    if (!draft || !isOfficialFHLTextProfile(draft) || textModelsLoading) return;
+    const requestVersion = textModelFetchVersion.current + 1;
+    textModelFetchVersion.current = requestVersion;
+    setTextModelsLoading(true);
+    let apiKey = "";
+    try {
+      apiKey = validateAPIKeyForHeader(
+        draftKey.trim() || await GetStoredAPIKey(keyringUserFor(draft.id)),
+      );
+      const result = await probeCurrentUpstream(
+        draft.baseURL,
+        apiKey,
+        proxyMode,
+        proxyURL,
+        "responses",
+      );
+      if (requestVersion !== textModelFetchVersion.current) return;
+      const models = result.models ?? [];
+      if (models.length === 0) {
+        pushToast("上游没有返回可选择的文本模型，当前模型未改变。", "warn", 5200);
+        return;
+      }
+      setTextModels(models);
+      const nextModel = chooseAndroidTextModel(models, draft.textModelID);
+      if (nextModel !== draft.textModelID.trim()) {
+        setDraft((current) => (current ? { ...current, textModelID: nextModel } : current));
+        pushToast(`已获取 ${models.length} 个模型并选择 ${nextModel}，保存后生效。`, "success", 5200);
+      } else {
+        pushToast(`已获取 ${models.length} 个模型，当前选择保持不变。`, "success", 4200);
+      }
+    } catch (error: any) {
+      if (requestVersion !== textModelFetchVersion.current) return;
+      const rawMessage = String(error?.message ?? error);
+      const message = apiKey ? rawMessage.split(apiKey).join("[REDACTED]") : rawMessage;
+      pushToast(`获取模型失败：${message}`, "error", 6000);
+    } finally {
+      if (requestVersion === textModelFetchVersion.current) setTextModelsLoading(false);
+    }
   }
 
   async function handleNew(apiMode: APIMode = "images") {
@@ -251,7 +311,7 @@ export function useAndroidUpstreamConfig(open: boolean) {
         pushToast("剪贴板里没有文本", "warn");
         return;
       }
-      setDraftKey(text.trim());
+      handleChangeDraftKey(text.trim());
     } catch (error: any) {
       pushToast(`读取剪贴板失败：${error?.message ?? error}`, "error", 5000);
     }
@@ -266,6 +326,7 @@ export function useAndroidUpstreamConfig(open: boolean) {
     draftKey,
     handleDelete,
     handleDuplicate,
+    handleFetchTextModels,
     handleNew,
     handleSave,
     handleSaveAndSetActive,
@@ -282,9 +343,11 @@ export function useAndroidUpstreamConfig(open: boolean) {
     savedKeyPresent,
     saving,
     selectedId,
-    setDraftKey,
+    setDraftKey: handleChangeDraftKey,
     setSelectedId,
     setShowKey,
     showKey,
+    textModels,
+    textModelsLoading,
   };
 }

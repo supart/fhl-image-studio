@@ -202,7 +202,7 @@ const OUTPUT_DIR_KEY = storageKey("gptcodex.outputDir");
 const ANDROID_CONTINUOUS_DEFAULT_KEY = storageKey("gptcodex.androidContinuousDefault.v1");
 const ANDROID_FHL_POOL_CURSOR_KEY = storageKey("gptcodex.androidFHLImagesPoolCursor.v1");
 const INITIAL_HISTORY_LOAD = 48;
-const ANDROID_FHL_TEXT_TOOLS_NOTICE = "AI 优化、提示词反推和指令改写需要调用 FHL GPT-5.5，请先配置 FHL API。";
+const ANDROID_FHL_TEXT_TOOLS_NOTICE = "AI 优化、提示词反推和指令改写需要使用已配置的 FHL 文本模型，请先配置 FHL API。";
 
 function readAndroidFHLPoolCursor(): number {
   try {

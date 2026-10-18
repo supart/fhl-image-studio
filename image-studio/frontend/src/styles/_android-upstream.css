@@ -458,6 +458,42 @@ html[data-platform="android"] .android-upstream-input {
   font-size: 13px;
 }
 
+html[data-platform="android"] .android-upstream-model-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+html[data-platform="android"] .android-upstream-model-row button {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid rgb(0 106 96 / 0.14);
+  border-radius: 16px;
+  background: rgb(0 106 96 / 0.08);
+  padding: 0 12px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+html[data-platform="android"] .android-upstream-model-row button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+html[data-platform="android"] .android-upstream-model-row button:hover,
+html[data-platform="android"] .android-upstream-model-row button:focus-visible {
+  border-color: rgb(0 106 96 / 0.2);
+  background-color: rgb(237 248 244 / 0.95);
+  box-shadow: 0 8px 20px rgb(0 106 96 / 0.08);
+  outline: none;
+}
+
 html[data-platform="android"] .android-upstream-hint,
 html[data-platform="android"] .android-upstream-save-hint,
 html[data-platform="android"] .android-upstream-error {
@@ -712,6 +748,7 @@ html.dark[data-platform="android"] .android-upstream-option-grid button,
 html.dark[data-platform="android"] .android-upstream-icon-actions button,
 html.dark[data-platform="android"] .android-upstream-secret button,
 html.dark[data-platform="android"] .android-upstream-stepper button,
+html.dark[data-platform="android"] .android-upstream-model-row button,
 html.dark[data-platform="android"] .android-upstream-input {
   border-color: rgb(255 255 255 / 0.08);
   background: rgb(255 255 255 / 0.04);

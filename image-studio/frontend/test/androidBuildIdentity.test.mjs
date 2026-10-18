@@ -13,6 +13,8 @@ test("Android service identity is derived from version, commit and explicit buil
 
   assert.match(viteConfig, /isAndroidWebViewTarget\s*\?\s*`android-\$\{androidBuildVersion\}-\$\{androidGitCommit\}-\$\{androidBuildId\}`/);
   assert.match(platformVite, /IMAGE_STUDIO_ANDROID_VERSION_NAME/);
+  assert.match(viteConfig, /IMAGE_STUDIO_ANDROID_VERSION_NAME, "V2\.0\.4"/);
+  assert.match(platformVite, /IMAGE_STUDIO_ANDROID_VERSION_NAME \|\|= "V2\.0\.4"/);
   assert.match(platformVite, /IMAGE_STUDIO_GIT_COMMIT/);
   assert.match(platformVite, /IMAGE_STUDIO_BUILD_ID/);
   assert.match(platformVite, /\["--config", path\.join\(projectRoot, "vite\.config\.ts"\)\]/);

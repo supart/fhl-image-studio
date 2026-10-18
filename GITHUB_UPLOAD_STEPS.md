@@ -1,16 +1,16 @@
-# Android V2.0.3 GitHub审核与上传步骤
+# Android V2.0.4 GitHub审核与上传步骤
 
 仓库：[supart/fhl-image-studio](https://github.com/supart/fhl-image-studio)
 
 ## 固定发布身份
 
 ```text
-分支：codex/android-v2.0.3-public-release
-Tag：v2.0.3-android
-标题：FHL Image Studio 方汤圆版 V2.0.3 Android
-版本：V2.0.3 / 1050003
+分支：codex/android-v2.0.4-upgrade
+Tag：v2.0.4-android
+标题：FHL Image Studio 方汤圆版 V2.0.4 Android
+版本：V2.0.4 / 1050004
 包名：top.fangtangyuan.fhlstudio.android
-Build ID：android-v2.0.3-release
+Build ID：android-v2.0.4-release
 ```
 
 正式证书 SHA-256：
@@ -23,10 +23,10 @@ Build ID：android-v2.0.3-release
 
 1. 确认工作树干净，公开提交只包含构建源码、测试、许可证、Workflow和用户文档。
 2. 运行前端测试、TypeScript、Worker测试、Android JVM、Lint和UI矩阵。
-3. 在两个全新ASCII路径工作树构建正式APK，要求逐字节一致。
+3. 在干净ASCII路径工作树构建正式APK；如需延续V2.0.3的可复现门禁，再做第二路径逐字节比对。
 4. 校验包名、版本、SDK、`debuggable=false`、v2签名和正式证书。
 5. 扫描公开Git历史、源码ZIP、APK内部和全部附件；真实Key、Bearer/token、Keystore、本机路径、私人日志和读取错误必须为0。
-6. 用同一APK完成隔离模拟器全新安装、V2.0.2.1覆盖升级和30秒零自动POST验证。
+6. 用同一APK完成隔离模拟器全新安装、上一正式版覆盖升级和30秒零自动POST验证。
 7. 核对APK ZIP内只有一个APK且逐字节一致；源码ZIP必须来自同一提交的`git archive`。
 
 正式构建关闭AGP可选的加密依赖信息块。该块不参与应用运行，但每次加密都会写入新的随机数据；关闭后才能让两个干净路径生成的正式签名APK逐字节一致。不得通过复用第一次产物、忽略签名块或只比较ZIP条目来替代双构建门禁。
@@ -62,8 +62,8 @@ ANDROID_RELEASE_KEY_PASSWORD
 本地审核包通过后，才执行以下独立步骤：
 
 1. 将公开分支推送到GitHub并审查提交差异。
-2. 在该公开提交上创建签名Tag `v2.0.3-android`。
-3. 手动创建GitHub Release，正文使用 `RELEASE_NOTES_V2.0.3_ANDROID.md`。
+2. 在该公开提交上创建签名Tag `v2.0.4-android`。
+3. 手动创建GitHub Release，正文使用 `RELEASE_NOTES_V2.0.4_ANDROID.md`。
 4. 上传APK、APK ZIP、两份SHA256文件和完整源码ZIP。
 5. 下载GitHub附件重新计算哈希，确认与本地冻结资产一致。
 

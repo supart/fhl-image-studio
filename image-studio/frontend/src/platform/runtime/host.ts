@@ -137,12 +137,29 @@ function summarizeProbeBody(raw: string): string {
     .slice(0, 260);
 }
 
+const PROBE_MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{1,159}$/;
+
+export function parseProbeModelIDs(data: unknown): string[] {
+  if (!Array.isArray(data)) return [];
+  const models: string[] = [];
+  const seen = new Set<string>();
+  for (const item of data) {
+    const id = typeof item === "string"
+      ? item.trim()
+      : String((item as { id?: unknown } | null)?.id ?? "").trim();
+    if (!PROBE_MODEL_ID_PATTERN.test(id) || seen.has(id)) continue;
+    seen.add(id);
+    models.push(id);
+  }
+  return models;
+}
+
 async function probeUpstreamFromBrowser(
   baseURL: string,
   apiKey: string,
   apiMode = "responses",
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<ProbeUpstreamResultLike> {
   const normalizedBaseURL = normalizeProbeBaseURL(baseURL);
   const headerAPIKey = validateAPIKeyForHeader(apiKey);
   if (!normalizedBaseURL) throw new Error("BASE_URL 不能为空");
@@ -175,7 +192,7 @@ async function probeUpstreamFromBrowser(
       const message = String(parsed?.message || parsed?.error || "").trim();
       throw new Error(message ? `APIMart 配置不可用: ${message}` : "APIMart 配置不可用");
     }
-    return;
+    return { ok: true };
   }
   const response = await fetch(`${normalizedBaseURL}/v1/models`, {
     method: "GET",
@@ -199,6 +216,8 @@ async function probeUpstreamFromBrowser(
   if (!Array.isArray(parsed?.data)) {
     throw new Error("上游 /v1/models 响应缺少 data 数组");
   }
+  const models = parseProbeModelIDs(parsed.data);
+  return { modelCount: models.length, models };
 }
 
 function makeRuntimeID(prefix: "job" | "submission"): string {
@@ -932,20 +951,17 @@ export async function probeCurrentUpstream(
   proxyURL = "",
   apiMode = "responses",
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<ProbeUpstreamResultLike> {
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
   const options: ProbeUpstreamOptionsLike = { baseURL, apiKey, apiMode, proxyMode, proxyURL };
   if (hasServiceMethod("ProbeUpstream")) {
-    await invokeService<ProbeUpstreamResultLike>(unsupportedMessage, "ProbeUpstream", options);
-    return;
+    return await invokeService<ProbeUpstreamResultLike>(unsupportedMessage, "ProbeUpstream", options) ?? {};
   }
   if (canInvokeAndroidMethod("ProbeUpstream")) {
-    await invokeAndroid<ProbeUpstreamResultLike>(unsupportedMessage, "ProbeUpstream", options);
-    return;
+    return await invokeAndroid<ProbeUpstreamResultLike>(unsupportedMessage, "ProbeUpstream", options) ?? {};
   }
   if (detectHostKind() === "browser") {
-    await probeUpstreamFromBrowser(baseURL, apiKey, apiMode, signal);
-    return;
+    return probeUpstreamFromBrowser(baseURL, apiKey, apiMode, signal);
   }
   throw new Error(unsupportedMessage("ProbeUpstream"));
 }

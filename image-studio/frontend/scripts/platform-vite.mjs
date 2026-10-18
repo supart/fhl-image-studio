@@ -46,7 +46,7 @@ const viteConfigArgs = mode === "android" || mode === "android-pad"
   ? ["--config", path.join(projectRoot, "vite.config.ts")]
   : [];
 if (mode === "android" || mode === "android-pad") {
-  env.IMAGE_STUDIO_ANDROID_VERSION_NAME ||= "V2.0.3";
+  env.IMAGE_STUDIO_ANDROID_VERSION_NAME ||= "V2.0.4";
   env.IMAGE_STUDIO_BUILD_ID ||= "local";
   if (!env.IMAGE_STUDIO_GIT_COMMIT) {
     try {

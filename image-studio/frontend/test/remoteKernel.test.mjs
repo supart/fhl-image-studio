@@ -699,7 +699,7 @@ test("runRemoteImageJob sends Images API edit mask with image MIME type", async 
   });
 });
 
-test("runRemoteImageJob sends previewUrl-only multi sources to Images API edit", async () => {
+test("runRemoteImageJob sends previewUrl-only multi sources as repeated image fields", async () => {
   let captured = null;
   await withPatchedGlobals(async () => {
     globalThis.fetch = async (url, init) => {
@@ -744,13 +744,13 @@ test("runRemoteImageJob sends previewUrl-only multi sources to Images API edit",
     );
     assert.equal(captured.url, "https://upstream.example/v1/images/edits");
     assert.ok(captured.body instanceof FormData);
-    const primary = captured.body.get("image");
-    const rest = captured.body.getAll("image[]");
-    assert.ok(primary instanceof Blob);
-    assert.equal(primary.type, "image/png");
-    assert.equal(rest.length, 1);
-    assert.ok(rest[0] instanceof Blob);
-    assert.equal(rest[0].type, "image/jpeg");
+    const images = captured.body.getAll("image");
+    assert.equal(images.length, 2);
+    assert.ok(images[0] instanceof Blob);
+    assert.equal(images[0].type, "image/png");
+    assert.ok(images[1] instanceof Blob);
+    assert.equal(images[1].type, "image/jpeg");
+    assert.equal(captured.body.getAll("image[]").length, 0);
   });
 });
 

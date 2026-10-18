@@ -31,7 +31,7 @@ function cleanBuildIdentityPart(value: unknown, fallback: string): string {
   return cleaned || fallback;
 }
 
-const androidBuildVersion = cleanBuildIdentityPart(process.env.IMAGE_STUDIO_ANDROID_VERSION_NAME, "V2.0.3");
+const androidBuildVersion = cleanBuildIdentityPart(process.env.IMAGE_STUDIO_ANDROID_VERSION_NAME, "V2.0.4");
 const androidGitCommit = cleanBuildIdentityPart(process.env.IMAGE_STUDIO_GIT_COMMIT, "unknown-commit");
 const androidBuildId = cleanBuildIdentityPart(process.env.IMAGE_STUDIO_BUILD_ID, "local");
 const serviceInstanceId = isAndroidWebViewTarget

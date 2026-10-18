@@ -96,7 +96,7 @@ export async function ensureFHLResponsesProfile(
     apiMode: "responses",
     requestPolicy: "openai",
     baseURL: FHL_BASE_URL,
-    textModelID: FHL_TEXT_MODEL_ID,
+    textModelID: fhlProfile.textModelID.trim() || FHL_TEXT_MODEL_ID,
     imageModelID: FHL_IMAGE_MODEL_ID,
     concurrencyLimit: fhlProfile.concurrencyLimit > 0 ? Math.min(2, fhlProfile.concurrencyLimit) : DEFAULT_CONCURRENCY_LIMIT,
     imagesNewAPICompat: false,

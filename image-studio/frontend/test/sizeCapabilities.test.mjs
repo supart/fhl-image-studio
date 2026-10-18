@@ -6,7 +6,7 @@ const caps = await import("../src/components/panel/sizeCapabilities.ts");
 test("FHL aspect presets expose the supported ratio list in order", () => {
   assert.deepEqual(
     caps.ASPECT_PRESETS.map((item) => item.value),
-    ["auto", "1:1", "3:2", "2:3", "16:9", "9:16", "2:1", "1:2", "7:4", "4:7"],
+    ["auto", "1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "2:1", "1:2", "7:4", "4:7"],
   );
 });
 
@@ -85,6 +85,12 @@ test("FHL aspect ratios map to concrete pixel sizes", () => {
     ["2:3", "1k", "1024x1536"],
     ["2:3", "2k", "1360x2048"],
     ["2:3", "4k", "2352x3520"],
+    ["4:3", "1k", "1536x1152"],
+    ["4:3", "2k", "2048x1536"],
+    ["4:3", "4k", "3840x2880"],
+    ["3:4", "1k", "1152x1536"],
+    ["3:4", "2k", "1536x2048"],
+    ["3:4", "4k", "2880x3840"],
     ["16:9", "1k", "1536x864"],
     ["16:9", "2k", "2048x1152"],
     ["16:9", "4k", "3840x2160"],
@@ -136,8 +142,8 @@ test("legacy pixel sizes normalize into the current FHL visible ratios", () => {
     requestPolicy: "openai",
     imageModelID: "gpt-image-2",
   };
-  assert.equal(caps.normalizeSizeSelection("3840x2880", input), "3520x2352");
-  assert.equal(caps.normalizeSizeSelection("2880x3840", input), "2352x3520");
+  assert.equal(caps.normalizeSizeSelection("3840x2880", input), "3840x2880");
+  assert.equal(caps.normalizeSizeSelection("2880x3840", input), "2880x3840");
   assert.equal(caps.normalizeSizeSelection("3840x1280", input), "3808x2176");
   assert.equal(caps.normalizeSizeSelection("1280x3840", input), "2176x3808");
 });

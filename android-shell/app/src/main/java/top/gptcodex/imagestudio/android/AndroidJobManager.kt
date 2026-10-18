@@ -1716,7 +1716,7 @@ object AndroidJobManager {
                 appendMultipartFile(
                     out,
                     boundary,
-                    if (i == 0) "image" else "image[]",
+                    "image",
                     "source-${i + 1}.${imageExtensionForMimeType(image.mimeType)}",
                     image.mimeType,
                     image.bytes,

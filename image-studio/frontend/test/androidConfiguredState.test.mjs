@@ -97,7 +97,7 @@ test("Android header brand opens about sheet with fork and original GitHub links
   assert.match(header, /onOpenOriginalRepo=\{\(\) => openAndroidExternal\(ANDROID_ORIGINAL_REPO_URL\)\}/);
   assert.match(brandAboutSheet, /ANDROID_FHL_REPO_URL = "https:\/\/github\.com\/supart\/fhl-image-studio"/);
   assert.match(brandAboutSheet, /ANDROID_ORIGINAL_REPO_URL = "https:\/\/github\.com\/RoseKhlifa\/Image-Studio"/);
-  assert.match(brandAboutSheet, /const ANDROID_BRAND_VERSION = "V2\.0\.3";/);
+  assert.match(brandAboutSheet, /const ANDROID_BRAND_VERSION = "V2\.0\.4";/);
   assert.match(brandAboutSheet, /方汤圆版 GitHub/);
   assert.match(brandAboutSheet, /原作者 GitHub/);
   assert.match(brandAboutSheet, /基于 RoseKhlifa\/Image-Studio 的独立修改发行版/);
@@ -159,6 +159,13 @@ test("Android FHL entry opens a ten-slot Images pool and keeps Responses separat
   assert.match(apiModeBlock, /id: "runninghub"/);
 
   assert.match(upstreamConfig, /ensureFHLResponsesProfile/);
+  assert.match(upstreamConfig, /probeCurrentUpstream/);
+  assert.match(upstreamConfig, /chooseAndroidTextModel/);
+  assert.match(profiles, /export function chooseAndroidTextModel/);
+  assert.match(upstreamConfig, /result\.models \?\? \[\]/);
+  assert.match(upstreamProfileForm, /获取模型/);
+  assert.match(upstreamProfileForm, /自定义模型 ID/);
+  assert.match(upstreamModal, /onFetchTextModels=\{upstream\.handleFetchTextModels\}/);
   assert.match(upstreamConfig, /async function handleNew\(apiMode: APIMode = "images"\)/);
   assert.match(upstreamConfig, /requestPolicy: "openai"/);
   assert.match(upstreamConfig, /async function handleUseExistingFHLAPI\(apiMode: "responses" \| "images" = "images"\)/);
@@ -217,6 +224,7 @@ test("Android FHL entry opens a ten-slot Images pool and keeps Responses separat
   assert.match(fhlAPI, /const fhlProfile = store\.profiles\.find\(isOfficialFHLTextProfile\)/);
   assert.match(fhlAPI, /export async function ensureFHLImagesProfile[\s\S]*isOfficialFHLPoolProfile\(profile\)/);
   assert.match(fhlAPI, /export async function ensureFHLResponsesProfile[\s\S]*apiMode: "responses"/);
+  assert.match(fhlAPI, /textModelID: fhlProfile\.textModelID\.trim\(\) \|\| FHL_TEXT_MODEL_ID/);
   assert.match(fhlAPI, /export async function ensureFHLResponsesProfile[\s\S]*imagesNewAPICompat: false/);
   assert.match(fhlAPI, /export async function ensureFHLImagesProfile/);
   assert.match(fhlAPI, /baseURL: FHL_BASE_URL/);

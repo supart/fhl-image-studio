@@ -3,7 +3,7 @@ import { Modal } from "../../components/common/Modal";
 
 export const ANDROID_FHL_REPO_URL = "https://github.com/supart/fhl-image-studio";
 export const ANDROID_ORIGINAL_REPO_URL = "https://github.com/RoseKhlifa/Image-Studio";
-const ANDROID_BRAND_VERSION = "V2.0.3";
+const ANDROID_BRAND_VERSION = "V2.0.4";
 
 export function AndroidBrandAboutSheet({
   open,

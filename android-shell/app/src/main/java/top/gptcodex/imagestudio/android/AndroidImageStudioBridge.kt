@@ -49,6 +49,22 @@ internal fun shouldFollowBridgeRedirect(method: String): Boolean {
     return method.equals("GET", ignoreCase = true) || method.equals("HEAD", ignoreCase = true)
 }
 
+private val probeModelIdPattern = Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{1,159}$")
+
+internal fun parseProbeModelIds(data: JSONArray): List<String> {
+    val models = linkedSetOf<String>()
+    for (index in 0 until data.length()) {
+        val item = data.opt(index)
+        val id = when (item) {
+            is String -> item.trim()
+            is JSONObject -> item.optString("id").trim()
+            else -> ""
+        }
+        if (probeModelIdPattern.matches(id)) models.add(id)
+    }
+    return models.toList()
+}
+
 class AndroidImageStudioBridge(
     private val context: Context,
     private val webView: WebView,
@@ -690,7 +706,8 @@ class AndroidImageStudioBridge(
                             throw IllegalStateException("上游 /v1/models 响应缺少 data 数组")
                         }
                         val data = parsed.optJSONArray("data") ?: throw IllegalStateException("上游 /v1/models 响应缺少 data 数组")
-                        resolve(requestId, mapOf("modelCount" to data.length()))
+                        val models = parseProbeModelIds(data)
+                        resolve(requestId, mapOf("modelCount" to models.size, "models" to models))
                         return@thread
                     } catch (error: Exception) {
                         lastError = error

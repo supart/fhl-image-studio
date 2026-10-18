@@ -6,12 +6,12 @@ on:
       version_name:
         description: Android version name
         required: true
-        default: V2.0.3
+        default: V2.0.4
         type: string
       version_code:
         description: Android version code
         required: true
-        default: "1050003"
+        default: "1050004"
         type: string
 
 permissions:
@@ -33,8 +33,8 @@ jobs:
           RELEASE_VERSION_NAME: ${{ inputs.version_name }}
           RELEASE_VERSION_CODE: ${{ inputs.version_code }}
         run: |
-          test "$RELEASE_VERSION_NAME" = "V2.0.3"
-          test "$RELEASE_VERSION_CODE" = "1050003"
+          test "$RELEASE_VERSION_NAME" = "V2.0.4"
+          test "$RELEASE_VERSION_CODE" = "1050004"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Set up JDK 17
@@ -94,6 +94,10 @@ jobs:
 
       - name: Run frontend and Worker gates
         shell: bash
+        env:
+          IMAGE_STUDIO_ANDROID_VERSION_NAME: V2.0.4
+          IMAGE_STUDIO_GIT_COMMIT: ${{ github.sha }}
+          IMAGE_STUDIO_BUILD_ID: android-v2.0.4-release
         run: |
           npm --prefix image-studio/frontend test
           ./image-studio/frontend/node_modules/.bin/tsc -p image-studio/frontend/tsconfig.json --noEmit --pretty false
@@ -109,10 +113,10 @@ jobs:
         shell: bash
         env:
           IMAGE_STUDIO_ANDROID_USE_PREBUILT_FRONTEND: "1"
-          IMAGE_STUDIO_ANDROID_VERSION_NAME: V2.0.3
-          IMAGE_STUDIO_ANDROID_VERSION_CODE: "1050003"
+          IMAGE_STUDIO_ANDROID_VERSION_NAME: V2.0.4
+          IMAGE_STUDIO_ANDROID_VERSION_CODE: "1050004"
           IMAGE_STUDIO_GIT_COMMIT: ${{ github.sha }}
-          IMAGE_STUDIO_BUILD_ID: android-v2.0.3-release
+          IMAGE_STUDIO_BUILD_ID: android-v2.0.4-release
           IMAGE_STUDIO_KEYSTORE_PATH: ${{ runner.temp }}/fhl-android-signing/release.jks
           IMAGE_STUDIO_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
           IMAGE_STUDIO_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
@@ -130,8 +134,8 @@ jobs:
           ACTUAL_CERT=$(sed -n 's/.*certificate SHA-256 digest: //p' "$RUNNER_TEMP/apksigner.txt" | head -n 1 | tr '[:upper:]' '[:lower:]')
           test "$ACTUAL_CERT" = "$EXPECTED_CERT"
           test "$("$APKANALYZER" manifest application-id "$APK")" = "top.fangtangyuan.fhlstudio.android"
-          test "$("$APKANALYZER" manifest version-name "$APK")" = "V2.0.3"
-          test "$("$APKANALYZER" manifest version-code "$APK")" = "1050003"
+          test "$("$APKANALYZER" manifest version-name "$APK")" = "V2.0.4"
+          test "$("$APKANALYZER" manifest version-code "$APK")" = "1050004"
           test "$("$APKANALYZER" manifest min-sdk "$APK")" = "28"
           test "$("$APKANALYZER" manifest target-sdk "$APK")" = "34"
           "$APKANALYZER" manifest print "$APK" | grep -q 'android:debuggable="false"'
@@ -140,18 +144,18 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          BASE="FHL-Image-Studio-Fangtangyuan-V2.0.3-Android-Release-20260813"
-          SOURCE="FHL-Image-Studio-Fangtangyuan-V2.0.3-Android-Source-20260813.zip"
+          BASE="FHL-Image-Studio-Fangtangyuan-V2.0.4-Android-Release-20261019"
+          SOURCE="FHL-Image-Studio-Fangtangyuan-V2.0.4-Android-Source-20261019.zip"
           cp android-shell/app/build/outputs/apk/release/app-release.apk "dist/$BASE.apk"
           (cd dist && zip -9 "$BASE.zip" "$BASE.apk")
-          git archive --format=zip --prefix=fhl-image-studio-v2.0.3/ -o "dist/$SOURCE" HEAD
+          git archive --format=zip --prefix=fhl-image-studio-v2.0.4/ -o "dist/$SOURCE" HEAD
           (cd dist && sha256sum "$BASE.apk" "$BASE.zip" > "$BASE.sha256.txt")
           (cd dist && sha256sum "$SOURCE" > "${SOURCE%.zip}.sha256.txt")
 
       - name: Upload review artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: fhl-image-studio-android-v2.0.3-review
+          name: fhl-image-studio-android-v2.0.4-review
           path: dist/*
           retention-days: 14
           if-no-files-found: error

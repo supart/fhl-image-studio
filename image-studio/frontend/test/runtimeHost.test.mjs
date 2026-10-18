@@ -612,6 +612,30 @@ test("runtimeHost remote cancel aborts pending remote jobs", async () => {
   });
 });
 
+test("runtimeHost parses browser model lists", async () => {
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (url) => {
+      assert.equal(String(url), "https://relay.example.com/v1/models");
+      return new Response(JSON.stringify({
+        data: [
+          { id: "gpt-5.6-sol" },
+          "gpt-5.5",
+          { id: "gpt-5.6-sol" },
+          { id: "bad model" },
+          null,
+        ],
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    const result = await runtimeHost.probeCurrentUpstream("https://relay.example.com", "sk-test-models");
+    assert.deepEqual(result, {
+      modelCount: 2,
+      models: ["gpt-5.6-sol", "gpt-5.5"],
+    });
+  });
+});
+
 test("runtimeHost probes upstream through Wails backend", async () => {
   await withPatchedGlobals(async () => {
     Object.defineProperty(globalThis, "navigator", {
@@ -630,7 +654,7 @@ test("runtimeHost probes upstream through Wails backend", async () => {
           Edit: async () => ({ jobId: "job" }),
           ProbeUpstream: async (payload) => {
             calls.push(payload);
-            return { modelCount: 1 };
+            return { modelCount: 1, models: ["gpt-5.5"] };
           },
         },
       },
@@ -645,7 +669,8 @@ test("runtimeHost probes upstream through Wails backend", async () => {
     };
   }, async () => {
     const runtimeHost = await loadRuntimeHost();
-    await runtimeHost.probeCurrentUpstream("https://relay.example.com", "sk-test");
+    const result = await runtimeHost.probeCurrentUpstream("https://relay.example.com", "sk-test");
+    assert.deepEqual(result, { modelCount: 1, models: ["gpt-5.5"] });
     assert.deepEqual(globalThis.__probeCalls, [
       { baseURL: "https://relay.example.com", apiKey: "sk-test", apiMode: "responses", proxyMode: "system", proxyURL: "" },
     ]);
@@ -660,7 +685,7 @@ test("runtimeHost probes upstream through Android backend", async () => {
         calls.push({ method, args: JSON.parse(payloadJson) });
         queueMicrotask(() => {
           if (method === "ProbeUpstream") {
-            window.__imageStudioNativeResolve?.(requestId, { modelCount: 2 });
+            window.__imageStudioNativeResolve?.(requestId, { modelCount: 2, models: ["gpt-5.6-sol", "gpt-5.5"] });
             return;
           }
           window.__imageStudioNativeReject?.(requestId, `unsupported ${method}`);
@@ -673,7 +698,8 @@ test("runtimeHost probes upstream through Android backend", async () => {
     };
   }, async () => {
     const runtimeHost = await loadRuntimeHost();
-    await runtimeHost.probeCurrentUpstream("https://relay.example.com", "sk-android");
+    const result = await runtimeHost.probeCurrentUpstream("https://relay.example.com", "sk-android");
+    assert.deepEqual(result, { modelCount: 2, models: ["gpt-5.6-sol", "gpt-5.5"] });
     assert.deepEqual(globalThis.__probeCalls, [
       {
         method: "ProbeUpstream",

@@ -47,7 +47,7 @@ export async function buildImagesRequestBody(
       const payload = dataURL.slice(dataURL.indexOf(",") + 1);
       const mimeType = dataURL.slice(5, dataURL.indexOf(";")) || "image/png";
       const ext = imageExtensionForMimeType(mimeType);
-      form.append(i === 0 ? "image" : "image[]", new Blob([Uint8Array.from(atob(payload), (ch) => ch.charCodeAt(0))], { type: mimeType }), `source-${i + 1}.${ext}`);
+      form.append("image", new Blob([Uint8Array.from(atob(payload), (ch) => ch.charCodeAt(0))], { type: mimeType }), `source-${i + 1}.${ext}`);
     }
     if (request.payload.maskB64) {
       const maskMime = detectImageMimeTypeFromBase64(request.payload.maskB64) || "image/png";

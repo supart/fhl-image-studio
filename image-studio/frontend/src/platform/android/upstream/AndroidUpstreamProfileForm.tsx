@@ -1,4 +1,4 @@
-import { Check, ClipboardPaste, Eye, EyeOff, Minus, Plug, Plus, Save } from "lucide-react";
+import { Check, ClipboardPaste, Eye, EyeOff, Minus, Plug, Plus, RefreshCw, Save } from "lucide-react";
 import type { ReactNode } from "react";
 import { isAPIMartAsyncProfile } from "../../../lib/apimartAPI";
 import { FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT, normalizeFHLImagesPoolSlot } from "../../../lib/profiles";
@@ -17,7 +17,10 @@ export function AndroidUpstreamProfileForm({
   draft,
   draftKey,
   isTestingKey,
+  textModels,
+  textModelsLoading,
   onChangeDraftKey,
+  onFetchTextModels,
   onPatchDraft,
   onSave,
   onSaveAndSetActive,
@@ -36,7 +39,10 @@ export function AndroidUpstreamProfileForm({
   draft: UpstreamProfile;
   draftKey: string;
   isTestingKey: boolean;
+  textModels: string[];
+  textModelsLoading: boolean;
   onChangeDraftKey: (value: string) => void;
+  onFetchTextModels: () => void | Promise<void>;
   onPatchDraft: (patch: Partial<UpstreamProfile>) => void;
   onSave: () => void | Promise<void>;
   onSaveAndSetActive: () => void | Promise<void>;
@@ -50,7 +56,7 @@ export function AndroidUpstreamProfileForm({
   onToggleShowKey: () => void;
 }) {
   const isActive = draft.id === activeProfileId;
-  const busy = saving || isTestingKey;
+  const busy = saving || isTestingKey || textModelsLoading;
   const apimartPreset = isAPIMartAsyncProfile(draft);
   const runningHubPreset = draft.apiMode === "runninghub";
   const supportsRequestPolicy = !apimartPreset && !runningHubPreset;
@@ -197,12 +203,40 @@ export function AndroidUpstreamProfileForm({
       )}
 
       {displayAPIMode === "responses" ? (
-        <AndroidField label="文本模型 ID">
+        <AndroidField
+          label="文本模型 ID"
+          hint={fixedFHLTextProfile ? "反推提示词和提示词优化共用此模型；也可以直接填写自定义模型 ID。" : undefined}
+        >
+          {fixedFHLTextProfile ? (
+            <div className="android-upstream-model-row">
+              <select
+                value={textModels.includes(draft.textModelID.trim()) ? draft.textModelID.trim() : ""}
+                onChange={(event) => {
+                  if (event.target.value) onPatchDraft({ textModelID: event.target.value });
+                }}
+                className="focus-ring android-upstream-input font-mono-token"
+                disabled={textModels.length === 0 || textModelsLoading}
+                aria-label="选择文本模型"
+              >
+                <option value="">{textModels.length === 0 ? "请先获取模型" : "选择模型"}</option>
+                {textModels.map((model) => <option key={model} value={model}>{model}</option>)}
+              </select>
+              <button
+                type="button"
+                onClick={() => void onFetchTextModels()}
+                disabled={busy || !draft.baseURL.trim() || (!draftKey.trim() && !savedKeyPresent)}
+                aria-busy={textModelsLoading}
+              >
+                <RefreshCw className={`h-4 w-4 ${textModelsLoading ? "animate-spin" : ""}`} />
+                {textModelsLoading ? "获取中..." : "获取模型"}
+              </button>
+            </div>
+          ) : null}
           <input
             type="text"
             value={draft.textModelID}
             onChange={(event) => onPatchDraft({ textModelID: event.target.value })}
-            placeholder="留空 = 默认 gpt-5.5"
+            placeholder={fixedFHLTextProfile ? "自定义模型 ID" : "留空 = 默认文本模型"}
             className="focus-ring android-upstream-input font-mono-token"
             spellCheck={false}
           />

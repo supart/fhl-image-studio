@@ -151,10 +151,10 @@ test("Android prompt guidance is workspace scoped and persisted with tabs", () =
   assert.match(shared, /optimizationGuidance: typeof raw\.optimizationGuidance === "string" \? raw\.optimizationGuidance : ""/);
 });
 
-test("Android prompt text tools require FHL GPT-5.5 instead of APIMart", () => {
+test("Android prompt text tools use the configured FHL text model instead of APIMart", () => {
   const androidResolver = store.match(/async function resolveAndroidFHLPromptTextProfile[\s\S]*?\r?\n}\r?\nconst HISTORY_MEDIA_HYDRATE_CONCURRENCY/)?.[0] ?? "";
   assert.ok(androidResolver, "Android FHL text profile resolver should be present");
-  assert.match(store, /ANDROID_FHL_TEXT_TOOLS_NOTICE = "AI 优化、提示词反推和指令改写需要调用 FHL GPT-5\.5，请先配置 FHL API。"/);
+  assert.match(store, /ANDROID_FHL_TEXT_TOOLS_NOTICE = "AI 优化、提示词反推和指令改写需要使用已配置的 FHL 文本模型，请先配置 FHL API。"/);
   assert.match(store, /if \(readRuntimePlatformState\(\)\.isAndroid\) \{\s*return resolveAndroidFHLPromptTextProfile\(s\);/);
   assert.match(store, /async function resolveAndroidFHLPromptTextProfile/);
   assert.match(androidResolver, /s\.profiles\s*\.filter\(isOfficialFHLTextProfile\)/);

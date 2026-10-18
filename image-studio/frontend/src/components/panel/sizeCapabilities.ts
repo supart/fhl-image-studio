@@ -31,6 +31,8 @@ export const ASPECT_PRESETS: Array<AspectPresetOption & { value: FHLAspectPreset
   { value: "1:1", label: "1:1", w: 18, h: 18 },
   { value: "3:2", label: "3:2", w: 22, h: 14 },
   { value: "2:3", label: "2:3", w: 14, h: 20 },
+  { value: "4:3", label: "4:3", w: 22, h: 16 },
+  { value: "3:4", label: "3:4", w: 16, h: 22 },
   { value: "16:9", label: "16:9", w: 24, h: 13 },
   { value: "9:16", label: "9:16", w: 12, h: 22 },
   { value: "2:1", label: "2:1", w: 24, h: 12 },
@@ -65,7 +67,7 @@ export const RESOLUTION_PRESETS: Array<{ value: ResolutionPreset; label: string 
   { value: "4k", label: "4K" },
 ];
 
-type VisibleFHLAspectPreset = "1:1" | "3:2" | "2:3" | "16:9" | "9:16" | "2:1" | "1:2" | "7:4" | "4:7";
+type VisibleFHLAspectPreset = "1:1" | "3:2" | "2:3" | "4:3" | "3:4" | "16:9" | "9:16" | "2:1" | "1:2" | "7:4" | "4:7";
 
 const FHL_SIZE_MATRIX: Record<VisibleFHLAspectPreset, Record<Exclude<ResolutionPreset, "auto">, SizeValue>> = {
   "1:1": {
@@ -82,6 +84,16 @@ const FHL_SIZE_MATRIX: Record<VisibleFHLAspectPreset, Record<Exclude<ResolutionP
     "1k": "1024x1536",
     "2k": "1360x2048",
     "4k": "2352x3520",
+  },
+  "4:3": {
+    "1k": "1536x1152",
+    "2k": "2048x1536",
+    "4k": "3840x2880",
+  },
+  "3:4": {
+    "1k": "1152x1536",
+    "2k": "1536x2048",
+    "4k": "2880x3840",
   },
   "16:9": {
     "1k": "1536x864",
@@ -267,6 +279,8 @@ function normalizeFHLAspectSelection(aspect: AspectPreset): VisibleFHLAspectPres
   switch (aspect) {
     case "3:2":
     case "2:3":
+    case "4:3":
+    case "3:4":
     case "16:9":
     case "9:16":
     case "2:1":
@@ -275,10 +289,8 @@ function normalizeFHLAspectSelection(aspect: AspectPreset): VisibleFHLAspectPres
     case "4:7":
     case "1:1":
       return aspect;
-    case "4:3":
     case "5:4":
       return "3:2";
-    case "3:4":
     case "4:5":
       return "2:3";
     case "21:9":
