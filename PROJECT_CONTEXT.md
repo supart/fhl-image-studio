@@ -1,5 +1,14 @@
 # FHL Studio Windows V2.0.4 开发交接
 
+## 2026-10-21 V2.0.4 GitHub 正式发布完成
+
+- 正式稳定 Release 已公开：`https://github.com/supart/fhl-image-studio/releases/tag/windows-v2.0.4-release`。
+- 不可移动 annotated tag `windows-v2.0.4-release` 指向 `66b96dbc5f4ec9d395072c381404444016943dfe`；发布前 GitHub CI `39459193847` 共 `10/10` 作业通过。
+- 公开附件：Portable ZIP `39761D93606CC5D51DC1B19F081555730588741B39AAC25C8D2D37004A9A03E6`；Source ZIP `0D15F5458FAD3A19F9C16CEE691CC49576CBC8AD852891D3EC77CBB0EBBCC683`；两个 ZIP 已从公开 Release 回下载并复核一致。
+- 隔离 Portable Bridge 使用 `47631` 完成离线握手：health/session 为 `200`、协议主版本 `1`、instanceId 一致、五项 capabilities 一致、`profileReady=false`；无活动 API 时 profile 按 v1 语义返回受控 `503`。
+- Portable 和源码独立解压校验通过，发布安全/源码合规扫描为 `0` 问题；发布阶段未调用模型列表、文本测试、反推或真实/付费生图 API。
+- 本记录是正式标签后的分支交接提交，不移动标签、不替换 Release 附件、不修改远程 `main`、macOS、Android、V2.0.3 或 Photoshop 插件项目。
+
 ## 2026-10-21 V2.0.4 GitHub 正式发布基线
 
 - 首次远端 CI 的 Windows Desktop 测试暴露 `RUNNER~1` 与 `runneradmin` 的 8.3/长路径等价判断问题；共享 `isWithinRoot()` 已改为先解析现有祖先再做 `filepath.Rel`，不放宽托管目录边界。修复后必须重新通过本地 Go 测试和完整 GitHub CI，正式标签仍未创建。
