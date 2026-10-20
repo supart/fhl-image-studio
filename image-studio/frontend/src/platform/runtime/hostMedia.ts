@@ -10,12 +10,15 @@ import {
 import { fileNameFromPath, saveByDownload } from "./hostBrowser.ts";
 import {
   cropProjectImage,
+  copyProjectImageToOutput,
   readProjectImage,
   pasteProjectLocalEdit,
   registerProjectMedia,
   removeProjectImage,
+  saveProjectImageBlob,
   saveProjectImage,
   syncProjectMaterialGroup,
+  takeLastProjectImageSaveError,
 } from "./localProjectFiles.ts";
 import {
   canInvokeAndroidMethod,
@@ -182,19 +185,45 @@ export function SaveImagePathToOutput(path: string, suggestedName: string): Prom
   }
   if (isLocalPreviewHost()) {
     const name = suggestedName || fileNameFromPath(path) || "image.png";
-    return ReadImageAsBase64(path).then(async (imageB64) => {
-      const projectSaved = await saveProjectImage(
-        "output",
-        imageB64,
-        name,
-        mimeTypeForImageName(name),
-        { subdir: "images", preserveName: true },
-      );
-      if (projectSaved?.path) return projectSaved.path;
-      throw new Error(unsupportedMessage("SaveImagePathToOutput"));
+    return copyProjectImageToOutput(path, name).then(async (copied) => {
+      if (copied?.path) return copied.path;
+      // Keep compatibility with older preview servers and virtual images.
+      try {
+        const imageB64 = await ReadImageAsBase64(path);
+        const projectSaved = await saveProjectImage(
+          "output",
+          imageB64,
+          name,
+          mimeTypeForImageName(name),
+          { subdir: "images", preserveName: true },
+        );
+        if (projectSaved?.path) return projectSaved.path;
+      } catch (error) {
+        const detail = takeLastProjectImageSaveError();
+        if (detail) throw new Error(detail);
+        throw error;
+      }
+      throw new Error(takeLastProjectImageSaveError() || unsupportedMessage("SaveImagePathToOutput"));
     });
   }
   return Promise.reject(new Error(unsupportedMessage("SaveImagePathToOutput")));
+}
+
+export async function SaveImageBlobToOutput(blob: Blob, suggestedName: string): Promise<string> {
+  const name = suggestedName || "image.png";
+  if (isLocalPreviewHost()) {
+    const saved = await saveProjectImageBlob("output", blob, name, { subdir: "images", preserveName: true });
+    if (saved?.path) return saved.path;
+    throw new Error(takeLastProjectImageSaveError() || unsupportedMessage("SaveImageBlobToOutput"));
+  }
+  const imageB64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || "").replace(/^data:[^,]+,/, ""));
+    reader.onerror = () => reject(reader.error || new Error("无法读取标注合成图"));
+    reader.readAsDataURL(blob);
+  });
+  const imported = await ImportImageFromB64(imageB64, name);
+  return SaveImagePathToOutput(imported.path, name);
 }
 
 export function RemoveManagedImage(path: string): Promise<void> {

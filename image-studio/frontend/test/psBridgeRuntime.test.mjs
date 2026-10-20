@@ -4,11 +4,12 @@ import test from "node:test";
 
 import {
   FHL_BASE_URL,
-  FHL_TEXT_MODEL_ID,
   keyringUserFor,
 } from "../src/lib/profiles.ts";
+import { FHL_TEXT_API_DEFAULT_MODEL_ID } from "../src/lib/fhlTextAPIModel.ts";
 import {
   buildPSBridgeProfileInput,
+  checkPSBridgeHandshake,
   historyItemFromPSBridgeEvent,
   isPSBridgeRetryHost,
 } from "../src/platform/runtime/psBridgeContracts.ts";
@@ -28,6 +29,23 @@ test("PS bridge retries Wails binding discovery on packaged and loopback develop
   for (const hostname of ["example.com", "fhl.mom", "", "127.0.0.2"]) {
     assert.equal(isPSBridgeRetryHost(hostname), false, hostname);
   }
+});
+
+test("PS bridge handshake accepts the negotiated v1 range and rejects incompatible peers", () => {
+  const base = {
+    service: "fhl-studio-ps-bridge",
+    protocolMajor: 1,
+    contractRevision: "2026-08-24",
+    instanceId: "instance-one",
+    minClientMajor: 1,
+    maxClientMajor: 1,
+    capabilities: ["jobs"],
+  };
+  assert.deepEqual(checkPSBridgeHandshake(base), { compatible: true });
+  assert.deepEqual(checkPSBridgeHandshake({ ...base, service: "other" }), { compatible: false, reason: "service" });
+  assert.deepEqual(checkPSBridgeHandshake({ ...base, protocolMajor: 2 }), { compatible: false, reason: "protocol" });
+  assert.deepEqual(checkPSBridgeHandshake({ ...base, minClientMajor: 2 }), { compatible: false, reason: "client-range" });
+  assert.deepEqual(checkPSBridgeHandshake(null), { compatible: false, reason: "missing" });
 });
 
 function profileState(overrides = {}) {
@@ -96,10 +114,19 @@ test("PS bridge prompt profile selects dedicated FHL Text without exposing its k
   assert.match(input.promptProfile.label, /FHL/);
   assert.equal(input.promptProfile.baseURL, FHL_BASE_URL);
   assert.equal(input.promptProfile.credentialUser, keyringUserFor("fhl-text-assistant"));
-  assert.equal(input.promptProfile.textModelID, FHL_TEXT_MODEL_ID);
+  assert.equal(input.promptProfile.textModelID, FHL_TEXT_API_DEFAULT_MODEL_ID);
   const encoded = JSON.stringify(input);
   assert.equal(encoded.includes(fakeProfileCredential), false);
   assert.equal(encoded.includes("apiKey"), false);
+});
+
+test("PS bridge prompt profile carries the dedicated FHL text model choice", () => {
+  const input = buildPSBridgeProfileInput(profileState({
+    fhlTextAPIConfigured: true,
+    fhlTextAPIModelID: "vendor/custom-text",
+  }));
+  assert.ok(input);
+  assert.equal(input.promptProfile.textModelID, "vendor/custom-text");
 });
 
 test("PS bridge prompt profile selects the current Responses profile", () => {

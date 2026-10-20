@@ -239,6 +239,20 @@ test("runtimeHost falls back to the browser text clipboard", async () => {
   });
 });
 
+test("runtimeHost event cleanup tolerates a closed Wails IPC channel", async () => {
+  await withPatchedGlobals(async () => {
+    globalThis.window.runtime = {
+      EventsOnMultiple: () => () => {
+        throw new Error("IPC channel closed");
+      },
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    const off = runtimeHost.EventsOn("runtime-test", () => {});
+    assert.doesNotThrow(() => off());
+  });
+});
+
 test("runtimeHost remote mode emits job lifecycle events", async () => {
   await withPatchedGlobals(async () => {
     globalThis.fetch = async (url) => {
@@ -1383,6 +1397,37 @@ test("runtimeHost remote cancel aborts pending remote jobs", async () => {
   });
 });
 
+test("runtimeHost returns sanitized upstream model IDs from the browser probe", async () => {
+  await withPatchedGlobals(async () => {
+    globalThis.window.location = {
+      href: "http://127.0.0.1:5173/",
+      origin: "http://127.0.0.1:5173",
+      hostname: "127.0.0.1",
+    };
+    globalThis.fetch = async (url, init = {}) => {
+      assert.equal(String(url), "http://127.0.0.1:5173/__image-studio-fhl/v1/models");
+      assert.equal(init.headers.Authorization, "Bearer sk-browser");
+      return new Response(JSON.stringify({
+        data: [
+          { id: "gpt-5.7" },
+          { id: " gpt-5.6-sol " },
+          { id: "gpt-5.7" },
+          { id: "" },
+          { id: "bad\u0000model" },
+          { id: "x".repeat(129) },
+        ],
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    const result = await runtimeHost.probeCurrentUpstream("https://www.fhl.mom", "sk-browser");
+    assert.deepEqual(result, {
+      modelCount: 6,
+      models: ["gpt-5.7", "gpt-5.6-sol"],
+    });
+  });
+});
+
 test("runtimeHost probes upstream through Wails backend", async () => {
   await withPatchedGlobals(async () => {
     Object.defineProperty(globalThis, "navigator", {
@@ -1401,7 +1446,7 @@ test("runtimeHost probes upstream through Wails backend", async () => {
           Edit: async () => ({ jobId: "job" }),
           ProbeUpstream: async (payload) => {
             calls.push(payload);
-            return { modelCount: 1 };
+            return { modelCount: 2, models: ["gpt-5.7", "gpt-5.7", " gpt-5.6-sol "] };
           },
         },
       },
@@ -1416,10 +1461,11 @@ test("runtimeHost probes upstream through Wails backend", async () => {
     };
   }, async () => {
     const runtimeHost = await loadRuntimeHost();
-    await runtimeHost.probeCurrentUpstream("https://relay.example.com", "sk-test");
+    const result = await runtimeHost.probeCurrentUpstream("https://relay.example.com", "sk-test");
     assert.deepEqual(globalThis.__probeCalls, [
       { baseURL: "https://relay.example.com", apiKey: "sk-test", proxyMode: "system", proxyURL: "" },
     ]);
+    assert.deepEqual(result, { modelCount: 2, models: ["gpt-5.7", "gpt-5.6-sol"] });
   });
 });
 
@@ -1431,7 +1477,7 @@ test("runtimeHost probes upstream through Android backend", async () => {
         calls.push({ method, args: JSON.parse(payloadJson) });
         queueMicrotask(() => {
           if (method === "ProbeUpstream") {
-            window.__imageStudioNativeResolve?.(requestId, { modelCount: 2 });
+            window.__imageStudioNativeResolve?.(requestId, { modelCount: 2, models: ["gpt-5.7", "gpt-5.6-sol"] });
             return;
           }
           window.__imageStudioNativeReject?.(requestId, `unsupported ${method}`);
@@ -1444,13 +1490,14 @@ test("runtimeHost probes upstream through Android backend", async () => {
     };
   }, async () => {
     const runtimeHost = await loadRuntimeHost();
-    await runtimeHost.probeCurrentUpstream("https://relay.example.com", "sk-android");
+    const result = await runtimeHost.probeCurrentUpstream("https://relay.example.com", "sk-android");
     assert.deepEqual(globalThis.__probeCalls, [
       {
         method: "ProbeUpstream",
         args: [{ baseURL: "https://relay.example.com", apiKey: "sk-android", proxyMode: "system", proxyURL: "" }],
       },
     ]);
+    assert.deepEqual(result, { modelCount: 2, models: ["gpt-5.7", "gpt-5.6-sol"] });
   });
 });
 

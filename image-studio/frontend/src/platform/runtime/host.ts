@@ -50,6 +50,7 @@ export {
   RegisterMediaAsset,
   RemoveManagedImage,
   RotateImage,
+  SaveImageBlobToOutput,
   SaveImageAs,
   SaveImagePathAs,
   SaveImagePathToDir,

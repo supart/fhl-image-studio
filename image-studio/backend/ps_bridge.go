@@ -25,16 +25,21 @@ import (
 )
 
 const (
-	psBridgePortFirst       = 47631
-	psBridgePortLast        = 47640
-	psBridgeMaxImages       = 10
-	psBridgeMaxRecentJobs   = 50
-	psBridgeMultipartMemory = 16 << 20
-	psBridgeMaxBodyBytes    = int64(client.MaxInputImageBytes)*(psBridgeMaxImages+1) + (8 << 20)
-	psBridgeAPIVersion      = "1"
+	psBridgePortFirst        = 47631
+	psBridgePortLast         = 47640
+	psBridgeMaxImages        = 10
+	psBridgeMaxRecentJobs    = 50
+	psBridgeMultipartMemory  = 16 << 20
+	psBridgeMaxBodyBytes     = int64(client.MaxInputImageBytes)*(psBridgeMaxImages+1) + (8 << 20)
+	psBridgeAPIVersion       = "1"
+	psBridgeProtocolMajor    = 1
+	psBridgeContractRevision = "2026-08-24"
+	psBridgeServiceName      = "fhl-studio-ps-bridge"
 	// Remote providers can legally poll and retry for well over 30 minutes.
 	psBridgeRemoteJobTimeout = 2 * time.Hour
 )
+
+var psBridgeCapabilities = []string{"profile", "jobs", "prompt-optimization", "prompt-reverse", "images"}
 
 type PSBridgeProfileInput struct {
 	ProfileID          string                      `json:"profileId"`
@@ -78,6 +83,7 @@ type PSBridgeProfilePublic struct {
 	MaxImages               int                       `json:"maxImages"`
 	Ready                   bool                      `json:"ready"`
 	PromptOptimizationReady bool                      `json:"promptOptimizationReady"`
+	Capabilities            []string                  `json:"capabilities"`
 	PromptProviderLabel     string                    `json:"promptProviderLabel,omitempty"`
 	ImageCapabilities       PSBridgeImageCapabilities `json:"imageCapabilities"`
 }
@@ -220,6 +226,7 @@ type psBridgeJob struct {
 type PSBridge struct {
 	service        *Service
 	optimizePrompt func(PromptOptimizeOptions) (string, error)
+	reversePrompt  func(PromptReverseOptions) (string, error)
 
 	mu               sync.Mutex
 	server           *http.Server
@@ -241,6 +248,7 @@ func NewPSBridge(service *Service) *PSBridge {
 	return &PSBridge{
 		service:          service,
 		optimizePrompt:   service.OptimizePrompt,
+		reversePrompt:    service.ReversePrompt,
 		runCLI:           runPSBridgeCLI,
 		jobs:             map[string]*psBridgeJob{},
 		clientJobs:       map[string]string{},
@@ -382,6 +390,7 @@ func (b *PSBridge) Handler() http.Handler {
 	mux.HandleFunc("/fhl-ps/v1/session", b.handleSession)
 	mux.HandleFunc("/fhl-ps/v1/profile", b.requireSession(b.handleProfile))
 	mux.HandleFunc("/fhl-ps/v1/prompts/optimize", b.requireSession(b.handlePromptOptimize))
+	mux.HandleFunc("/fhl-ps/v1/prompts/reverse", b.requireSession(b.handlePromptReverse))
 	mux.HandleFunc("/fhl-ps/v1/jobs", b.requireSession(b.handleJobs))
 	mux.HandleFunc("/fhl-ps/v1/jobs/", b.requireSession(b.handleJob))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -571,14 +580,12 @@ func (b *PSBridge) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status := b.Status()
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":           true,
-		"service":      "fhl-studio-ps-bridge",
-		"apiVersion":   psBridgeAPIVersion,
-		"instanceId":   status.InstanceID,
-		"port":         status.Port,
-		"profileReady": status.ProfileReady,
-	})
+	payload := psBridgeProtocolMetadata(status.InstanceID)
+	payload["ok"] = true
+	payload["apiVersion"] = psBridgeAPIVersion
+	payload["port"] = status.Port
+	payload["profileReady"] = status.ProfileReady
+	writeJSON(w, http.StatusOK, payload)
 }
 
 func (b *PSBridge) handleSession(w http.ResponseWriter, r *http.Request) {
@@ -594,9 +601,22 @@ func (b *PSBridge) handleSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bridge unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"token": token, "instanceId": instanceID, "apiVersion": psBridgeAPIVersion,
-	})
+	payload := psBridgeProtocolMetadata(instanceID)
+	payload["token"] = token
+	payload["apiVersion"] = psBridgeAPIVersion
+	writeJSON(w, http.StatusOK, payload)
+}
+
+func psBridgeProtocolMetadata(instanceID string) map[string]any {
+	return map[string]any{
+		"service":          psBridgeServiceName,
+		"protocolMajor":    psBridgeProtocolMajor,
+		"contractRevision": psBridgeContractRevision,
+		"instanceId":       instanceID,
+		"minClientMajor":   psBridgeProtocolMajor,
+		"maxClientMajor":   psBridgeProtocolMajor,
+		"capabilities":     append([]string(nil), psBridgeCapabilities...),
+	}
 }
 
 func (b *PSBridge) handleProfile(w http.ResponseWriter, r *http.Request) {
@@ -697,6 +717,62 @@ func (b *PSBridge) handlePromptOptimize(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"prompt": optimized})
+}
+
+func (b *PSBridge) handlePromptReverse(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, psBridgeMaxBodyBytes)
+	if err := r.ParseMultipartForm(psBridgeMultipartMemory); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "无法读取图片反推数据"})
+		return
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+	profile, promptProfile, err := b.promptProfileSnapshot()
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
+		return
+	}
+	sourceFiles := r.MultipartForm.File["source"]
+	if len(sourceFiles) != 1 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "图片反推必须提供一张 source 图片"})
+		return
+	}
+	tempDir, err := os.MkdirTemp("", "fhl-studio-ps-reverse-")
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "无法准备图片反推输入"})
+		return
+	}
+	defer os.RemoveAll(tempDir)
+	imagePath, err := saveBridgeMultipartImage(sourceFiles[0], tempDir, 0)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": sanitizePSBridgeError(err)})
+		return
+	}
+	apiKey, err := b.service.GetStoredAPIKey(promptProfile.CredentialUser)
+	if err != nil || strings.TrimSpace(apiKey) == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "图片反推没有可用文本凭据"})
+		return
+	}
+	reversed, err := b.reversePrompt(PromptReverseOptions{
+		APIKey: apiKey, BaseURL: promptProfile.BaseURL, TextModelID: promptProfile.TextModelID,
+		ProxyMode: profile.ProxyMode, ProxyURL: profile.ProxyURL, ImagePaths: []string{imagePath},
+	})
+	apiKey = ""
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": sanitizePSBridgeError(err)})
+		return
+	}
+	reversed = strings.TrimSpace(reversed)
+	if reversed == "" {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "图片反推未返回文本"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"prompt": reversed})
 }
 
 func (b *PSBridge) handleJob(w http.ResponseWriter, r *http.Request) {
@@ -1418,6 +1494,7 @@ func publicPSBridgeProfile(input PSBridgeProfileInput, ready, promptReady bool) 
 		APIMode: input.APIMode, ImageModelID: input.ImageModelID,
 		SupportsMask: psBridgeSupportsMask(input),
 		MaxImages:    psBridgeMaxImages, Ready: ready, PromptOptimizationReady: promptReady,
+		Capabilities:      append([]string(nil), psBridgeCapabilities...),
 		ImageCapabilities: clonePSBridgeImageCapabilities(input.ImageCapabilities),
 		PromptProviderLabel: func() string {
 			if input.PromptProfile == nil {

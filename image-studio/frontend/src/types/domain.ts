@@ -364,6 +364,23 @@ export interface HistoryItem {
   panoramaRoundtrip?: PanoramaRoundtripRef;
   panoramaProject?: PanoramaProjectRef;
   localEditRoundtrip?: LocalEditRoundtripRef;
+  localEditPastebackState?: "pasted";
+  annotationComposite?: AnnotationCompositeRef;
+}
+
+export interface AnnotationCompositeRef {
+  version: 1;
+  kind: "annotation-composite";
+  sourceHistoryId: string;
+  sourcePath?: string;
+  outputPath?: string;
+  sourceWidth: number;
+  sourceHeight: number;
+  width: number;
+  height: number;
+  offsetX: number;
+  offsetY: number;
+  expanded: boolean;
 }
 
 export interface ProgressInfo {
@@ -474,6 +491,7 @@ export interface BatchTaskRecord {
   sourceImagePaths?: string[];
   sourceImages?: SourceImage[];
   panoramaRoundtrip?: PanoramaRoundtripRef;
+  localEditRoundtrip?: LocalEditRoundtripRef;
   batchSourcePath?: string;
   batchSourceSlotIndex?: number;
   autoAspectResolution?: Exclude<BatchProcessAutoAspectResolution, "">;
@@ -597,7 +615,14 @@ export interface Toast {
   action?: { label: string; onClick: () => void };
 }
 
-export type AnnotationKind = "rect" | "arrow" | "text" | "freehand";
+export type AnnotationKind =
+  | "rect"
+  | "ellipse"
+  | "arrow"
+  | "line"
+  | "text"
+  | "freehand"
+  | "highlight";
 
 export interface Annotation {
   id: string;
@@ -608,11 +633,23 @@ export interface Annotation {
   height?: number;
   text?: string;
   color: string;
+  /** Arrow curvature in image-local pixels. Legacy arrows omit this field. */
+  bend?: number;
+  /** Visual stroke width in image-local pixels. */
+  strokeWidth?: number;
+  /** Text size in image-local pixels for text annotations and arrow labels. */
+  fontSize?: number;
+  /** Optional image-local top-left position for an arrow label. */
+  labelX?: number;
+  labelY?: number;
+  /** Optional alpha used by highlighter annotations. */
+  opacity?: number;
   // For freehand: flat number[] of x,y,x,y,... in image-local coords.
   points?: number[];
 }
 
 export const ANNOTATION_COLORS = [
-  "#ff4d4d", "#ff9c00", "#ffd400", "#7bd400",
-  "#00c8ff", "#4d7cff", "#a060ff", "#ff60c8",
+  "#1f1f1f", "#9aa3af", "#d267e8", "#a12bc1",
+  "#4169e1", "#4aa3df", "#f2ae4c", "#ef6b10",
+  "#0a9364", "#4bb35b", "#fb7778", "#ed2e32",
 ];

@@ -110,7 +110,8 @@ type ProbeUpstreamOptions struct {
 }
 
 type ProbeUpstreamResult struct {
-	ModelCount int `json:"modelCount"`
+	ModelCount int      `json:"modelCount"`
+	Models     []string `json:"models"`
 }
 
 func (o PromptOptimizeOptions) collectPaths() []string {

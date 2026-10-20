@@ -263,6 +263,7 @@ func TestBuildEditsMultipartSetsMaskMimeType(t *testing.T) {
 	}
 	reader := multipart.NewReader(buf, params["boundary"])
 	foundMask := false
+	foundImage := false
 	for {
 		part, err := reader.NextPart()
 		if err == io.EOF {
@@ -270,6 +271,9 @@ func TestBuildEditsMultipartSetsMaskMimeType(t *testing.T) {
 		}
 		if err != nil {
 			t.Fatal(err)
+		}
+		if part.FormName() == "image" {
+			foundImage = true
 		}
 		if part.FormName() == "mask" {
 			foundMask = true
@@ -281,6 +285,9 @@ func TestBuildEditsMultipartSetsMaskMimeType(t *testing.T) {
 	}
 	if !foundMask {
 		t.Fatal("expected mask part in multipart body")
+	}
+	if !foundImage {
+		t.Fatal("expected source image part in multipart body")
 	}
 }
 
@@ -313,7 +320,7 @@ func TestBuildEditsMultipartOmitsMaskWhenEmpty(t *testing.T) {
 	}
 }
 
-func TestBuildEditsMultipartNewAPICompatUsesPluginContract(t *testing.T) {
+func TestBuildEditsMultipartNewAPICompatRepeatsImageField(t *testing.T) {
 	dir := t.TempDir()
 	mainPath := filepath.Join(dir, "main.webp")
 	refPath := filepath.Join(dir, "ref.webp")
@@ -348,6 +355,8 @@ func TestBuildEditsMultipartNewAPICompatUsesPluginContract(t *testing.T) {
 	}
 	reader := multipart.NewReader(buf, params["boundary"])
 	fields := map[string][]string{}
+	fieldNames := []string{}
+	imageValues := []string{}
 	for {
 		part, nextErr := reader.NextPart()
 		if nextErr == io.EOF {
@@ -360,11 +369,21 @@ func TestBuildEditsMultipartNewAPICompatUsesPluginContract(t *testing.T) {
 		if readErr != nil {
 			t.Fatal(readErr)
 		}
+		fieldNames = append(fieldNames, part.FormName())
+		if part.FormName() == "image" {
+			imageValues = append(imageValues, string(value))
+		}
 		fields[part.FormName()] = append(fields[part.FormName()], string(value))
 	}
 
-	if len(fields["image"]) != 1 || len(fields["image[]"]) != 1 {
-		t.Fatalf("image fields = %#v, want one image and one image[]", fields)
+	if len(fields["image"]) != 2 || len(fields["image[]"]) != 0 {
+		t.Fatalf("image fields = %#v, want two image fields and no image[]", fields)
+	}
+	if len(fieldNames) < 2 || fieldNames[0] != "image" || fieldNames[1] != "image" {
+		t.Fatalf("image field order = %#v, want image,image", fieldNames)
+	}
+	if len(imageValues) != 2 || imageValues[0] != string(fakePNG) || imageValues[1] != string(fakePNG) {
+		t.Fatalf("image values = %#v, want both source files in order", imageValues)
 	}
 	if got := fields["quality"]; len(got) != 1 || got[0] != "auto" {
 		t.Fatalf("quality = %#v, want auto", got)
@@ -374,6 +393,58 @@ func TestBuildEditsMultipartNewAPICompatUsesPluginContract(t *testing.T) {
 	}
 	if len(fields["stream"]) != 0 || len(fields["partial_images"]) != 0 {
 		t.Fatalf("compat fields include stream/partial_images: %#v", fields)
+	}
+}
+
+func TestBuildEditsMultipartUsesRepeatedImageFieldForThreeSources(t *testing.T) {
+	dir := t.TempDir()
+	paths := []string{
+		filepath.Join(dir, "one.png"),
+		filepath.Join(dir, "two.png"),
+		filepath.Join(dir, "three.png"),
+	}
+	for index, path := range paths {
+		if err := os.WriteFile(path, []byte{byte('a' + index)}, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	buf, contentType, err := buildEditsMultipart(
+		paths, "", "edit this", "gpt-image-2", "1024x1024", "auto", "png", "", 0,
+		RequestPolicyOpenAI, DefaultPartialImages, true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, params, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := multipart.NewReader(buf, params["boundary"])
+	var names []string
+	var values []string
+	for {
+		part, nextErr := reader.NextPart()
+		if nextErr == io.EOF {
+			break
+		}
+		if nextErr != nil {
+			t.Fatal(nextErr)
+		}
+		value, readErr := io.ReadAll(part)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if part.FormName() == "image" || part.FormName() == "image[]" {
+			names = append(names, part.FormName())
+			values = append(values, string(value))
+		}
+	}
+	if got, want := strings.Join(names, ","), "image,image,image"; got != want {
+		t.Fatalf("image field names = %q, want %q", got, want)
+	}
+	if got, want := strings.Join(values, ","), "a,b,c"; got != want {
+		t.Fatalf("image values = %q, want %q", got, want)
 	}
 }
 

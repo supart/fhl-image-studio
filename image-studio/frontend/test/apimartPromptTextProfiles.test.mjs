@@ -154,10 +154,10 @@ test("dedicated FHL text API takes global priority over APIMart and Responses pr
 
   assert.equal(selection?.source, "fhl-text");
   assert.equal(selection?.baseURL, FHL_BASE_URL);
-  assert.equal(selection?.textModelID, "gpt-5.5");
+  assert.equal(selection?.textModelID, "gpt-5.6-sol");
   assert.equal(selection?.profile, undefined);
   assert.equal(capability.provider, "fhl-text");
-  assert.equal(capability.label, "FHL 文本 API：gpt-5.5");
+  assert.equal(capability.label, "FHL 文本 API：gpt-5.6-sol");
 });
 
 test("dedicated FHL text API also takes priority while Images is active", () => {
@@ -174,6 +174,29 @@ test("dedicated FHL text API also takes priority while Images is active", () => 
   assert.equal(selection?.provider, "fhl-text");
 });
 
+test("dedicated FHL text API carries its selected custom model", () => {
+  const selection = resolvePromptTextSelection({
+    apiMode: "images",
+    apiKey: "sk-image-only",
+    baseURL: FHL_BASE_URL,
+    textModelID: "",
+    profiles: [],
+    fhlTextAPIConfigured: true,
+    fhlTextAPIModelID: "vendor/custom-text",
+  });
+  const capability = resolvePromptTextCapability({
+    apiMode: "images",
+    apiKey: "sk-image-only",
+    baseURL: FHL_BASE_URL,
+    textModelID: "",
+    profiles: [],
+    fhlTextAPIConfigured: true,
+    fhlTextAPIModelID: "vendor/custom-text",
+  });
+  assert.equal(selection?.textModelID, "vendor/custom-text");
+  assert.equal(capability.label, "FHL 文本 API：vendor/custom-text");
+});
+
 test("dedicated FHL text API takes priority while RunningHub is active", () => {
   const selection = resolvePromptTextSelection({
     apiMode: "runninghub",
@@ -187,13 +210,13 @@ test("dedicated FHL text API takes priority while RunningHub is active", () => {
   assert.equal(selection?.source, "fhl-text");
   assert.equal(selection?.provider, "fhl-text");
   assert.equal(selection?.baseURL, FHL_BASE_URL);
-  assert.equal(selection?.textModelID, "gpt-5.5");
+  assert.equal(selection?.textModelID, "gpt-5.6-sol");
 });
 
 test("prompt text runtime uses the same resolver as the capability UI", () => {
   assert.match(studioStoreSource, /resolvePromptTextSelection\(\{/);
   assert.match(studioStoreSource, /fhlTextAPIConfigured: !readRuntimePlatformState\(\)\.isAndroid/);
   assert.match(studioStoreSource, /GetStoredAPIKey\(FHL_TEXT_API_KEYRING_USER\)/);
-  assert.match(studioStoreSource, /formatFHLTextAPIError\(error\)/);
+  assert.match(studioStoreSource, /formatFHLTextAPIError\(error/);
   assert.match(fhlTextAPISource, /请求已到达 FHL，但当前文本 API Key 所属分组不支持文本模型/);
 });

@@ -90,6 +90,7 @@ replaceOne(
 
 const requiredPaths = [
   "scripts/package-windows-portable.ps1",
+  "scripts/portable-photoshop-integration.ps1",
   "scripts/prepare-release-source.ps1",
   "scripts/portable-windows-launcher.cmd",
   "scripts/portable-windows-launcher.ps1",

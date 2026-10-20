@@ -29,14 +29,14 @@ test("shared auto-aspect resolution routes through the top resolution control", 
 });
 
 test("edit auto-aspect ratio controls appear before resolution and quality", () => {
-  const desktopAutoAspectIndex = desktopSource.indexOf('autoAspectResolution: batchProcess.autoAspectResolution || "1k"');
+  const desktopAutoAspectIndex = desktopSource.indexOf("autoAspectResolution: batchProcess.autoAspectResolution || DEFAULT_AUTO_ASPECT_RESOLUTION");
   const desktopResolutionIndex = desktopSource.indexOf("resolutionOptions.map");
   const desktopQualityIndex = desktopSource.indexOf("QUALITY_TIERS.map");
   assert.ok(desktopAutoAspectIndex >= 0, "desktop edit ratio policy should exist");
   assert.ok(desktopAutoAspectIndex < desktopResolutionIndex, "desktop ratio policy should be before resolution");
   assert.ok(desktopResolutionIndex < desktopQualityIndex, "desktop quality should stay after resolution");
 
-  const macAutoAspectIndex = macSource.indexOf('autoAspectResolution: batchProcess.autoAspectResolution || "1k"');
+  const macAutoAspectIndex = macSource.indexOf("autoAspectResolution: batchProcess.autoAspectResolution || DEFAULT_AUTO_ASPECT_RESOLUTION");
   const macResolutionIndex = macSource.indexOf("resolutionOptions.map");
   const macQualityIndex = macSource.indexOf("QUALITY_TIERS.map");
   assert.ok(macAutoAspectIndex >= 0, "mac edit ratio policy should exist");

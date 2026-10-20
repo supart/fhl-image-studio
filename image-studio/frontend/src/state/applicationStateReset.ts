@@ -1,5 +1,9 @@
 import { DEFAULT_FHL_SIZE } from "../lib/generationDefaults.ts";
 import { DEFAULT_CONCURRENCY_LIMIT } from "../lib/profiles.ts";
+import {
+  FHL_TEXT_API_DEFAULT_MODEL_ID,
+  FHL_TEXT_API_MODEL_STORAGE_KEY,
+} from "../lib/fhlTextAPIModel.ts";
 import { storageKey } from "../lib/storageNamespace.ts";
 import type { Workspace } from "../types/domain";
 import { MATERIAL_LIBRARY_KEY } from "./materialLibrary.ts";
@@ -44,6 +48,7 @@ const CONTENT_KEYS = [
 const DEFAULT_SETTING_VALUES = [
   ...APPLICATION_SETTING_DEFAULT_STORAGE_VALUES,
   [storageKey("gptcodex.fhlImagesPool.perApiConcurrencyLimit.v1"), String(DEFAULT_CONCURRENCY_LIMIT)],
+  [FHL_TEXT_API_MODEL_STORAGE_KEY, FHL_TEXT_API_DEFAULT_MODEL_ID],
 ] as const;
 
 export const APPLICATION_RESET_DEFAULT_LABELS = [
@@ -135,6 +140,8 @@ export function createApplicationResetPatch(workspace: Workspace): Partial<Studi
     historyTimelineOpen: false,
     tool: "pan",
     brushSize: 30,
+    annotationStrokeWidth: 4,
+    annotationFontSize: 20,
     brushMode: "paint",
     annotationKind: "rect",
     annotationColor: "#ff4d4d",
@@ -159,6 +166,7 @@ export function createApplicationResetPatch(workspace: Workspace): Partial<Studi
     batchCount: 1,
     continuousGenerateTest: false,
     fhlPoolPerAPIConcurrencyLimit: DEFAULT_CONCURRENCY_LIMIT,
+    fhlTextAPIModelID: FHL_TEXT_API_DEFAULT_MODEL_ID,
     fhlPoolEffectiveConcurrencyByProfileId: {},
     editSourceMode: "manual",
     batchProcess: defaultBatchProcessConfig(),

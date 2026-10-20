@@ -3,6 +3,7 @@ import { Arrow, Image as KonvaImage, Layer, Line, Rect, Stage } from "react-konv
 import Konva from "konva";
 import { useStudioStore } from "../../../state/studioStore";
 import type { HistoryItem } from "../../../types/domain";
+import type { AnnotationTool } from "../../../features/annotation/annotationTypes";
 import type { Stroke } from "../../../state/studioStore.types";
 import { AnnotationShape } from "../../../components/canvas/AnnotationShape";
 import { BatchResultGrid, type BatchGridSlot } from "../../../components/canvas/BatchResultGrid";
@@ -245,7 +246,7 @@ export function AndroidCanvasStage() {
   const drawingRef = useRef<{ active: boolean; current: Stroke | null }>({ active: false, current: null });
   const freehandRef = useRef<number[] | null>(null);
   const [, setDrawingTick] = useState(0);
-  const [drag, setDrag] = useState<null | { kind: "rect" | "arrow" | "freehand" | "text"; sx: number; sy: number; x: number; y: number }>(null);
+  const [drag, setDrag] = useState<null | { kind: Exclude<AnnotationTool, "eraser" | "freehand" | "highlight" | "text">; sx: number; sy: number; x: number; y: number }>(null);
 
   useEffect(() => {
     setUserView(null);
@@ -285,7 +286,7 @@ export function AndroidCanvasStage() {
           });
         }
       } else {
-        setDrag({ kind: annotationKind, sx: local.x, sy: local.y, x: local.x, y: local.y });
+        setDrag({ kind: annotationKind as Exclude<AnnotationTool, "eraser" | "freehand" | "highlight" | "text">, sx: local.x, sy: local.y, x: local.x, y: local.y });
       }
     }
   }
@@ -338,7 +339,7 @@ export function AndroidCanvasStage() {
             height: Math.abs(h),
             color: annotationColor,
           });
-        } else if (drag.kind === "arrow") {
+        } else if (drag.kind === "arrow" || drag.kind === "plainArrow") {
           addAnnotation({
             id: crypto.randomUUID(),
             kind: "arrow",

@@ -530,7 +530,7 @@ export function FHLImagesPoolConfig({
               type="button"
               onClick={openBulkPasteDialog}
               disabled={isSaving || isTestingKey}
-              className={`platform-action-btn inline-flex h-8 items-center gap-1.5 border border-amber-500/25 bg-white/65 px-2.5 text-[11px] font-medium text-amber-900 hover:bg-white disabled:opacity-55 dark:border-amber-300/20 dark:bg-black/10 dark:text-amber-100 dark:hover:bg-white/10 ${usesFluentUI ? "rounded-[7px]" : "rounded-[10px]"}`}
+              className={`liquid-primary-button inline-flex h-8 items-center gap-1.5 bg-[var(--accent)] px-2.5 text-[11px] font-medium text-white transition-colors hover:bg-[var(--accent-2)] disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-600 dark:disabled:bg-zinc-700 dark:disabled:text-zinc-300 ${usesFluentUI ? "rounded-[7px]" : "rounded-[10px]"}`}
               data-audit-id="fhl-bulk-config-open"
             >
               <ClipboardPaste className="h-3.5 w-3.5" />

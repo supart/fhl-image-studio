@@ -8,11 +8,11 @@ const runtimeSource = readFileSync(new URL("../src/state/studioStore.runtime.ts"
 test("a live blob result preview is not replaced by proactive disk materialization", () => {
   assert.match(
     canvasSource,
-    /const currentImageBlob = currentImage\?\.imageBlob \?\? currentImage\?\.previewBlob \?\? null;/,
+    /const currentImageBlob = annotationSourceMatches\s*\? annotationSource\?\.blob \?\? null\s*:\s*currentImage\?\.imageBlob \?\? currentImage\?\.previewBlob \?\? null;/,
   );
   assert.match(
     canvasSource,
-    /const currentImageURL = currentImage\?\.previewUrl\?\.startsWith\("blob:"\)\s*\? currentImage\.previewUrl\s*: historyFullSrc\(currentImage, null\);/,
+    /const currentImageURL = annotationSourceMatches \? null : currentImage\?\.previewUrl\?\.startsWith\("blob:"\)\s*\? currentImage\.previewUrl\s*: historyFullSrc\(currentImage, null\);/,
   );
   assert.match(
     canvasSource,

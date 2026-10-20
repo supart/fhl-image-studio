@@ -23,6 +23,8 @@
 | [桌面 E2E 测试模式](./desktop-e2e-test-mode.md) | 在隔离端口运行打包桌面 UI 和模拟验收 |
 | [360 工作台与全景贴回](./panorama-360.md) | 全景生成、查看、编辑和贴回流程 |
 | [Photoshop UXP Bridge 实现记录](./changes/2026-07-25-photoshop-uxp-bridge.md) | 桌面端回环接口、安全边界、插件验证与恢复断点 |
+| [FHL PS Bridge 契约化记录](./changes/2026-08-24-fhl-ps-bridge-contract.md) | `/fhl-ps/v1` 握手元数据、协议主版本和中立契约源 |
+| [Portable Photoshop 对接文件](./changes/2026-08-24-windows-v2.0.4-portable-photoshop-integration-file.md) | 固定 JSON 文件格式、根目录启动路径校验和 Wails Bridge 验证 |
 | [原始提示词传递说明](./no-prompt-revision/README.md) | 不改写提示词路径的能力边界 |
 | [内容审核风险改写规则](./content-audit-risk-rules.md) | 上游内容安全错误的分析与提示词处理原则 |
 | [反馈渠道](./feedback.md) | Issue 与用户反馈入口 |

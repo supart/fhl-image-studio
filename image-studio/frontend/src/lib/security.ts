@@ -22,7 +22,10 @@ export function sanitizeHistoryForExport(item: HistoryItem): HistoryItem {
               },
             },
           },
-        }
+      }
+    : undefined;
+  const annotationComposite = item.annotationComposite
+    ? { ...item.annotationComposite, sourcePath: undefined, outputPath: undefined }
     : undefined;
   return {
     ...item,
@@ -35,6 +38,7 @@ export function sanitizeHistoryForExport(item: HistoryItem): HistoryItem {
     sourceImages: undefined,
     panoramaRoundtrip: undefined,
     localEditRoundtrip,
+    annotationComposite,
     previewOnly: true,
   };
 }

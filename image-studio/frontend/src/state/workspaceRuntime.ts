@@ -11,6 +11,7 @@ import type {
   Workspace,
 } from "../types/domain";
 import { providerModeLabel } from "../lib/providerPolicy.ts";
+import { DEFAULT_AUTO_ASPECT_RESOLUTION } from "../lib/generationDefaults.ts";
 
 export type APIModeValue = "responses" | "images" | "apimart" | "runninghub";
 
@@ -99,7 +100,7 @@ export function defaultBatchProcessConfig(): BatchProcessConfig {
     outputDir: "",
     concurrency: DEFAULT_BATCH_PROCESS_CONCURRENCY,
     retryOnFailure: false,
-    autoAspectResolution: "1k",
+    autoAspectResolution: DEFAULT_AUTO_ASPECT_RESOLUTION,
     batchSourceSlotIndex: 0,
     discoveredSources: [],
   };
@@ -158,7 +159,7 @@ export function normalizeBatchProcessConfig(value: unknown): BatchProcessConfig 
     retryOnFailure: source.retryOnFailure === true,
     autoAspectResolution: rawAutoAspectResolution === ""
       ? ""
-      : normalizeBatchProcessAutoAspectResolution(rawAutoAspectResolution) || "1k",
+      : normalizeBatchProcessAutoAspectResolution(rawAutoAspectResolution) || DEFAULT_AUTO_ASPECT_RESOLUTION,
     batchSourceSlotIndex: Number.isFinite(Number(source.batchSourceSlotIndex))
       ? Math.max(0, Math.floor(Number(source.batchSourceSlotIndex)))
       : 0,

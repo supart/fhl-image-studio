@@ -330,6 +330,27 @@ func newPSBridgePromptRequest(t *testing.T, guidance string, sourceCount int) *h
 	return request
 }
 
+func newPSBridgeReversePromptRequest(t *testing.T, sourceCount int) *http.Request {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for index := 0; index < sourceCount; index++ {
+		part, err := writer.CreateFormFile("source", fmt.Sprintf("reverse-source-%02d.png", index+1))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := part.Write(tinyPSBridgePNG(t)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := newAuthorizedPSBridgeRequest(http.MethodPost, "/fhl-ps/v1/prompts/reverse", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	return request
+}
+
 func syncPSBridgePromptProfile(t *testing.T, service *Service, bridge *PSBridge) {
 	t.Helper()
 	promptUser := "profile:ps-bridge-prompt-endpoint"
@@ -414,6 +435,56 @@ func TestPSBridgeSelectsAnotherPortWhenCandidateIsOccupied(t *testing.T) {
 	}
 }
 
+func TestPSBridgeHandshakePublishesStableProtocolMetadata(t *testing.T) {
+
+	_, bridge, _ := newPSBridgeHandlerTest(t)
+
+	healthRequest := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/fhl-ps/v1/health", nil)
+	health := servePSBridgeRequest(bridge, healthRequest)
+	if health.Code != http.StatusOK {
+		t.Fatalf("health status = %d: %s", health.Code, health.Body.String())
+	}
+	var healthPayload map[string]any
+	if err := json.Unmarshal(health.Body.Bytes(), &healthPayload); err != nil {
+		t.Fatalf("decode health: %v", err)
+	}
+	if healthPayload["service"] != psBridgeServiceName || healthPayload["protocolMajor"] != float64(psBridgeProtocolMajor) {
+		t.Fatalf("health protocol metadata = %+v", healthPayload)
+	}
+	if healthPayload["contractRevision"] != psBridgeContractRevision || healthPayload["instanceId"] != "test-instance" {
+		t.Fatalf("health identity metadata = %+v", healthPayload)
+	}
+	if healthPayload["minClientMajor"] != float64(psBridgeProtocolMajor) || healthPayload["maxClientMajor"] != float64(psBridgeProtocolMajor) {
+		t.Fatalf("health compatibility range = %+v", healthPayload)
+	}
+	capabilities, ok := healthPayload["capabilities"].([]any)
+	if !ok || len(capabilities) != len(psBridgeCapabilities) {
+		t.Fatalf("health capabilities = %+v", healthPayload["capabilities"])
+	}
+
+	sessionRequest := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/fhl-ps/v1/session", nil)
+	session := servePSBridgeRequest(bridge, sessionRequest)
+	if session.Code != http.StatusOK {
+		t.Fatalf("session status = %d: %s", session.Code, session.Body.String())
+	}
+	var sessionPayload map[string]any
+	if err := json.Unmarshal(session.Body.Bytes(), &sessionPayload); err != nil {
+		t.Fatalf("decode session: %v", err)
+	}
+	if sessionPayload["token"] != psBridgeTestToken || sessionPayload["instanceId"] != "test-instance" || sessionPayload["protocolMajor"] != float64(psBridgeProtocolMajor) {
+		t.Fatalf("session protocol metadata = %+v", sessionPayload)
+	}
+	gotSessionCapabilities, ok := sessionPayload["capabilities"].([]any)
+	if !ok || len(gotSessionCapabilities) != len(psBridgeCapabilities) {
+		t.Fatalf("session capabilities = %+v", sessionPayload["capabilities"])
+	}
+	for index, capability := range psBridgeCapabilities {
+		if gotSessionCapabilities[index] != capability {
+			t.Fatalf("session capabilities[%d] = %v, want %s", index, gotSessionCapabilities[index], capability)
+		}
+	}
+}
+
 func TestPSBridgeRejectsNonLoopbackAndOrdinaryWebRequests(t *testing.T) {
 	_, bridge, _ := newPSBridgeHandlerTest(t)
 
@@ -485,6 +556,7 @@ func TestPSBridgeProfileResponseDoesNotExposeCredentials(t *testing.T) {
 		"profileId": true, "name": true, "provider": true, "apiMode": true, "imageModelID": true,
 		"supportsMask": true, "maxImages": true, "ready": true,
 		"promptOptimizationReady": true, "promptProviderLabel": true,
+		"capabilities":      true,
 		"imageCapabilities": true,
 	}
 	for field := range fields {
@@ -497,6 +569,9 @@ func TestPSBridgeProfileResponseDoesNotExposeCredentials(t *testing.T) {
 	}
 	if !strings.Contains(body, `"promptOptimizationReady":true`) || !strings.Contains(body, "Prompt Provider Label") {
 		t.Fatalf("public prompt capability missing: %s", body)
+	}
+	if !strings.Contains(body, `"capabilities":["profile","jobs","prompt-optimization","prompt-reverse","images"]`) {
+		t.Fatalf("public bridge capabilities missing: %s", body)
 	}
 	if !strings.Contains(body, `"qualityControl":true`) || !strings.Contains(body, `"sizeEncoding":"pixels"`) {
 		t.Fatalf("public image capabilities missing: %s", body)
@@ -641,6 +716,60 @@ func TestPSBridgePromptOptimizationUsesPrivateCredentialAndCleansInputs(t *testi
 	}
 	if strings.Contains(recorder.Body.String(), "sk-prompt-private") {
 		t.Fatal("prompt response exposed credential")
+	}
+}
+
+func TestPSBridgePromptReverseUsesPrivateCredentialAndCleansInput(t *testing.T) {
+	service, bridge, _ := newPSBridgeHandlerTest(t)
+	promptUser := "profile:ps-bridge-reverse-prompt"
+	if err := service.SetStoredAPIKey(promptUser, "sk-reverse-private"); err != nil {
+		t.Fatal(err)
+	}
+	status, err := bridge.SyncProfile(PSBridgeProfileInput{
+		ProfileID: "reverse-test", Name: "Reverse Test", APIMode: "runninghub", BaseURL: "http://127.0.0.1:9999/v1",
+		PromptProfile: &PSBridgePromptProfileInput{Provider: "responses", Label: "Responses text", BaseURL: "https://text.example/v1", CredentialUser: promptUser, TextModelID: "text-test"},
+	})
+	if err != nil || status.Profile == nil || !status.Profile.PromptOptimizationReady {
+		t.Fatalf("reverse prompt profile not ready: %+v %v", status, err)
+	}
+	var captured PromptReverseOptions
+	bridge.reversePrompt = func(opts PromptReverseOptions) (string, error) {
+		captured = opts
+		if len(opts.ImagePaths) != 1 {
+			t.Fatalf("image paths = %d, want 1", len(opts.ImagePaths))
+		}
+		if _, err := os.Stat(opts.ImagePaths[0]); err != nil {
+			t.Fatalf("temporary reverse input unavailable: %v", err)
+		}
+		return "一只坐在窗边的橘猫", nil
+	}
+	recorder := servePSBridgeRequest(bridge, newPSBridgeReversePromptRequest(t, 1))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("reverse status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if captured.APIKey != "sk-reverse-private" || captured.BaseURL != "https://text.example/v1" || captured.TextModelID != "text-test" {
+		t.Fatalf("unexpected reverse options: %+v", captured)
+	}
+	if _, err := os.Stat(captured.ImagePaths[0]); !os.IsNotExist(err) {
+		t.Fatalf("temporary reverse input was not removed: %v", err)
+	}
+	if strings.Contains(recorder.Body.String(), "sk-reverse-private") {
+		t.Fatal("reverse response exposed credential")
+	}
+}
+
+func TestPSBridgePromptReverseRequiresExactlyOneSource(t *testing.T) {
+	service, bridge, _ := newPSBridgeHandlerTest(t)
+	syncPSBridgePromptProfile(t, service, bridge)
+	bridge.reversePrompt = func(PromptReverseOptions) (string, error) {
+		t.Fatal("reverse prompt must not run without exactly one source")
+		return "", nil
+	}
+	for _, count := range []int{0, 2} {
+		recorder := servePSBridgeRequest(bridge, newPSBridgeReversePromptRequest(t, count))
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("source count %d status = %d, want %d: %s", count, recorder.Code, http.StatusBadRequest, recorder.Body.String())
+		}
 	}
 }
 

@@ -1,4 +1,5 @@
 import type { APIMode, BatchProcessConfig, Mode, QualityValue, RequestPolicy } from "../../types/domain";
+import { DEFAULT_AUTO_ASPECT_RESOLUTION } from "../../lib/generationDefaults.ts";
 import { QUALITY_TIERS, STYLE_CHIPS } from "./panelOptions";
 import { AspectRatioPicker } from "./AspectRatioPicker";
 import {
@@ -117,7 +118,7 @@ export function MacComposeStyleAndSize({
                   onClick={() =>
                     setBatchProcess({
                       ...batchProcess,
-                      autoAspectResolution: batchProcess.autoAspectResolution || "1k",
+                      autoAspectResolution: batchProcess.autoAspectResolution || DEFAULT_AUTO_ASPECT_RESOLUTION,
                     })
                   }
                 >
@@ -196,7 +197,7 @@ export function MacComposeStyleAndSize({
                   onClick={() =>
                     setBatchProcess({
                       ...batchProcess,
-                      autoAspectResolution: batchProcess.autoAspectResolution || "1k",
+                      autoAspectResolution: batchProcess.autoAspectResolution || DEFAULT_AUTO_ASPECT_RESOLUTION,
                     })
                   }
                 >

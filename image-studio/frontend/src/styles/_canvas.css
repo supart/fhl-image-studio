@@ -406,6 +406,123 @@ html.dark .source-thumb-remove {
   will-change: background-position;
 }
 
+.annotation-action-portal {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.annotation-action-bar {
+  position: absolute;
+  left: 50%;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 7px;
+  border: 1px solid rgb(15 23 42 / 0.18);
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.88);
+  box-shadow: 0 16px 34px rgb(15 23 42 / 0.24), 0 0 0 1px rgb(255 255 255 / 0.42) inset;
+  backdrop-filter: blur(18px);
+  pointer-events: auto;
+  transform: translateX(-50%);
+}
+
+.annotation-action-bar-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 92px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: rgb(30 41 59);
+  background: rgb(241 245 249 / 0.88);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform 140ms ease, background 140ms ease, border-color 140ms ease, opacity 140ms ease;
+}
+
+.annotation-action-bar-button:hover {
+  transform: translateY(-1px);
+  border-color: rgb(59 130 246 / 0.38);
+  background: rgb(219 234 254 / 0.96);
+}
+
+.annotation-action-bar-button:active { transform: translateY(0); }
+.annotation-action-bar-button:disabled { opacity: 0.48; cursor: default; pointer-events: none; }
+.annotation-action-bar-button-danger { color: rgb(185 28 28); background: rgb(254 226 226 / 0.86); }
+.annotation-action-bar-button-danger:hover { border-color: rgb(220 38 38 / 0.34); background: rgb(254 202 202 / 0.94); }
+.annotation-action-bar-button-primary { color: #fff; border-color: rgb(37 99 235 / 0.86); background: rgb(37 99 235 / 0.96); box-shadow: 0 3px 8px rgb(37 99 235 / 0.28); }
+.annotation-action-bar-button-primary:hover { border-color: rgb(29 78 216); background: rgb(29 78 216); }
+.annotation-action-bar-icon { width: 15px; height: 15px; flex: 0 0 auto; }
+
+html.dark .annotation-action-bar {
+  border-color: rgb(148 163 184 / 0.26);
+  background: rgb(15 23 42 / 0.88);
+  box-shadow: 0 16px 34px rgb(0 0 0 / 0.42), 0 0 0 1px rgb(255 255 255 / 0.08) inset;
+}
+
+html.dark .annotation-action-bar-button { color: rgb(226 232 240); background: rgb(30 41 59 / 0.94); }
+html.dark .annotation-action-bar-button:hover { background: rgb(51 65 85 / 0.98); }
+html.dark .annotation-action-bar-button-danger { color: rgb(252 165 165); background: rgb(127 29 29 / 0.52); }
+html.dark .annotation-action-bar-button-danger:hover { background: rgb(153 27 27 / 0.7); }
+
+.annotation-text-editor {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  min-width: 196px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 7px;
+  border: 1px solid rgb(15 23 42 / 0.22);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.98);
+  box-shadow: 0 12px 28px rgb(15 23 42 / 0.28), 0 0 0 1px rgb(255 255 255 / 0.48) inset;
+  backdrop-filter: blur(14px);
+}
+
+.annotation-text-editor-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  background: rgb(255 255 255 / 1) !important;
+  color: rgb(24 24 27) !important;
+  border-radius: 6px !important;
+  box-shadow: inset 0 0 0 1px rgb(15 23 42 / 0.08);
+}
+
+html.dark .annotation-text-editor {
+  border-color: rgb(148 163 184 / 0.34);
+  background: rgb(15 23 42 / 0.98);
+  box-shadow: 0 12px 28px rgb(0 0 0 / 0.44), 0 0 0 1px rgb(255 255 255 / 0.08) inset;
+}
+
+html.dark .annotation-text-editor-input {
+  background: rgb(30 41 59 / 1) !important;
+  color: rgb(248 250 252) !important;
+  box-shadow: inset 0 0 0 1px rgb(148 163 184 / 0.28);
+}
+
+@media (max-width: 720px) {
+  .annotation-action-bar { gap: 4px; padding: 5px; }
+  .annotation-action-bar-button { min-width: 74px; min-height: 32px; padding: 0 7px; font-size: 10px; }
+  .annotation-action-bar-icon { width: 14px; height: 14px; }
+  .annotation-text-editor { min-width: min(196px, calc(100vw - 32px)); }
+}
+
 .stream-preview-image-cover {
   position: absolute;
   display: grid;
@@ -845,6 +962,13 @@ html.dark .stream-preview-badge {
   max-width: 100%;
   will-change: transform;
 }
+.batch-grid-tile-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
 .batch-grid-tile {
   position: relative;
   width: 100%;
@@ -858,6 +982,35 @@ html.dark .stream-preview-badge {
   cursor: pointer;
   box-shadow: 0 10px 30px rgb(0 0 0 / 0.10);
   transition: border-color 120ms, box-shadow 120ms, transform 120ms;
+}
+.batch-grid-pasteback-button {
+  position: absolute;
+  right: 8px;
+  bottom: 34px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 58px;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, #2563eb 72%, #fff);
+  border-radius: 7px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgb(37 99 235 / 0.32);
+}
+.batch-grid-pasteback-button:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+.batch-grid-pasteback-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .batch-grid-image-shell {
   position: absolute;
@@ -1455,6 +1608,18 @@ html.dark .stream-preview-badge {
   max-width: calc(100% - 10px);
   padding: 0 4px;
   font-size: 8px;
+}
+.batch-grid[data-density="dense"] .batch-grid-pasteback-button,
+.batch-grid[data-density="micro"] .batch-grid-pasteback-button {
+  right: 5px;
+  bottom: 28px;
+  min-width: 26px;
+  min-height: 24px;
+  padding: 0 5px;
+}
+.batch-grid[data-density="dense"] .batch-grid-pasteback-button span,
+.batch-grid[data-density="micro"] .batch-grid-pasteback-button span {
+  display: none;
 }
 .batch-grid[data-density="dense"] .batch-grid-source-popover,
 .batch-grid[data-density="micro"] .batch-grid-source-popover {

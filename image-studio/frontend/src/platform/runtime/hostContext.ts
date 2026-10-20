@@ -112,7 +112,11 @@ export function EventsOn(eventName: string, callback: (...args: any[]) => void) 
     : () => undefined;
   return () => {
     offLocal();
-    offRuntime();
+    try {
+      offRuntime();
+    } catch {
+      // Wails IPC may already be closed during WebView teardown.
+    }
   };
 }
 

@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Crop, FlipHorizontal, FlipVertical, RotateCcw, RotateCw } from "lucide-react";
 import { useStudioStore } from "../../state/studioStore";
 import { primaryCompareSourceFromCurrentImage } from "../../state/compareSourceSelection";
@@ -15,12 +16,18 @@ import {
 } from "./toolbarActionSections";
 import { Sep, ToolBtn, ToolbarGroup } from "./toolbarPrimitives";
 import { PanoramaOutputManagerModal } from "../panorama/PanoramaOutputManagerModal";
+import { AnnotationOverflowModal } from "../../features/annotation/AnnotationOverflowModal";
+import { AnnotationActionBar } from "../../features/annotation/AnnotationActionBar";
+import {
+  annotationFontSize as getAnnotationFontSize,
+  annotationStrokeWidth as getAnnotationStrokeWidth,
+} from "../../features/annotation/annotationTypes";
 
 export function Toolbar() {
   const {
-    currentImage, tool, brushSize, brushMode,
+    currentImage, tool, brushSize, annotationStrokeWidth, annotationFontSize, brushMode,
     annotationKind, annotationColor,
-    annotations, selectedAnnotationId,
+    annotations, selectedAnnotationId, undoStack, redoStack,
     fullscreen,
     compareB, compareMode, setCompareB, openCompareWithPrimarySource,
     sourcePreviewReturnImage, closeSourcePreview,
@@ -31,10 +38,12 @@ export function Toolbar() {
     batchResults, resultGridOpen, openResultGrid, closeResultGrid,
     historyGalleryOpen, historyGallerySinglePreviewId, openHistoryGallery, closeHistoryGalleryToEmpty,
     setField, toggleFullscreen, saveCurrentImageAs, shareCurrentImage,
-    resetMask, clearAnnotations,
-    undoStack, redoStack, undo, redo,
-    rotateCurrent, flipCurrent, cropToRect,
+    resetMask, clearAnnotations, removeAnnotation, undo, redo,
+    updateAnnotationStyle,
+    rotateCurrent, flipCurrent, cropToRect, prepareAnnotationSource,
     startLocalEditRoundtrip,
+    confirmAnnotationComposite,
+    beginAnnotationSession, isAnnotationSessionDirty, cancelAnnotationSession, endAnnotationSession,
     openResultDetail,
     openPanoramaViewer,
   } = useStudioStore();
@@ -43,9 +52,96 @@ export function Toolbar() {
   // rectangle so the local-edit action can use the just-created region.
   const selRect = annotations.find((a) => a.id === selectedAnnotationId && a.kind === "rect")
     ?? [...annotations].reverse().find((a) => a.kind === "rect");
+  const selectedAnnotation = annotations.find((annotation) => annotation.id === selectedAnnotationId) ?? null;
+  const selectedAnnotationStrokeWidth = selectedAnnotation && selectedAnnotation.kind !== "text"
+    ? getAnnotationStrokeWidth(selectedAnnotation, annotationStrokeWidth)
+    : annotationStrokeWidth;
+  const selectedAnnotationFontSize = selectedAnnotation && (selectedAnnotation.kind === "text" || selectedAnnotation.kind === "arrow")
+    ? getAnnotationFontSize(selectedAnnotation, annotationFontSize)
+    : annotationFontSize;
+  const setAnnotationStrokeWidth = (value: number) => {
+    if (selectedAnnotation && selectedAnnotation.kind !== "text") updateAnnotationStyle(selectedAnnotation.id, { strokeWidth: value });
+    setField("annotationStrokeWidth", value);
+  };
+  const setAnnotationFontSize = (value: number) => {
+    if (selectedAnnotation && (selectedAnnotation.kind === "text" || selectedAnnotation.kind === "arrow")) {
+      updateAnnotationStyle(selectedAnnotation.id, { fontSize: value });
+    }
+    setField("annotationFontSize", value);
+  };
   const { isAndroidPhone, isMac, usesAppleUI } = usePlatform();
   const [mobileAdjustOpen, setMobileAdjustOpen] = useState(false);
+  const [annotationToolsExpanded, setAnnotationToolsExpanded] = useState(tool === "annotate");
+  const [annotationOverflowOpen, setAnnotationOverflowOpen] = useState(false);
+  const [annotationCompositeBusy, setAnnotationCompositeBusy] = useState(false);
+  const [annotationSourcePreparing, setAnnotationSourcePreparing] = useState(false);
   const [panoramaOutputManagerOpen, setPanoramaOutputManagerOpen] = useState(false);
+  const [annotationActionPortal, setAnnotationActionPortal] = useState<HTMLElement | null>(null);
+  const previousToolRef = useRef<typeof tool | null>(null);
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const findPortal = () => setAnnotationActionPortal(document.querySelector<HTMLElement>("[data-annotation-action-portal]"));
+    findPortal();
+    const observer = typeof MutationObserver === "function"
+      ? new MutationObserver(findPortal)
+      : null;
+    observer?.observe(document.body, { childList: true, subtree: true });
+    return () => observer?.disconnect();
+  }, []);
+  useEffect(() => {
+    setAnnotationToolsExpanded(tool === "annotate");
+    if (tool === "annotate") {
+      beginAnnotationSession();
+    } else if (previousToolRef.current === "annotate") {
+      endAnnotationSession();
+    }
+    previousToolRef.current = tool;
+  }, [beginAnnotationSession, endAnnotationSession, tool]);
+  const handleConfirmAnnotations = async () => {
+    if (annotationCompositeBusy) return;
+    setAnnotationCompositeBusy(true);
+    try {
+      const result = await confirmAnnotationComposite("strict");
+      if (result === "overflow") setAnnotationOverflowOpen(true);
+    } finally {
+      setAnnotationCompositeBusy(false);
+    }
+  };
+  const handleExpandAnnotationCanvas = async () => {
+    if (annotationCompositeBusy) return;
+    setAnnotationCompositeBusy(true);
+    try {
+      const result = await confirmAnnotationComposite("expand-white");
+      if (result === "saved") setAnnotationOverflowOpen(false);
+    } finally {
+      setAnnotationCompositeBusy(false);
+    }
+  };
+  const handleCancelAnnotations = () => {
+    if (annotationCompositeBusy) return;
+    if (isAnnotationSessionDirty()
+      && typeof window !== "undefined"
+      && !window.confirm("当前有未确认的标注修改，确定取消并丢弃本轮标注吗？")) return;
+    cancelAnnotationSession();
+    setAnnotationOverflowOpen(false);
+    setAnnotationToolsExpanded(false);
+  };
+  const handleToggleAnnotationTools = async () => {
+    if (annotationSourcePreparing || annotationCompositeBusy) return;
+    if (tool === "annotate") {
+      setAnnotationToolsExpanded((expanded) => !expanded);
+      return;
+    }
+    setAnnotationSourcePreparing(true);
+    try {
+      const ready = await prepareAnnotationSource();
+      if (!ready) return;
+      setField("tool", "annotate");
+      setAnnotationToolsExpanded(true);
+    } finally {
+      setAnnotationSourcePreparing(false);
+    }
+  };
   const hasImage = !!currentImage;
   const canOpenPanorama = !!currentImage;
   const panoramaOutputs = useMemo(
@@ -102,7 +198,12 @@ export function Toolbar() {
       ? "当前图片没有可用原图可对比"
       : "查看原图和成图的卷帘对比";
   const showToolSection = true;
-  const showAnnotationTools = tool === "annotate" && hasImage;
+  const showAnnotationTools = tool === "annotate" && hasImage && annotationToolsExpanded;
+  const showAnnotationActionBar = tool === "annotate"
+    && hasImage
+    && !resultGridOpen
+    && !historyGalleryOpen
+    && !!annotationActionPortal;
   const showMaskTools = tool === "mask" && hasImage;
   const showViewReset = tool === "pan" && hasImage;
   const showTransformSection = true;
@@ -131,14 +232,20 @@ export function Toolbar() {
         showViewReset
         brushMode={brushMode}
         brushSize={brushSize}
+        annotationStrokeWidth={selectedAnnotationStrokeWidth}
+        annotationFontSize={selectedAnnotationFontSize}
         annotationKind={annotationKind}
         annotationColor={annotationColor}
         onSetBrushMode={(mode) => setField("brushMode", mode)}
         onSetBrushSize={(size) => setField("brushSize", size)}
+        onSetAnnotationStrokeWidth={setAnnotationStrokeWidth}
+        onSetAnnotationFontSize={setAnnotationFontSize}
         onResetMask={resetMask}
         onSetAnnotationKind={(kind) => setField("annotationKind", kind)}
         onSetAnnotationColor={(color) => setField("annotationColor", color)}
         onClearAnnotations={clearAnnotations}
+        onConfirmAnnotations={() => { void handleConfirmAnnotations(); }}
+        annotationConfirming={annotationCompositeBusy}
         onResetView={() => (window as any).__canvasResetView?.()}
       />
       <Sep />
@@ -178,6 +285,30 @@ export function Toolbar() {
       onClose={() => setPanoramaOutputManagerOpen(false)}
     />
   );
+  const annotationOverflowModal = (
+    <AnnotationOverflowModal
+      open={annotationOverflowOpen}
+      busy={annotationCompositeBusy}
+      onClose={() => setAnnotationOverflowOpen(false)}
+      onExpand={() => { void handleExpandAnnotationCanvas(); }}
+    />
+  );
+  const annotationActionBar = showAnnotationActionBar ? createPortal(
+    <AnnotationActionBar
+      canUndo={undoStack.length > 0}
+      canRedo={redoStack.length > 0}
+      canDelete={!!selectedAnnotationId && annotations.some((annotation) => annotation.id === selectedAnnotationId)}
+      busy={annotationCompositeBusy}
+      onUndo={undo}
+      onRedo={redo}
+      onDelete={() => {
+        if (selectedAnnotationId) removeAnnotation(selectedAnnotationId);
+      }}
+      onConfirm={() => { void handleConfirmAnnotations(); }}
+      onCancel={handleCancelAnnotations}
+    />,
+    annotationActionPortal,
+  ) : null;
 
   if (isMac) {
     return (
@@ -189,11 +320,10 @@ export function Toolbar() {
               <BaseToolSection
                 hasImage={hasImage}
                 tool={tool}
-                undoDisabled={!hasImage || undoStack.length === 0}
-                redoDisabled={!hasImage || redoStack.length === 0}
+                annotationToolsExpanded={annotationToolsExpanded}
+                annotationPreparing={annotationSourcePreparing}
                 onSetTool={(nextTool) => setField("tool", nextTool)}
-                onUndo={undo}
-                onRedo={redo}
+                onToggleAnnotationTools={() => { void handleToggleAnnotationTools(); }}
               />
             </ToolbarGroup>
           ) : null}
@@ -205,14 +335,20 @@ export function Toolbar() {
                 showViewReset={showViewReset}
                 brushMode={brushMode}
                 brushSize={brushSize}
+                annotationStrokeWidth={selectedAnnotationStrokeWidth}
+                annotationFontSize={selectedAnnotationFontSize}
                 annotationKind={annotationKind}
                 annotationColor={annotationColor}
                 onSetBrushMode={(mode) => setField("brushMode", mode)}
                 onSetBrushSize={(size) => setField("brushSize", size)}
+                onSetAnnotationStrokeWidth={setAnnotationStrokeWidth}
+                onSetAnnotationFontSize={setAnnotationFontSize}
                 onResetMask={resetMask}
                 onSetAnnotationKind={(kind) => setField("annotationKind", kind)}
                 onSetAnnotationColor={(color) => setField("annotationColor", color)}
                 onClearAnnotations={clearAnnotations}
+                onConfirmAnnotations={() => { void handleConfirmAnnotations(); }}
+                annotationConfirming={annotationCompositeBusy}
                 onResetView={() => (window as any).__canvasResetView?.()}
               />
             </ToolbarGroup>
@@ -272,6 +408,8 @@ export function Toolbar() {
         ) : null}
       </div>
       {outputManagerModal}
+      {annotationOverflowModal}
+      {annotationActionBar}
       </>
     );
   }
@@ -285,36 +423,16 @@ export function Toolbar() {
             <BaseToolSection
               hasImage={hasImage}
               tool={tool}
-              undoDisabled={!hasImage || undoStack.length === 0}
-              redoDisabled={!hasImage || redoStack.length === 0}
+              annotationToolsExpanded={annotationToolsExpanded}
+              annotationPreparing={annotationSourcePreparing}
               onSetTool={(nextTool) => setField("tool", nextTool)}
-              onUndo={undo}
-              onRedo={redo}
+              onToggleAnnotationTools={() => { void handleToggleAnnotationTools(); }}
             />
             {showMaskTools || showAnnotationTools || showViewReset || showTransformSection ? <Sep /> : null}
           </>
         ) : null}
-        {showMaskTools || showAnnotationTools || showViewReset ? (
-          <ContextualSection
-            showMaskTools={showMaskTools}
-            showAnnotationTools={showAnnotationTools}
-            showViewReset={showViewReset}
-            brushMode={brushMode}
-            brushSize={brushSize}
-            annotationKind={annotationKind}
-            annotationColor={annotationColor}
-            onSetBrushMode={(mode) => setField("brushMode", mode)}
-            onSetBrushSize={(size) => setField("brushSize", size)}
-            onResetMask={resetMask}
-            onSetAnnotationKind={(kind) => setField("annotationKind", kind)}
-            onSetAnnotationColor={(color) => setField("annotationColor", color)}
-            onClearAnnotations={clearAnnotations}
-            onResetView={() => (window as any).__canvasResetView?.()}
-          />
-        ) : null}
         {showTransformSection ? (
           <>
-            {showMaskTools || showAnnotationTools || showViewReset ? <Sep /> : null}
             <TransformSection
               currentImageSavedPath={currentImage?.savedPath}
               isAndroidPhone={isAndroidPhone}
@@ -326,6 +444,33 @@ export function Toolbar() {
                 ? () => cropToRect(selRect.x, selRect.y, selRect.width!, selRect.height!)
                 : null}
               localEditAction={localEditAction}
+            />
+          </>
+        ) : null}
+        {showMaskTools || showAnnotationTools || showViewReset ? (
+          <>
+            {showTransformSection ? <Sep /> : null}
+            <ContextualSection
+              showMaskTools={showMaskTools}
+              showAnnotationTools={showAnnotationTools}
+              showViewReset={showViewReset}
+              brushMode={brushMode}
+              brushSize={brushSize}
+              annotationStrokeWidth={selectedAnnotationStrokeWidth}
+              annotationFontSize={selectedAnnotationFontSize}
+              annotationKind={annotationKind}
+              annotationColor={annotationColor}
+              onSetBrushMode={(mode) => setField("brushMode", mode)}
+              onSetBrushSize={(size) => setField("brushSize", size)}
+              onSetAnnotationStrokeWidth={setAnnotationStrokeWidth}
+              onSetAnnotationFontSize={setAnnotationFontSize}
+              onResetMask={resetMask}
+              onSetAnnotationKind={(kind) => setField("annotationKind", kind)}
+              onSetAnnotationColor={(color) => setField("annotationColor", color)}
+              onClearAnnotations={clearAnnotations}
+              onConfirmAnnotations={() => { void handleConfirmAnnotations(); }}
+              annotationConfirming={annotationCompositeBusy}
+              onResetView={() => (window as any).__canvasResetView?.()}
             />
           </>
         ) : null}
@@ -396,7 +541,9 @@ export function Toolbar() {
         </div>
       </div>
     </div>
-    {outputManagerModal}
-    </>
+      {outputManagerModal}
+      {annotationOverflowModal}
+      {annotationActionBar}
+      </>
   );
 }

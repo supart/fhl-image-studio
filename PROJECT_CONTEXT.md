@@ -1,5 +1,324 @@
 # FHL Studio Windows V2.0.4 开发交接
 
+## 2026-10-20 V2.0.4 收口、无 API 默认状态与最终 Portable（已完成）
+
+- 当前断点：分支 `codex/windows-v2.0.4-feature/local-edit-360-parity`，提交基线 `70857fad718b6a8997b57cb1edbec1d6f808e5eb`；工作树仍包含本轮及此前未提交开发改动，不提交、不打标签、不推送，不能把成品标记为正式 GitHub Release。
+- 完整门禁已通过：Desktop/CLI Go test+vet、TypeScript、Node `749/749`、UI `130/130`、lint `0 errors / 55 existing warnings`、Windows build `1997 modules`、Fast、Batch、Worker `5/5` 和 `git diff --check`。
+- 最终隔离输出：`V2.0.4-开发版\临时验收输出\20261020-115809-v2.0.4-final-portable`。打包显式使用 `-OutputRoot`，未使用 `-SkipBuild` 或 `-SkipCliBuild`，未覆盖旧 Portable、V2.0.3、用户运行目录或正式附件。
+- 发布安全检查为 `Issues: 0`，Portable 合同测试 `3/3`；包内有固定 Photoshop 对接 JSON、`.fhl-studio-portable`、相对启动路径和实际 EXE，`input/output/intermediate` 无用户文件，未包含 `cli.env.local`、WebView、API Key、历史或日志。
+- SHA-256：EXE `D3795DFD680D564E2D11F88D1E662936AC5DE82D1B74267FD185D1AAE5CBDEF9`；CLI `8DA913529E2DD2527E9CC626800099AE7BD36D5418DE697D22E5CCCE6547ABF9`；ZIP `0748709BF6E099FBFF7E6F288E25CBA85E3AFA41CA9A912F4CC95264F5E72AA0`。
+- 本机默认配置已恢复为无 API：开发/稳定命名空间的 FHL Images、FHL 文本和 FHL Responses 固定凭据已通过现有 `DeleteStoredAPIKey()` 删除并回读为空；源码 `config/cli.env.local` 已移除；Profile/active profile 清空，文本模型回到 `gpt-5.6-sol`。图片、历史和工作区未清除。
+- 源码 Wails 与复制出的 Portable 验收实例均在 `127.0.0.1:47631` 通过 health/session/profile；协议主版本 `1`、契约修订 `2026-08-24`、三处 capabilities 一致，`profile.ready=false`、`promptOptimizationReady=false`、无 active profile 和敏感字段。验收进程与临时副本均已停止/删除，原始 Portable 与 ZIP 保持未启动状态。
+- 本轮未读取或输出明文 Key，未调用模型列表、文本测试、图片反推或真实/付费生图 API。详细记录见 `docs/changes/2026-10-20-windows-v2.0.4-final-portable-api-reset.md`。
+
+## 2026-10-20 FHL 文本模型拉取按钮显眼化（已完成）
+
+- 按用户确认，未保存模型设置时的统一默认值为 `gpt-5.6-sol`；是否已有 FHL 文本 Key 不再触发 `gpt-5.5` 旧迁移。已经保存的内置或自定义模型仍保持不变，`gpt-5.5` 继续作为可选项。
+- 默认初始化定向测试 `5/5`、typecheck 和 `git diff --check` 通过。
+- 仅调整 `FHLTextAPIConfig`：现有模型拉取入口已移到模型下拉框右侧，显示为蓝色描边“拉取模型列表”；底部重复入口已移除，“保存并测试文本 API”仍是唯一蓝色实心主按钮。
+- 获取逻辑、Key 优先级、模型清洗、模型持久化和错误处理均未修改；`aria-label`、`title` 与 `data-testid` 保持稳定。
+- 定向 UI 测试 `7/7` 与 typecheck 已通过；完整 `wails dev` 页面 `http://127.0.0.1:34115/` 已在 `1024×768`、`1252×930`、`1440×900` 验证按钮可见、单一入口、无横向溢出且下拉框未被挤压。
+- 完整收口通过：定向 UI `7/7`、typecheck、lint `0 errors / 55 existing warnings`、Windows build `1997 modules` 和 `git diff --check`；Wails 自动生成 `models.ts` 的尾随空白已机械清理，无类型或逻辑变化。
+- 本轮未点击模型拉取或文本测试，未读取明文 Key，未调用真实文本或图像生成 API；不打包、不修改 Photoshop 插件、Bridge v1、Android 或 V2.0.3。
+- 当前恢复点：用户可在源码 Wails 页面 `http://127.0.0.1:34115/` 打开 FHL 配置继续手工测试“拉取模型列表”；本批无需继续改代码。详细记录见 `docs/changes/2026-10-20-windows-v2.0.4-fhl-text-model-fetch-button.md`。
+
+## 2026-10-19 FHL 文本 API 动态模型列表（实现与自动验收完成）
+
+- 已复用现有 `GET /v1/models` 探测：Go/Wails 与浏览器回退均返回经过清洗的 `models`，同时保留原 `modelCount`；模型按上游顺序去重，过滤空值、超过 128 个 Unicode 字符、控制字符，并严格拒绝超过 1 MiB 的响应。
+- `FHLTextAPIConfig` 已增加手动“获取模型”按钮。输入框中的新 Key 优先但不会提前保存；输入框为空时读取现有安全凭据；模型列表仅存在当前弹窗会话，刷新失败不会清空当前模型，已保存模型不在新列表时仍保留。
+- 已保留 `gpt-5.6-sol`、`gpt-5.5` 与自定义模型入口；用户选择后继续复用现有 `fhlTextAPIModelID` 持久化，图片反推、提示词优化与 Photoshop Bridge Prompt Profile 请求链路未改。
+- 完整门禁已通过：Desktop/CLI Go test+vet、typecheck、Node `749/749`、UI `130/130`、lint `0 errors / 55 existing warnings`、Windows build `1997 modules`、Fast、Batch、Worker `5/5`、本地 Mock smoke 和 `git diff --check`。
+- 完整 `wails dev` 已从当前工作树启动 `image-studio/build/bin/FHL Studio 方汤圆版 V2.0.4-dev.exe`；页面 `http://127.0.0.1:34115/` 返回 200，Bridge `127.0.0.1:47631` 的 health/session/profile 握手一致，Profile ready。
+- 自动验收全部使用离线 Mock；本轮未读取或输出 Key，未调用真实模型列表、真实文本测试或图像生成 API。真实上游验收入口是 Wails 窗口中的“获取模型”和“保存并测试文本 API”，各手动点击一次即可。
+- 当前恢复点：等待用户完成真实上游手工验收；无需重新修改代码。若通过，可按单独授权决定是否生成新的隔离 V2.0.4 Portable；当前未打包、未提交、未创建标签或发布。
+- 详细记录：[docs/changes/2026-10-19-windows-v2.0.4-fhl-text-dynamic-model-list.md](docs/changes/2026-10-19-windows-v2.0.4-fhl-text-dynamic-model-list.md)。
+
+## 2026-10-13 多图参考上传修复（源码修复完成、三图人工验收通过、最终隔离 Portable 已生成）
+
+- 根因已确认：参考图从 UI、workspace、Bridge 到 `Service.Edit` 均完整保留；身份失效发生在 Images API multipart 序列化，第一张使用 `image`、第二张及以后错误使用 `image[]`，部分 FHL 中转静默忽略后续字段。
+- 已将桌面 Wails/CLI 的 `go-cli/pkg/client/images_api.go` 与浏览器远程回退的 `requestPayloads.ts` 统一为按原顺序重复 `image`；Responses、APIMart、RunningHub、Bridge 协议和持久化未修改。
+- 离线合同和完整门禁已通过：Go module test/vet、typecheck、Node 748/748、UI 126/126、lint `0 errors / 55 warnings`、Windows build、Fast、Batch、Worker 5/5、本地 Mock smoke 和 `git diff --check`。
+- 完整源码 Wails 开发程序为 `FHL Studio 方汤圆版 V2.0.4-dev.exe`；三图人工验收使用源码 Wails 页面 `http://127.0.0.1:34115/`，当时源码 Bridge 为 `127.0.0.1:47631`，health/session/profile 握手正常，测试后进程已退出。若旧 Portable 占用 `47631`，源码实例按现有端口选择规则使用 `47632`，两者不能混用。
+- 用户要求先人工手动测试、后打包。此前生成的 `V2.0.4-开发版\\临时验收输出\\20261013-multi-reference-upload-fix` 仅作人工测试前时间点证据，不是最终包，不得发布或用于 Photoshop 插件验收；本轮必须重新构建新的隔离 Portable。
+- 人工验收已通过：在源码 Wails 版使用三张参考图，真实 FHL Images 上游成功返回结果，三张图均生效；这次真实请求由用户手动完成，自动门禁仍全部使用离线 Mock。
+- 本次失败已定位为上游账号池问题，不是本地崩溃或 `image[]` 字段：第 1-3 个任务返回 `503: No available compatible accounts`，第 4-5 个任务因软件关闭而中断。重试前需等待/切换到有可用账号的 FHL Images 槽；不要反复重试同一不可用槽。
+- 此批次的 `503: No available compatible accounts` 来自 FHL Images 上游账号池，不是本地字段修复失败；后两次中断是软件被关闭造成的。自动验证未调用真实或付费生图 API；本批未读取或修改 Photoshop 插件源码，也未修改 V2.0.3、Android、Bridge 契约仓库或既有 Portable。
+- 最终隔离 Portable 已从当前 Git 工作树重新构建，未使用 `-SkipBuild` 或 `-SkipCliBuild`：`V2.0.4-开发版\\临时验收输出\\20261013-multi-reference-upload-fix-final\\FHL-Image-Studio-Desktop-V2.0.4-Windows-Portable`；ZIP 与包目录均未覆盖旧包、V2.0.3、用户运行目录或正式附件。
+- 最终包通过 `check-release-safety.ps1`（Issues 0）和 `portablePhotoshopIntegration.test.mjs`（3/3）；固定对接 JSON、`.fhl-studio-portable`、包内相对 EXE 路径、空的 `input/output/intermediate` 均已校验。EXE SHA-256 `DA1136BB992EDF374BBDF30A223A6FA1BC12A21C92E9564CACA1F0EF2F3EF59E`，CLI SHA-256 `8DA913529E2DD2527E9CC626800099AE7BD36D5418DE697D22E5CCCE6547ABF9`，ZIP SHA-256 `140218CEAFE6D777016DAC9C685C82F19D5AF5AE22A89E7748CE62EA383E3F8A`。
+- 从最终包复制出的隔离运行验收副本监听 `127.0.0.1:47631`；health/session/profile 握手成功，协议主版本 `1`、契约修订 `2026-08-24`、能力 `profile,jobs,prompt-optimization,prompt-reverse,images`、Profile ready，未提交任务。握手后测试进程已关闭，最终包本身未被运行缓存污染；本次打包和握手没有调用真实或付费生图 API。
+- 当前接手点：源码修复、三图人工验收、自动门禁和最终隔离包均完成；V2.0.4 仍是开发候选，不创建正式 Git 标签、不推送、不发布。
+- 详细记录：[docs/changes/2026-10-13-windows-v2.0.4-multi-reference-upload-fix.md](docs/changes/2026-10-13-windows-v2.0.4-multi-reference-upload-fix.md)。
+
+## 2026-09-14 Photoshop Bridge 图片反推能力修复（已完成）
+
+- 根因：47631/47632 原先运行的是旧 EXE；源码已有 `prompt-reverse` 路由，但 `/profile` 和 CLI fallback 未统一公开能力列表。已补齐后端、CLI fallback 和前端 Bridge 能力常量。
+- 已停止旧实例并重建当前 Git 源码。新隔离 Portable 唯一监听 `127.0.0.1:47631`，EXE 位于 `临时验收输出\\20260914-ps-reverse-prompt-final\\FHL-Image-Studio-Desktop-V2.0.4-Windows-Portable`。
+- health/session/profile 均返回 `profile,jobs,prompt-optimization,prompt-reverse,images`；Session instanceId 与 health 一致，Profile ready，未公开凭据。
+- 使用源码 `docs/picture/windows.png` 成功调用 `/fhl-ps/v1/prompts/reverse`，返回非空 prompt；未提交图像生成任务。
+- 验证：Wails build、Go test/vet、typecheck、Node `747/747`、UI `126/126`、lint `0 errors / 55 warnings`、Fast、Batch、Portable 合同 `3/3`、`git diff --check` 均通过。
+- 详细记录：[docs/changes/2026-09-14-windows-v2.0.4-ps-bridge-prompt-reverse.md](docs/changes/2026-09-14-windows-v2.0.4-ps-bridge-prompt-reverse.md)。
+
+## 2026-09-14 Photoshop Bridge 图片反推能力修复（已完成）
+
+- 源码 Bridge 已补齐 profile/CLI fallback 的统一 `capabilities` 字段，并加入 `prompt-reverse`；前端 `PS_BRIDGE_CAPABILITIES` 同步为五项。
+- 旧 47631/47632 实例已停止。新隔离 Portable 唯一运行在 `127.0.0.1:47631`，health/session/profile 握手均含 `prompt-reverse`。
+- 使用 `docs/picture/windows.png` 成功完成一次真实 `/fhl-ps/v1/prompts/reverse`，返回非空 prompt；未提交生成任务。
+- Portable 根目录：`V2.0.4-开发版\\临时验收输出\\20260914-ps-reverse-prompt-final\\FHL-Image-Studio-Desktop-V2.0.4-Windows-Portable`。EXE SHA-256 与最终响应摘要记录在 `docs/changes/2026-09-14-windows-v2.0.4-ps-bridge-prompt-reverse.md`。
+
+## 2026-09-07 局部重绘贴回状态修复（已完成，隔离 Portable 已生成）
+
+- 根因已修复：`BatchTaskRecord` 顶层保存独立 `localEditRoundtrip`，workspace session 仍移除大体积 `sourceImages`，但保留局部裁切任务身份；任务创建、重试、浏览器后台、桌面直连、RunningHub/APIMart 恢复结果均继承该字段。
+- 现有 roundtrip 恢复模块已扩展到 planar：只按结果/来源嵌套元数据、任务顶层/来源元数据，以及 `parentId`、`batchSourcePath`、`sourceImagePaths` 的历史 ID 或规范化完整路径精确匹配；不按文件名、尺寸或提示词推测。自动贴回终态写入 `localEditPastebackState="pasted"`，不再恢复重复入口。
+- Windows 批次网格和完整历史相册的合格最终图新增蓝色“贴回”按钮及自动/手动/导入三项菜单；复用现有 Store 动作，卡片已拆为外层容器、主预览按钮和独立操作按钮，事件不会穿透选择或双击预览。Android 不传桌面回调，不显示该入口。
+- 已通过：完整 Node `747/747`、UI `126/126`、typecheck、lint `0 errors / 55 existing warnings`、Windows build `1997 modules`、Fast、Batch、Go test/vet、Worker `5/5`、离线 smoke 和 `git diff --check`。补充边界测试覆盖终态不重复显示入口、历史 ID 大小写不折叠。
+- 已启动并验证完整源码 Wails：`FHL Studio 方汤圆版 V2.0.4-dev.exe`，宿主 `34115`，Bridge `47631`；health/session/profile 握手通过且未提交任务。离线 CDP 三档 `1252×930`、`1440×900`、`1024×768` 已验证批次网格/历史相册贴回菜单、事件隔离和无横向溢出；Wails 页面的既有审计代理 `404` 与预览夹具 `ERR_INVALID_URL` 单独记录为环境残余。
+- 隔离 Portable 已生成并完成离线校验、清单与 SHA-256、升级覆盖模拟：`V2.0.4-开发版\\临时验收输出\\20260907-local-edit-pasteback-final\\FHL-Image-Studio-Desktop-V2.0.4-Windows-Portable`。ZIP SHA-256 为 `30462165A6FC52FBA362FC225C6E71769FA1BEE9F84DB5BEB511B0C7311B2D38`；未升级到 V2.0.5，未覆盖既有正式包。
+
+## 2026-08-27 FHL 文本 API 模型选择
+
+- 独立 FHL 文本 API 配置新增 `gpt-5.6-sol`、`gpt-5.5` 和自定义模型 ID；专用设置与普通 `FHL_TEXT_MODEL_ID` 分离，普通 Profile、Images 池、APIMart、RunningHub 和图像模型行为不变。
+- 模型偏好保存在当前桌面 namespace 的 `image-studio.<namespace>.gptcodex.fhlTextAPI.modelID.v1` localStorage 键；Keyring 只保存专用文本 API Key。新环境默认 `gpt-5.6-sol`，已有专用 Key 且无模型记录的旧环境迁移到 `gpt-5.5`，已有选择不覆盖；删除 Key 保留选择，完整 API 清空/应用恢复默认写回新默认。
+- 自定义模型 ID 去首尾空格，限制 `1-128` 字符并拒绝控制字符；无效值不测试、不覆盖有效模型。模型测试请求、AI 优化、图片反推和 PS Bridge prompt profile 共用解析值，不自动降级。
+- 实现文件：`frontend/src/lib/fhlTextAPIModel.ts`、`fhlTextAPI.ts`、`promptTextProfiles.ts`、`FHLTextAPIConfig.tsx`、`studioStore.ts`、`apiCredentialClear.ts`、`psBridgeContracts.ts`。测试：`fhlTextAPIModel.test.mjs`、更新的配置/解析/Bridge/重置合同。
+- 已验证：typecheck、模型/配置/解析/Bridge 定向测试；未调用真实或付费生图 API。完整门禁和 `wails dev` 三档浏览器复核在本批收口阶段继续执行。
+
+## 2026-08-27 本地 Git 源码版已启动
+
+- 已通过外层 `一键启动V2.0.4开发版.cmd` 启动完整 Wails 开发程序；进程为源码 `image-studio/build/bin/FHL Studio 方汤圆版 V2.0.4-dev.exe`，不是 Portable、Vite-only 页面或 V2.0.3。
+- Wails 开发宿主为 `http://localhost:34115`，前端开发资源仍由 `http://127.0.0.1:5173/` 提供；本轮 Bridge 为 `127.0.0.1:47632`。桌面上的旧 V2.0.3 Portable 继续占用 `47631`，不作为开发验证目标。
+- V2.0.4 源码 Bridge 健康检查已返回 `ok=true`、`protocolMajor=1`、`contractRevision=2026-08-24`、`profileReady=true`；后续优化应连接 `47632` 或完整 Wails 窗口，不要把 `5173` 或 `47631` 当作本地 Git 修改版。
+- 本批只启动和验证开发环境，没有调用真实或付费生图 API，没有修改 V2.0.3、Photoshop 插件或独立契约仓库。
+
+## 2026-08-24 批次 64：快速配置批量 API 入口修复（已完成）
+
+- 修复桌面 `FHLQuickConfigModal` 未向 `FHLDesktopAPIConfig` 传递批量弹窗状态的问题；现在快速配置入口与普通上游配置入口都显示“批量配置 10 个 API”。批量弹窗状态只存在于当前桌面弹窗会话，关闭或切换高级配置时清理。
+- Android Legacy 快速配置、CLI、Bridge、凭据和 Images 池业务逻辑未修改。
+- 验证：typecheck、Node `727/727`、UI `122/122`、lint `0 errors / 55 existing warnings`、Windows build `1996 modules`、`scripts\\dev-check.ps1 -Level Fast`、`git diff --check`、浏览器 Windows 快速/普通上游配置入口、批量弹窗关闭重置和 `?target=android` 分支检查均通过；未调用真实 API。
+- 详见 [docs/changes/2026-08-24-windows-v2.0.4-bulk-config-entry-fix.md](docs/changes/2026-08-24-windows-v2.0.4-bulk-config-entry-fix.md)。
+
+## 2026-08-23 批次 63：标注文字共享不透明编辑面板（已完成）
+
+- 普通“文字”和批注箭头统一复用 `AnnotationTextEditor`；新增 `annotation-text-editor` 外层面板和 `annotation-text-editor-input` 输入框样式，浅色主题使用近不透明白底，深色主题使用近不透明深色底，补齐边框、圆角、阴影和移动端宽度约束。
+- 保留自然像素字号、画布缩放对齐、确认文字按钮、双击进入编辑、框外提交和自动切换指针等既有语义；不新增状态、持久化或上传路径。
+- 测试：typecheck 通过；Node `726/726`；UI `122/122`（含 `AnnotationTextEditor` `3/3`）；lint `0 errors / 55 existing warnings`；Windows build `1996 modules`；`scripts\\dev-check.ps1 -Level Fast`、`Batch`、`git diff --check` 均通过。
+- Codex 浏览器当前预览实测普通文字编辑面板为实体深色背景，输入“共享文本框测试”后点击“确认文字”关闭编辑器并切换指针，文字仍保留；临时标注已清理。未调用真实 API，未修改 Android、V2.0.3、用户图片或 API 凭据。
+- 接手：当前分支仍为 `codex/windows-v2.0.4-feature/local-edit-360-parity`，工作树保留此前未提交改动；未设置 upstream、未推送。后续可继续做三档视口下的编辑面板视觉复核或 Windows Wails DPI 实机观察。
+
+## 2026-08-22 批次 62：标注文字双击编辑与确认保留（已完成）
+
+- 指针模式下单击文字/批注箭头只选中对象，双击才进入编辑；双击标注不会再触发 Stage 的 fit/100% 缩放快捷键。
+- 文字确认和 blur 提交均读取 textarea 当前值，并以提交瞬间的对象快照作为撤销基线，避免最后一次输入在确认/失焦竞态中丢失。
+- 验证：typecheck、Node `726/726`、UI `122/122`、lint `0 errors / 55 existing warnings`、Windows `1996 modules` build、Fast、Batch 均通过；标注工具合同和 `AnnotationTextEditor` UI `3/3` 通过。Codex 浏览器真实验证单击不打开编辑、双击打开编辑、确认后文字仍显示且缩放 `83% -> 83%` 不变，控制台新增 warning/error 为 `0`。
+- 未调用真实 API，未修改 Android 产品行为、V2.0.3、用户图片或 API 凭据；当前工作树仍包含此前批次未提交改动，未设置 upstream、未推送。详见 [docs/changes/2026-08-22-windows-v2.0.4-annotation-text-reopen.md](docs/changes/2026-08-22-windows-v2.0.4-annotation-text-reopen.md)。
+
+## 2026-08-22 批次 61：标注文字确认与框外提交（已完成）
+
+- 文字和批注箭头编辑框新增画布内“确认文字”按钮；按钮阻止冒泡并防止确认点击与失焦重复提交。
+- 编辑草稿改用 ref 读取最新值；确认、Ctrl/Cmd+Enter 和画布框外点击提交后切换 `annotationKind` 为 `pointer`，保留当前选中对象供拖动、变形、字体和描边调整。
+- 画布外失焦保存空文字对象，不再在确认/失焦路径自动删除；显式删除、清空和会话取消语义保持不变。工具栏点击仍可直接切换工具或调滑条。
+- 验证：typecheck、Node `726/726`、UI `122/122`、lint `0 errors / 55 existing warnings`、Windows `1996 modules` build、`Fast`、`Batch`、桌面/CLI Go test+vet、Worker `5/5`、离线 smoke 和 `git diff --check` 均通过；`AnnotationTextEditor` UI `3/3`、标注工具合同 `6/6`。
+- Codex 浏览器在 `1252×930`、`1440×900`、`1024×768` 三档验证确认按钮、画布框外提交、自动切换指针、无额外对象和无横向溢出；控制台新增 warning/error 为 `0`。测试后已恢复默认视口，隔离预览中的临时标注不写入生产数据。
+- 未调用真实 API，未修改 Android、V2.0.3、用户图片或 API 凭据；当前工作树仍包含此前批次未提交改动，未设置 upstream、未推送。
+- 详见 [docs/changes/2026-08-22-windows-v2.0.4-annotation-text-confirm.md](docs/changes/2026-08-22-windows-v2.0.4-annotation-text-confirm.md)。
+
+## 2026-08-22 批次 60：批量 API 配置入口主按钮样式（已完成）
+
+- “批量配置 10 个 API”入口改用现有 `liquid-primary-button` 亮蓝主操作样式，保留原批量预填、禁用态和点击逻辑。
+- 验证：`npm run typecheck`、FHLImagesPoolConfig UI 18/18；Codex 浏览器实际计算样式为亮蓝背景、白色文字，未调用真实 API。
+- 当前工作树仍包含此前批次未提交改动；未设置 upstream、未推送。详见 [docs/changes/2026-08-22-windows-v2.0.4-fhl-bulk-api-button.md](docs/changes/2026-08-22-windows-v2.0.4-fhl-bulk-api-button.md)。
+
+## 2026-08-22 批次 59：标注移动与变形撤销步骤（已完成）
+
+- 指针移动、变形句柄、批注标签拖动和文字提交现在按一次完整手势/提交各生成一个撤销步骤；`updateAnnotation()` 只负责拖动中的临时预览，`commitAnnotationUpdate()` 保存完整前后快照并清空 redo 栈。
+- 新增 `frontend/src/features/annotation/annotationHistory.ts` 纯函数，深复制自由画点和前后标注对象；交互 Hook 使用 `annotationsRef` 读取最新 Store 状态，修复 React pointer 事件闭包导致提交旧快照、后退直接删除新对象的问题。
+- 验证：定向标注 23/23、Node 725/725、UI 119/119、typecheck、lint 0 errors/55 existing warnings、Windows build 1996 modules、`git diff --check` 通过；Codex 浏览器 1252×930 实测移动后退/前进和变形后退，标注对象均保留。未调用真实 API。
+- 当前工作树仍包含此前批次未提交改动；未设置 upstream、未推送。1440×900 与 1024×768 的布局/句柄此前已在批次 54 验收，本批未改变浮窗尺寸；Windows Wails DPI 实机复核仍是观察项。详见 [docs/changes/2026-08-22-windows-v2.0.4-annotation-history-steps.md](docs/changes/2026-08-22-windows-v2.0.4-annotation-history-steps.md)。
+
+## 2026-08-22 批次 58：标注画布底部浮动操作栏（已完成）
+
+- 普通图像进入标注模式后，画布底部中央显示浮动操作栏：后退（撤销）、前进（重做）、删除选中标注、确认标注、取消；顶部确认按钮保持不变，两处确认共享 `confirmAnnotationComposite("strict")` 和越界处理。
+- `AnnotationActionBar` 位于 `frontend/src/features/annotation/`，通过 `.stage-host` 内 portal 定位，响应式/DPI 样式不影响 Android；合成中统一禁用，按钮事件不会穿透 Konva 画布。
+- 标注会话按 `workspaceId + currentImage.id` 保存内存快照。取消有改动才二次确认，确认后恢复标注、选择和撤销/重做栈并清除临时源；未创建 Output、历史或参考图。确认成功会清理快照，删除只作用于当前选中对象。
+- 验证：定向 Node 15/15、完整 Node 722/722、UI 26 文件 119/119、typecheck、lint 0 errors/55 existing warnings、Windows build 1995 modules、Fast、Batch、Go test/vet、Worker 5/5、离线 smoke、`git diff --check` 均通过。Codex 浏览器实测 1252×930 浮窗居中、撤销/重做和选中删除；取消原生确认框自动化阻塞，Store/UI 合同已覆盖。
+- 未验证风险：1440×900 与 1024×768 本批未重新截图，Windows Wails DPI 仍需下一轮实机复核。未提交、未设置 upstream、未推送；详见 [docs/changes/2026-08-22-windows-v2.0.4-annotation-floating-actions.md](docs/changes/2026-08-22-windows-v2.0.4-annotation-floating-actions.md)。
+
+## 2026-08-22 批次 57：全局默认 2K / 标准（已完成）
+
+- 普通生成、工作区重置和新工作区原本已经是 `2048x2048`（2K）与 `medium`（界面“标准”）；本批补齐图生图按源图比例自动适配仍残留的 `1K` 缺省。
+- 新增共享 `DEFAULT_AUTO_ASPECT_RESOLUTION = "2k"`，新工作区、旧字段缺失时的规范化，以及 Windows 桌面/Mac 面板从手动比例切回自动适配的回退均统一使用它。显式保存的 `1k`/`4k` 不迁移覆盖。
+- 未修改 Android 参数默认、Provider 尺寸映射、V2.0.3、用户图片、API 凭据或真实生图；本批仍未提交、未设置 upstream、未推送。
+- 验证：Node `718/718`、UI 默认模式 `117/117`、UI 单线程 `117/117`、typecheck、lint `0 errors / 55 existing warnings`、Windows build `1994 modules`、Fast、Batch、`git diff --check` 均通过。Codex 浏览器隔离新工作区显示 `2K · 标准`，图生图自动适配选中 `2K`，显式切换 `1K` 保持不变；重载恢复原始预览，控制台新增 warning/error 为 `0`。详细记录：[docs/changes/2026-08-22-windows-v2.0.4-global-defaults-2k-standard.md](docs/changes/2026-08-22-windows-v2.0.4-global-defaults-2k-standard.md)。
+
+## 2026-08-22 批次 56：标注指针右键菜单（已完成）
+
+- 指针模式右键命中标注后只选中并打开上下文菜单，不再直接删除；菜单提供“复制标注”和“删除标注”。复制通过 `cloneAnnotationForCopy()` 保留样式、文字、标签位置和自由画点列，按自然像素偏移后走现有 `addAnnotation()` 撤销栈；删除继续走 `removeAnnotation()` 撤销栈。空白右键不创建、不删除对象。
+- 验证：标注定向 `17/17`、Node `718/718`、UI `117/117`、typecheck、lint `0 errors/55 existing warnings`、Windows `1994 modules` build、Fast、Batch、桌面/CLI Go test+vet、Worker `5/5`、离线 smoke 和 `git diff --check` 均通过。Codex 浏览器实测右键菜单、复制副本和显式删除，箭头文字标签也可右键命中；测试标注已清理，控制台新增 warning/error 为 `0`。详细记录：[docs/changes/2026-08-22-windows-v2.0.4-annotation-context-menu.md](docs/changes/2026-08-22-windows-v2.0.4-annotation-context-menu.md)。
+- 未调用真实/付费 API，未修改 Android、V2.0.3、Cowart 源码、用户图片或 API 凭据；本批未创建提交、未设置 upstream、未推送。
+
+## 2026-08-22 批次 55：批注标签独立拖动（已完成）
+
+- 指针工具下，批注箭头文字标签现在可独立命中和拖动；拖动只更新 `labelX/labelY`，箭头起点、终点和弯曲保持不变。箭头本体移动时，已独立定位的标签同步平移；右键删除、撤销/重做和文字编辑语义保持不变。
+- `Annotation` 新增兼容字段 `labelX`、`labelY`；旧数据缺失坐标时继续按箭头起点上方的默认位置。`annotationLabelPosition()`、`annotationLabelBounds()` 被 `AnnotationShape`、指针交互和 `annotationComposite` 共同复用，视窗预览与 PNG 合成保持一致。
+- 验证：定向几何 `10/10`、Node `717/717`、UI `117/117`、typecheck、lint `0 errors/55 existing warnings`、Windows `1994 modules` build、Fast、Batch、Go test/vet、Worker `5/5`、离线 smoke 和 `git diff --check` 均通过。
+- Codex 浏览器 `http://127.0.0.1:5173/?preview=mac-workspace` 实测创建批注箭头、输入文字、切换指针并拖动标签；文字独立移动且箭头端点未改变，随后清空测试标注。控制台新增 warning/error 为 `0`。
+- 未调用真实/付费 API，未修改 Android、V2.0.3、Cowart 源码、用户图片或 API 凭据；本批未创建提交、未设置 upstream、未推送。详细记录：[docs/changes/2026-08-22-windows-v2.0.4-annotation-label-drag.md](docs/changes/2026-08-22-windows-v2.0.4-annotation-label-drag.md)。
+
+## 2026-08-22 批次 54：标注指针变形句柄（已完成）
+
+- 指针激活并选中标注后显示轻量句柄：矩形/椭圆/自由画/高亮四角拉伸，直线/箭头起终点调整，文字和箭头标签按自然像素比例缩放字号；句柄半径按 `1/viewScale` 绘制，拖动点限制在当前图像边界。
+- 新增 `annotationTransformHandles()`、`annotationTransformBounds()` 和 `resizeAnnotationFromHandle()` 纯函数；交互层使用原始快照连续计算，变形不会误开文字编辑，现有整体拖动和右键删除保持不变。
+- 验证：typecheck、定向几何 `9/9`、Node `716/716`、UI `117/117`、lint `0 errors/55 existing warnings`、Windows `1994 modules` build、Fast、Batch、`git diff --check` 通过；Batch 同时通过桌面/CLI Go test+vet、Worker `5/5` 和离线 smoke。Codex 浏览器已在 `1252×930` 实测矩形四角和直线端点，在 `1440×900`、`1024×768` 复核句柄可见性与无横向溢出，新增控制台 warning/error 为 `0`。
+- 未调用真实/付费 API，未修改 Android、V2.0.3、Cowart 源码、用户图片或 API 凭据；工作树仍包含此前批次未提交改动，本批未创建提交或推送。回退只使用后续明确提交的 `git revert`。
+
+## 2026-08-22 批次 53：标注指针拖动与右键删除（已完成）
+
+- 指针模式现在可选中并拖动矩形、椭圆、线条、箭头、文字、自由画和高亮；拖动只改变标注几何，不改变原图像素。
+- 新增按描边/字体像素和当前缩放计算的有限命中扩散范围，约为两倍线宽或 `10px` 屏幕半径；框外命中不会扩大成整块画布。
+- 指针模式右键在命中标注时调用现有 `removeAnnotation()`，删除进入撤销栈；空白右键只阻止浏览器菜单，不创建或删除对象。
+- 定向标注测试 `11/11`、Node 全量 `712/712`、UI `117/117`、typecheck 通过；Codex 浏览器实际验证矩形拖动、框外约 `10px` 命中拖动、右键删除，重载后新增 warning/error 为 `0`。未调用真实 API。
+- 详细记录：[docs/changes/2026-08-22-windows-v2.0.4-annotation-pointer-font-default.md](docs/changes/2026-08-22-windows-v2.0.4-annotation-pointer-font-default.md)。
+
+## 2026-08-22 批次 52：标注指针与字体默认值（已完成）
+
+- 标注工具最左侧新增“指针（选择标注）”。指针不会在空白处创建新对象；点击已有文字或带标签箭头会重新打开编辑框，点击空白取消选择，确认前可以继续修改。
+- 工具栏描边/字体滑条现在优先显示选中对象的实际样式；无选中对象时使用工作区默认值。对象样式修改继续通过 `updateAnnotationStyle()` 进入撤销/重做。
+- 新增 `annotationFontSizeForImage()`：按标注 4K 临时源最长边 `÷64` 计算字体默认值，并限制最小 `16px`、最大 `128px`；`480×480 -> 16px`、`1152×1536 -> 24px`、`3840×2791 -> 60px`。只在当前图片首次准备标注源时初始化，同图再次进入保留用户调整。
+- `npm run typecheck`、标注定向合同 `9/9`、`npm run test:node` `711/711`、`npm run test:ui` `117/117` 已通过。Codex 浏览器实际创建文字后切换指针并重新打开编辑框，默认预览字体显示 `16px`；重载后新增 warning/error 为 `0`，未提交合成、不调用真实 API。
+- 浏览器控制层对受控 range 的程序化拖动仍有局限，真实 Windows Wails 鼠标/DPI 复核保留为观察项。详细记录：[docs/changes/2026-08-22-windows-v2.0.4-annotation-pointer-font-default.md](docs/changes/2026-08-22-windows-v2.0.4-annotation-pointer-font-default.md)。
+
+## 2026-08-22 批次 51：标注尺寸与画布缩放统一（已完成）
+
+- 根因是标注已经使用图像坐标保存，但渲染/合成又按 `viewScale` 二次缩小线宽、字体和箭头；同时标注描边复用了蒙版 `brushSize`。现在标注样式统一按当前 4K 临时源的自然像素保存、预览和合成。
+- `Annotation.fontSize`、`annotationStrokeWidth`（默认 `4px`，范围 `1–96px`）和 `annotationFontSize`（范围 `8–128px`）已加入工作区运行态；正常进入标注时按当前 4K 临时源尺寸自动初始化字体，无法确认尺寸或旧标注缺失字体时回退 `20px`，旧 `strokeWidth` 不猜测历史缩放。蒙版 `brushSize` 保持独立。
+- 工具栏新增“标注描边”“标注字体”滑条和固定“等比锁定”状态；选中对象即时更新并进入撤销/重做，未选中对象只影响后续新建标注。`AnnotationShape`、`AnnotationLayer`、文字编辑器和 `annotationComposite` 不再对线宽/字体做 `viewScale` 二次换算。
+- 自动化门禁：typecheck、Node `711/711`、UI `117/117`、lint `0 errors / 55 existing warnings`、Windows 构建 `1994 modules`、Fast、Batch、Go test/vet、Worker smoke 和 `git diff --check` 均通过。
+- Codex 浏览器 `http://127.0.0.1:5173/?preview=mac-workspace` 在 `1252×930`、`1440×900`、`1024×768` 验收了工具入口、两个滑条、等比锁定和响应式布局，并实际拖动创建矩形后清理预览标注；1024 档无横向溢出，新增 warning/error 为 `0`。浏览器驱动对受控 range 的程序化 `fill` 可能只改变原生值，真实 Windows Wails DPI/鼠标拖动仍需后续实机复核。
+- 详细记录：[docs/changes/2026-08-22-windows-v2.0.4-annotation-scale-consistency.md](docs/changes/2026-08-22-windows-v2.0.4-annotation-scale-consistency.md)。当前工作树未提交、未设置 upstream、未推送；不修改 Android、V2.0.3、Cowart 源码、用户图片或 API 凭据，回退只使用后续明确提交的 `git revert`。
+
+## 2026-08-22 批次 50：标注工作台 4K 临时源（已完成）
+
+- 用户最终规则：超出标注工作台承载尺寸时统一按 4K 上限压缩，不读取外部 1K/2K 设置。当前实现以 `3840px` 最长边为上限，保持原图比例，小图不放大。
+- 新增 `frontend/src/features/annotation/annotationSource.ts` 和运行时 `annotationSource` 会话。进入“图像标注工具”前解码完整媒体并压缩；`CanvasStage` 与 `confirmAnnotationComposite()` 复用同一 Blob，压缩副本不进入 workspace 持久化、Prompt、历史或原始参考槽。
+- 楼房测试图 `7876×10835` 在工作台变为 `2791×3840`。确认成功后的 Output、历史、当前画布和新参考图使用该实际尺寸，原图仍保留；无匹配压缩源或压缩失败时本地阻止确认。
+- 新增 `docs/changes/2026-08-22-windows-v2.0.4-annotation-4k-source.md`。Codex 浏览器 `http://127.0.0.1:5173/?preview=mac-workspace` 使用同一楼房测试图完成真实离线验收：进入标注显示 `2791×3840` 压缩提示，绘制矩形并确认后工具收起，当前画布、Output、历史和第 4 个参考图槽同步为 `2791×3840`，历史 `15 -> 16`，新增 warning/error 为 `0`。
+- 收口门禁全部通过：`npm run typecheck`、`npm run test:node` `705/705`、`npm run test:ui` `117/117`、`npm run lint` `0 errors / 55 existing warnings`、`npm run build:windows` `1994 modules`、Fast、Batch 和 `git diff --check`；Batch 同时通过桌面/CLI Go test/vet、Worker `5/5` 和离线 smoke。未调用真实生图 API。
+- 当前工作树未提交、未设置 upstream、未推送；回退只使用后续明确提交的 `git revert`。仍保留真实 Wails DPI/EXIF 方向的后续观察风险，不影响浏览器离线门禁结论。
+
+## 2026-08-22 批次 49：高清标注 PNG 二进制保存上限修复（已完成）
+
+- 根因：楼房测试图实际自然尺寸为 `7876×10835`（约 85MP），Canvas 合成后的 PNG 约 151MB；浏览器端虽然已切换到 `/save-image-binary`，Vite 仍使用旧的 90MB body 上限，超限后连接被断开，页面只显示 `Failed to fetch`。早期热更新期间还出现过 `host.ts` 导出未刷新，重启服务后已恢复。
+- 修改：为 `/save-image-binary` 增加专用 `ANNOTATION_BINARY_SAVE_MAX_BYTES = 512MiB` 上限；JSON 图片接口和路径复制接口仍保持 90MB 旧限制。合成自身继续执行 `100MP / 16,384px / 768MiB` 预检，不放宽图像内存门禁。
+- 浏览器真实验收：重启 `http://127.0.0.1:5173/?preview=mac-workspace` 后重新导入同一楼房图，绘制矩形并点击“确认标注”。按钮先显示“合成中…”，约 15 秒后自动收起；Output 新增 `annotation-composite-1787372941040.png`，历史 `15 -> 16`，参考图 `3 -> 4`，当前画布切换到栅格化结果，原始参考图仍保留。历史显示自然尺寸 `7876×10835`。
+- 输出桥接验证：用同尺寸约 151MB PNG 离线探针 POST 到 `/__image-studio-files/save-image-binary` 返回 `200`，Output 路径和文件大小正确；未调用真实/付费生图。浏览器新增错误在本次成功操作中为 `0`（日志中保留的旧 HMR/失败记录不代表本次请求）。
+- 收口门禁：`npm run typecheck`、`npm run test:node` `700/700`、`npm run test:ui` `117/117`、`npm run lint` `0 errors / 55 existing warnings`、`npm run build:windows`（1993 modules）、`git diff --check` 均通过。构建仅保留既有 chunk/dynamic-import 提示。
+- 失败原因与回退点：本批只改 Vite body 上限和合同测试，未修改 Android、Cowart 源码、V2.0.3、用户原图、API 配置或远程 GitHub；当前工作树未提交，回退只使用后续明确提交的 `git revert`，不使用 `reset --hard`。本轮生成的离线探针文件位于项目 `.tmp` 和 `output/images`，不参与历史/参考图事务，后续清理时仅针对这些明确文件。
+
+## 2026-08-22 批次 48：浏览器大图 Output 复制修复（已完成）
+
+- 根因：确认标注的 Canvas 合成已完成，但浏览器预览没有 Wails `SaveImagePathToOutput`；旧回退把受管临时文件重新读为 Base64，再通过 JSON 写入 Output，大图在复制阶段失败并显示“宿主能力未注入”。
+- 修改：新增 Vite `copy-image-to-output` 受管路径接口，校验项目路径、图片头、文件大小和唯一文件名后直接复制到 `output/images`；浏览器端优先走路径复制，旧服务和虚拟图片保留 Base64 回退。
+- 验收：重启 `5173` 后用当前离线测试图直接点击确认，成功写入 Output、历史和参考图；控制台新增 warning/error 为 0。TypeScript、Output bridge 合同 7/7、`git diff --check` 通过。
+- 约束：未调用真实/付费生图，未修改 Android、V2.0.3、用户图片、API 凭据或远程 GitHub；当前工作树未提交，回退只使用后续明确提交的 `git revert`。
+
+## 2026-08-22 批次 47：确认按钮高亮与合成反馈（已完成）
+
+- 根因：标注确认按钮只依赖 `bg-[var(--accent)]`，被全局 `button { background: transparent }` 覆盖，Windows 工具栏实际显示为透明按钮；合成期间也没有按钮文字反馈。浏览器评论标记还可能注入全屏透明遮罩，导致手动点击被拦截。
+- 修改：确认按钮改为内联强调色背景/边框/阴影，保持亮蓝主按钮；新增 `aria-busy` 和“合成中…”状态，忙碌时禁用重复操作并保留可见反馈。未改变合成、Output、历史或 workspace 事务语义。
+- 浏览器验收：`http://127.0.0.1:5173/?preview=mac-workspace` 计算样式为背景/边框 `rgb(96, 205, 255)`；DOM 真实点击后合成图更新当前画布，参考图 2 -> 3、历史 15 -> 16，控制台 warning/error 为 0。
+- 超大图边界：约 `7876×10835`（约 85MP、150MB PNG）的浏览器合成会命中现有约 `768MiB` 工作内存预检并显示失败提示，不分配、不写 Output、不建历史；后续若要支持该尺寸需另开桌面流式合成批次。
+- 自动化：typecheck、标注工具/合成定向 6/6、Node `698/698`、UI `117/117`、Windows 构建 `1993 modules`、Lint `0 errors/55 existing warnings`、Go test/vet、Fast、Batch 和 `git diff --check` 通过。
+- 回退点：当前工作树未提交；回退只使用后续明确提交的 `git revert`，不使用 `reset --hard`。
+
+## 2026-08-22 批次 46：确认合成结果切换当前画布（已完成）
+
+- 根因：`confirmAnnotationComposite()` 已将合成 PNG 写入 Output、历史和参考图槽，但成功事务仍把 workspace `currentImageId` 保留为旧图，顶层 `currentImage` 也未更新，所以画布继续显示原图。
+- 修改：成功提交时将目标 workspace 的 `currentImageId` 和活动 workspace 的 `currentImage` 一次性切换为 `nextItem`；同时关闭结果/历史预览、清除旧对比图与蒙版状态，保留原图历史和原参考图槽。结构化标注继续清空，失败/取消仍保留标注。
+- 自动化：`npm run typecheck`、标注 Store/合成/工具栏定向测试（8+4+2）和 `git diff --check` 通过。
+- Codex 浏览器：`http://127.0.0.1:5173/?preview=mac-workspace` 绘制矩形并确认后，画布立即显示合成像素图；参考图 2 -> 3、历史 15 -> 16，工具收起，控制台新增 warning/error 为 0。
+- 约束：未调用真实/付费生图，未修改 Android、V2.0.3、用户图片、API 凭据或远程 GitHub；当前工作树仍未提交，回退只使用后续明确提交的 `git revert`。
+
+## 2026-08-22 批次 45：确认合成后清理结构化标注（已完成）
+
+- 用户确认：`确认标注`成功后，标注已全部转换为输出 PNG 像素；当前画布不应继续叠加旧箭头或文字，打开新增参考图时只显示合成后的像素结果。
+- 修改：合成事务成功提交时将 `annotations` 清空、`selectedAnnotationId` 置空，并从通用 `undoStack/redoStack` 移除标注类记录；蒙版和其他画布撤销记录不受影响。失败、取消、越界返回调整和工作区竞态仍保留原标注供继续编辑。
+- 浏览器验收：确认后重新打开标注工具，原图画布无旧矢量覆盖；新增参考图卡槽可打开，预览中仅保留 PNG 内已经栅格化的像素标注；历史 16 项、参考图 3 张，控制台新增 warning/error 为 0。
+- 自动化：typecheck、定向标注合同 14/14 和 `git diff --check` 通过；上一轮 Node/UI/build、Go、Fast、Batch 门禁结果仍有效。
+- 回退点：当前工作树未提交；回退只使用后续明确提交的 `git revert`，不使用 `reset --hard`。
+
+## 2026-08-22 批次 44：标注自动合成与参考图接入（已完成）
+
+- 目标：在现有 Cowart 标注模块内把“确认标注”改为离线栅格化确认，不调用 `submitAnnotationEdit()` 或真实生图；原图和旧参考槽保持不变，成功后清理当前结构化标注。
+- 实现：新增 `frontend/src/features/annotation/annotationComposite.ts`，按自然像素绘制箭头、直线、矩形、椭圆、自由画、高亮和多行文字；支持严格越界与“扩展白底并保存”，保留 `100MP / 16,384px / 768MiB` 安全门禁。
+- Store：`studioStore.annotations.ts` 捕获 workspace、当前图和标注快照，先写唯一 PNG 到受管 `Output/images`，再注册媒体、持久化历史并追加当前 workspace 参考图槽；失败、取消、竞态和重复点击清理临时文件且不提交半成品。
+- 根因修复：Codex 浏览器 preview 夹具使用完整 SVG `data:` 原图，原二进制头尺寸解析误判自然尺寸未知；新增完整 Blob 的浏览器解码尺寸校验，仍禁止使用 `previewWidth/previewHeight` 猜测。
+- 浏览器验收：`http://127.0.0.1:5173/?preview=mac-workspace` 实测矩形合成、严格模式“返回调整”（历史/参考图不变）和扩展模式；生成 `480×480` 及 `611×480` PNG，Output、历史和参考图槽同步，原参考图保留，工具成功关闭。
+- 自动化：TypeScript、Node `697/697`、UI `117/117`、Windows 构建 `1993 modules`、Lint `0 errors/55 existing warnings`、桌面/CLI Go test+vet、Worker `5/5`、Fast、Batch、`git diff --check` 均通过。
+- 约束：未修改 Android 产品行为、V2.0.3、Cowart 源码、用户图片、API 凭据或远程 GitHub；未调用真实/付费生图。Output 仅保留本地隔离 preview 夹具成果，未将图片数据写入 Zustand/workspace/prompt/history。
+- 回退点：当前工作树未提交；回退只使用后续明确提交的 `git revert`，不使用 `reset --hard`。下一次接手先复查本节和 `docs/changes/2026-08-21-windows-v2.0.4-cowart-annotation.md`，再决定是否提交或继续 DPI/原生 Wails 实机验收。
+
+## 2026-08-21 批次 43：确认标注按钮行为修复（已完成本轮）
+
+- 根因：`AnnotationToolbar` 的原“批注修图”按钮直接绑定 `submitAnnotationEdit()`，点击会进入 edit source、任务和历史提交链路；它在标注工具内实际应是确认并退出工具。
+- 修改：按钮改名为“确认标注”，通过 `onConfirm` 回调只执行 `setField("tool", "pan")`；`Toolbar` 的三条桌面路径均移除 `submitAnnotationEdit` 传入，`studioStore.annotations.ts` 的真实提交 API 保持独立不变。
+- 验证：定向合同 7/7、Node 全量 693/693、UI 单线程 117/117、TypeScript 和 Windows 1991 modules 构建通过；Lint 0 errors、55 条既有 warnings；`git diff --check` 在记录更新后执行。
+- Codex 浏览器离线验收：`http://127.0.0.1:5173/?preview=mac-workspace`。点击“图像标注工具”后再点“确认标注”，工具回到“拖动 / 缩放 (1)”并收起，历史仍为 15 项，没有“返回图像”或提交状态，新增 warning/error 为 0；未调用真实或付费生图。
+- 用户数据隔离：只使用 preview 查询生成的合成工作区；未导入、上传、删除或修改用户图片、历史、API 配置和远程仓库。
+- 回退点：本批未提交；如需回退，使用后续明确提交的 `git revert`，不使用 `reset --hard`。
+- 下一步接手：若要提供真正的批注修图入口，应在独立按钮或提交面板显式调用 `submitAnnotationEdit()`，不要复用“确认标注”。
+
+## 2026-08-21 批次 42：标注工具选中态可见性（已完成本轮）
+
+- 根因：`AnnotationToolbar` 选中按钮使用的动态 Tailwind 颜色类未生成有效背景和边框，实际计算样式接近透明/白色；点击后 `aria-pressed` 虽然变化，视觉上看不出选中工具。
+- 修改：选中态改用项目已有的 `border-[color:var(--accent)]`、`bg-[var(--accent-soft)]`、`text-[color:var(--accent)]`，增加强调色环和阴影；绘制工具、橡皮擦和键盘/状态语义不变。
+- 验证：浏览器离线预览确认矩形选中按钮 `aria-pressed="true"` 且 computed background/border/color 使用强调色；定向合同新增 `annotationToolbar.test.mjs`，全 Node `692/692`、UI `117/117`、typecheck 通过，未调用真实生图。
+- 回退点：本批当前工作树；回退使用后续明确提交的 `git revert`，不使用 reset；未修改 Android、V2.0.3、用户图片、API 凭据或远程 GitHub。
+
+## 2026-08-21 批次 41：标注展开时固定变换入口（已完成本轮）
+
+- 根因：Windows 工具栏按 JSX 顺序先渲染九个标注控件，再渲染旋转、翻转和局部重绘；标注展开后变换入口被 flex 换到后续行。
+- 修改：调整 Windows 工具栏渲染顺序，`TransformSection` 先于可展开的 `ContextualSection`；变换与裁切入口保持第一排，标注工具在后续行展开。Mac 分组布局、按钮行为和标注状态不变。
+- 验证：`npm run typecheck` 通过；`node --test frontend/test/clearViewToolbar.test.mjs` 为 `5/5`；Codex 浏览器在 `1252×930` 展开标注后，左转、右转、水平翻转、竖直翻转和裁切局部重绘均为 `y=152`，九个标注工具为下一行；未调用真实生图。
+- 回退点：本批当前工作树；回退使用后续明确提交的 `git revert`，不使用 reset；未修改 Android、V2.0.3、用户图片、API 凭据或远程 GitHub。
+
+## 2026-08-21 批次 40：主工具栏旋转图标去重（已完成本轮）
+
+- 根因：主工具组同时显示全局撤销/重做与图片左转/右转，两组都使用相反方向的圆形箭头，视觉上像重复按钮。
+- 修改：从 `BaseToolSection` 移除主工具组的撤销/重做按钮及无用传参；保留键盘快捷键、Store 撤销栈、局部编辑工作台和 360 工作台的撤销/重做。图片旋转、水平翻转和竖直翻转入口保持不变。
+- 验证：`npm run typecheck` 通过；`node --test frontend/test/clearViewToolbar.test.mjs` 为 `4/4`；Codex 浏览器 `http://127.0.0.1:5173/?preview=mac-workspace` 实测工具栏标题只剩“左转 90°”“右转 90°”“水平翻转”“竖直翻转”，无“撤销/重做”按钮，页面无新增横向溢出，未调用真实生图。
+- 回退点：本批当前工作树；回退使用后续明确提交的 `git revert`，不使用 reset；未修改 Android、V2.0.3、用户图片、API 凭据或远程 GitHub。
+
+## 2026-08-21 批次 39：图像标注入口展开/折叠（已完成本轮）
+
+- 根因：Cowart 标注入口仍使用旧的方框图标按钮，九个标注控件始终随 `tool === "annotate"` 展开；入口不够醒目，也没有明确的收起状态。
+- 修改：`BaseToolSection` 用与保存按钮一致的蓝色 `ToolbarPrimaryButton` 显示“图像标注工具”，增加上下三角、`aria-expanded` 和稳定 `data-audit-id`；`Toolbar` 增加会话级 `annotationToolsExpanded`，点击入口在展开/收起之间切换，切换到其他工具后再次进入自动展开。无当前图时保持禁用。
+- 浏览器验收：`http://127.0.0.1:5173/?preview=mac-workspace` 在 `1252×930`、`1440×900`、`1024×768` 均确认按钮可见、无横向溢出；展开时九个标注控件存在，收起时全部隐藏，再次点击恢复。刷新后检查按钮命中层为真实 `BUTTON`，无应用遮挡；评论标记产生的全屏遮罩已通过刷新清除。控制台新增 warning/error 为 `0`，未调用真实生图。
+- 门禁：typecheck、Node `690/690`、UI `117/117`、Windows 构建 `1991 modules`、Lint `0 errors/55 existing warnings`、Fast、Batch、桌面/CLI Go test+vet、Worker `5/5`、离线 smoke 和 `git diff --check` 均通过。
+- 用户反馈说明：评论标记会在页面上方注入 `z-index:2147483647` 的透明遮罩，可能导致手动点击暂时失效；这不是应用按钮自身的命中问题，刷新预览即可恢复。
+- 回退点：本批工作树改动；回退使用后续明确提交的 `git revert`，不使用 reset。未提交、未设置 upstream、未推送 GitHub。
+
+## 2026-08-21 批次 38：Cowart 标注 DPI/缩放视觉复核（已完成本轮）
+
+- 接手记录：`I:\AI\Image-Studio\cowart-批注能力提取与FHL-V2.0.4模块化接入记录.md`；继续保持 `frontend/src/features/annotation` 与 `studioStore.annotations.ts` 边界，不引入 tldraw/Cowart MCP。
+- 当前工作树保留批次 37 的未提交 Cowart 改动；本轮完成 DPI、窗口缩放、natural size 和视觉覆盖复核，并修复复用历史/导入图参考槽误用 preview 尺寸的问题。
+- 回退点：批次 37 的现有工作树状态；不使用 reset，不修改 Android/V2.0.3、用户图片、API/Profile 凭据或远程 GitHub，不调用真实生图。
+- 若中断，先读取本节和 `docs/changes/2026-08-21-windows-v2.0.4-cowart-annotation.md`，再从门禁结果继续；完成后更新本节为已完成并补充实际浏览器证据。
+- 本轮收口门禁：typecheck 通过；Node `690/690`、UI `117/117`、Windows 构建 `1991 modules`、lint（0 errors，55 existing warnings）、Fast、Batch、`git diff --check` 均通过。Batch 同时通过桌面/CLI Go test+vet、Worker `5/5` 和离线 smoke。浏览器隔离预览在 `1252×930`、`1440×900`、`1024×768` 完成九工具交互复核，新增 warning/error 为 0。
+- 浏览器曾短暂出现多个图片/预览标签：来源是本轮隔离预览和一次服务未启动的失败导航；不是产品循环打开。正常测试标签已清理，剩余错误页因 Browser Use URL policy 无法由工具关闭，用户可手动关闭该“无法访问此站点”标签；用户原有应用标签未操作。
+- 既有 `OpenFile/openVirtualPath` 会在用户主动打开虚拟图片时使用 `window.open` 新建单个标签，属于预期行为；未发现重复监听。natural-pixel 端到端真实生图仍不在本批范围内，离线尺寸合同已通过。
+- 批注源图准备失败、重复提交和工作区切换取消已由 Node 合同覆盖；失败不改变模式、参考槽或批注对象。未点击“批注修图”，未调用真实或付费生图。
+
+## 2026-08-21 批次 37：Cowart 全绘图标注模块化接入（已完成本轮）
+
+- 当前分支：`codex/windows-v2.0.4-feature/local-edit-360-parity`；本批未提交、未设置 upstream、未推送远程。
+- 新增 `frontend/src/features/annotation/` 独立模块和 `frontend/src/state/studioStore.annotations.ts`。支持 Cowart 批注箭头、普通箭头、直线、矩形、椭圆、自由画、高亮、文字、对象橡皮擦；标注按图像本地坐标保存，旧版四种数据继续兼容。
+- `plainArrow` 仅是工具值，保存为 `arrow` + `bend: 0`，不自动打开标签编辑；Cowart 批注箭头按 8px 最小长度、0.12/16/48 bend 规则创建后自动进入多行标签编辑。
+- `CanvasStage` 只保留图片、Konva Stage、缩放/平移、坐标转换和蒙版；`AnnotationLayer` 负责标注渲染和预览；`Toolbar`/`toolbarActionSections` 只挂载工具栏、颜色/宽度和“批注修图”。
+- `submitAnnotationEdit()` 复用现有 edit source、submit、任务队列、失败恢复、历史和结果网格；prompt 序列化明确保留未标注区域并移除批注痕迹；运行/失败保留原图和批注。
+- 验证：`npm run typecheck`、`npm run test:node`（679/679）、`npm run test:ui`（116/116）、`npm run build:windows`（1990 modules）均通过。Codex 浏览器 `http://127.0.0.1:5174/?preview=mac-workspace` 已验收普通箭头无标签编辑、批注箭头多行标签、橡皮擦不改原图，控制台新增 warning/error 为 0。
+- 截图证据在工作区外：`I:\AI\Image-Studio\cowart-批注普通箭头验收-20260821.png`、`cowart-批注箭头标签验收-20260821.png`、`cowart-批注橡皮擦验收-20260821.png`、`cowart-批注全工具贴合验收-20260821.png`。
+- 详细调查、Cowart 源码定位、数据/Prompt/提交数据流和交给另一窗口的指令：[I:\AI\Image-Studio\cowart-批注能力提取与FHL-V2.0.4模块化接入记录.md](I:\AI\Image-Studio\cowart-批注能力提取与FHL-V2.0.4模块化接入记录.md)。批次记录：[docs/changes/2026-08-21-windows-v2.0.4-cowart-annotation.md](docs/changes/2026-08-21-windows-v2.0.4-cowart-annotation.md)。
+- 未运行真实或付费生图；仍需后续在真实 Windows DPI/缩放下观察标签覆盖和自由画/高亮贴合，不得引入第二套 canvas 或持久化。
+
 ## 2026-08-21 批次 36：清空视图后工具栏保留（已完成）
 
 - 当前分支：`codex/windows-v2.0.4-feature/local-edit-360-parity`；代码提交 `7b72287 fix(canvas): keep toolbar after clearing view`，后续门禁补丁 `28208ab fix(canvas): guard crop action without image`。本批仅修复空画布工具栏挂载，不修改 Android、V2.0.3、历史/源文件、API 配置或远程 GitHub。
@@ -326,3 +645,75 @@
 
 - 本轮持续目标已经验收完成。后续功能从当前分支新建独立批次，先更新本文件的恢复点，再按自动化、Codex 浏览器、三处记录和本地提交闭环执行。
 - 正式封板、Portable/源码包、EXE/ZIP、V2.0.4 标签和 GitHub Release 尚未执行，必须由用户单独授权并重新做发布验收。
+
+## 2026-08-24 FHL PS Bridge 契约化
+
+- 独立契约源：`I:\AI\Image-Studio\FHL-PS-Bridge-Contract\v1`；协议主版本 `1`，契约修订 `2026-08-24`。
+- `image-studio/backend/ps_bridge.go` 的 Health/Session 已发布服务名、协议版本、客户端范围、实例 ID 和 capabilities；现有 `/fhl-ps/v1` 路由和 CLI 内部执行器保持不变。
+- `image-studio/frontend/src/platform/runtime/psBridgeContracts.ts` 已导出协议常量和握手类型；`ps_bridge_test.go` 覆盖握手元数据。
+- 插件对应记录位于其独立仓库 `docs/changes/2026-08-24-fhl-ps-bridge-contract.md`；桌面正式 V2.0.3 未修改。
+- 本批未生成 Portable/EXE/Release，未调用真实或付费图像 API；契约 fixture、Go/TypeScript/Node/UI、Windows 构建、Fast 和 Batch 门禁已通过，仍需未来 Photoshop 实机和 DSH 目标源码验收后才可发布客户端兼容声明。
+
+## 2026-08-24 FHL PS Bridge 长期契约与 DSH 扩展治理
+
+- 独立契约仓库 `I:\AI\Image-Studio\FHL-PS-Bridge-Contract` 是 Photoshop 插件、FHL Studio 桌面版和未来 DSH Harness Adapter 的唯一机器可读标准；当前协议主版本为 `1`，核心路径和语义长期保持兼容。
+- v1 只允许新增可选字段、capability 和命名空间扩展；改变字段类型、枚举含义、认证、Session 绑定、任务状态或图片传输必须新增 `/fhl-ps/v2`，不得隐式修改 v1。
+- `submitting` 是规范准备状态，`queued` 仅为旧客户端兼容别名；客户端同时兼容 JSON 和纯文本错误；CLI 继续只作为内部执行器。
+- 契约仓库新增 `v1/extensions/dsh.harness.bridge.v1/`，只定义未来 DSH Cordis service/event Adapter 和 Trajectory 脱敏边界，不读取 DSH 插件源码、不调用桌面内部 CLI、不暴露凭据或 Base64 图片。
+- 接口故障优先级：桌面违反已发布契约先修桌面；客户端误用契约修客户端；新能力先加 capability/extension；安全问题桌面优先；破坏性变化进入 v2。
+- 交接记录：`docs/changes/2026-08-24-dsh-bridge-contract-governance.md`。契约对账和本地门禁已完成；下一步仅在取得插件或 DSH 项目授权后做客户端 Mock/实机兼容验收，不修改 V2.0.3、Android 或插件源码。
+
+## 2026-08-24 Windows Portable Photoshop 对接文件
+
+- 启动回归已修复：Windows PowerShell 5.1 会将无 BOM 的 UTF-8 启动脚本中的中文 EXE 名称解码为乱码，导致提示找不到桌面可执行文件；`scripts/portable-windows-launcher.ps1` 已改为 UTF-8 BOM，直接调用 `.cmd` 和 `.ps1` 均能启动 V2.0.4。重新打包时先停止本轮 V2.0.4 WebView 进程以解除 `config/webview` 锁，未触碰 V2.0.5。
+- 2026-08-24 最终隔离验收：`cmd.exe /d /c "一键启动FHL Studio V2.0.4.cmd"` 返回 `0`；V2.0.4 进程监听 `127.0.0.1:47631`，health、session、profile 均成功（profile ready，凭据字段未返回）；仅运行离线合同测试 `portablePhotoshopIntegration.test.mjs`，`3/3` 通过。
+- 最新 ZIP SHA-256 为 `b0d95bf50d447b04809e89646a42ea9053ecfc6260cfa6942e673f8b8762e732`；验证报告位于 `临时验收输出/portable-validation-report.json`。本轮不生成或升级 2.0.5。
+
+- `scripts/package-windows-portable.ps1` 现在在复制当前 Wails EXE 后自动生成 Portable 根目录第一层的固定文件 `FHL Studio Photoshop 对接文件.json`；生成/读取/校验集中于 `scripts/portable-photoshop-integration.ps1`。
+- 文件只包含 `productId=fhl-image-studio-desktop`、对接文件格式主版本 `1`、Bridge 协议主版本 `1`、根目录内相对 `launchPath`、显示名称和诊断用 `desktopVersion`；不包含 API Key、Session Token、Base URL、Credential Manager、用户数据、图片或绝对路径。
+- `launchPath` 在打包时必须非空、非绝对、不含 `..`，并解析到包根目录内已存在的 EXE；`.fhl-studio-portable` 继续独立保留。桌面版本号不参与插件兼容判断，Bridge health/session/profile/capabilities 才是运行时依据。
+- `portablePhotoshopIntegration.test.mjs` 离线合同测试 `3/3` 通过，覆盖实际隔离打包、缺失、格式、标识、协议、越界和升级覆盖。隔离成品保留在 `V2.0.4-开发版\临时验收输出`，未生成正式 Portable/Release。
+- 按追加流程使用 `cmd /c wails dev` 启动完整 Wails 开发程序；旧 Portable 占用 `47631`，开发 Wails Bridge 使用 `47632`，health、session、profile 握手均已成功。未把 `5173`/Vite 当作 Bridge，未读取或修改 Photoshop 插件代码，未调用真实或付费生图 API。
+- 后续入口：如需重新封板，继续显式使用隔离 `-OutputRoot` 并复核 ZIP 根目录中的固定 JSON 与 `.fhl-studio-portable`；不得改用默认正式输出，也不得覆盖 V2.0.3。
+
+### 隔离成品已生成
+
+- 生产 Wails 构建：`cmd /c "wails build -platform windows/amd64 -clean"` 成功。
+- Portable 命令显式使用 `-OutputRoot I:\AI\Image-Studio\FHL-Image-Studio方汤圆版-桌面版整理\V2.0.4-开发版\临时验收输出`，并用 `-SkipBuild` 复用刚生成的 Wails EXE、重新构建 CLI。
+- 成品根目录：`I:\AI\Image-Studio\FHL-Image-Studio方汤圆版-桌面版整理\V2.0.4-开发版\临时验收输出\FHL-Image-Studio-Desktop-V2.0.4-Windows-Portable`；对接文件、标记、EXE、启动脚本和 CLI 均已验证，ZIP 内对应条目也存在。
+- SHA-256 清单：`I:\AI\Image-Studio\FHL-Image-Studio方汤圆版-桌面版整理\V2.0.4-开发版\临时验收输出\FHL-Image-Studio-Desktop-V2.0.4-Windows-Portable-SHA256SUMS.txt`；验证报告：同目录 `portable-validation-report.json`。
+- 升级副本 `临时验收输出\升级覆盖-V2.0.5\FHL-Image-Studio-Desktop-V2.0.5-Windows-Portable` 已确认文件名/字段稳定，仅 `launchPath`、`desktopVersion` 变化；未覆盖正式发布目录、V2.0.3、插件源码或契约仓库。
+
+## 2026-08-27 FHL 文本 API 模型选择批次收口
+
+- 本批实现已完成：独立 FHL 文本 API 支持 `gpt-5.6-sol`、`gpt-5.5` 和自定义模型 ID；设置按当前桌面 namespace 保存，旧 Key 首次迁移保留 `gpt-5.5`，新环境默认 `gpt-5.6-sol`，不自动降级，不影响普通 Profile、Images 池、APIMart 或 RunningHub。
+- 完整 Wails 开发程序继续运行于源码 `image-studio/build/bin/FHL Studio 方汤圆版 V2.0.4-dev.exe`，Wails 页面 `http://localhost:34115`，开发 Bridge `127.0.0.1:47632`。health、session、带 Bearer 的 profile 握手均通过；旧 V2.0.3 Bridge `47631` 未作为目标，Vite `5173` 未作为 Bridge。
+- 最终门禁：typecheck、Node `737/737`、UI `123/123`、lint `0 errors / 55 existing warnings`、Windows build `1997 modules`、Fast、Batch、Go test/vet、CLI test/vet、Worker smoke 和 `git diff --check` 均通过。
+- 浏览器在 `1252x930`、`1440x900`、`1024x768` 验收模型下拉、内置切换、自定义模型和非法值阻止测试；页面无横向溢出，控制台新增 warning/error 为 `0`。验收后已恢复默认视口并关闭配置弹窗。
+- 本批不生成 Portable、不升级 2.0.5、不调用真实或付费生图 API；未读取或修改 Photoshop 插件源码、V2.0.3、Android 或 `FHL-PS-Bridge-Contract`。
+
+## 2026-08-27 反推图像 Wails 文件选择器崩溃修复
+
+- 根因：完整 Wails 页面点击反推图像时进入 Go `runtime.OpenFileDialog`，Windows WebView2 在 `Chromium.Focus` 报 `parameter is incorrect`，原生文件对话框栈随后导致 V2.0.4-dev EXE 退出；问题发生在导入请求之前。
+- 修复：`PromptEditorSection` 的反推入口改为隐藏 HTML 文件输入（PNG/JPEG/WebP），选中文件继续复用 `importReversePromptImageFile`；普通源图、批量输入和历史导入仍保留原生/既有流程。
+- 同步修复 Wails 事件注销在 WebView IPC 已关闭时的容错：清理回调捕获关闭异常，不再在窗口退出阶段产生二次未处理错误。
+- 验证：TypeScript、Node `739/739`、UI 定向 `3/3` 通过；Codex 浏览器在 `http://127.0.0.1:34115/` 捕获文件选择器事件后，源码 EXE 保持运行，`127.0.0.1:47632/fhl-ps/v1/health` 返回 `ok=true`。未上传用户文件。
+- 本批未调用真实或付费生图 API，未读取或修改 Photoshop 插件源码、V2.0.3、Android 或独立 Bridge 契约仓库。详细记录见 `docs/changes/2026-08-27-windows-v2.0.4-reverse-image-picker-crash.md`。
+
+## 2026-09-07 V2.0.4 Photoshop 实测 Portable 候选（构建中）
+
+- 目标：从当前 Windows V2.0.4 本地 Git 工作树生成全新隔离 Portable 和 ZIP，供用户进行 Photoshop 插件真实联调；不覆盖旧验收包、V2.0.3、正式附件或用户运行目录，不上传 GitHub。
+- 隔离输出根：`V2.0.4-开发版\临时验收输出\20260907-104145-PS插件实测候选`。打包必须显式传入 `-OutputRoot`，由现有 `scripts/package-windows-portable.ps1` 重建 Wails 与 CLI。
+- 当前版本元数据已同步为 `V2.0.4`；当前分支 `codex/windows-v2.0.4-feature/local-edit-360-parity`，工作树有 101 个修改或未跟踪路径，因此本产物属于未封板源码快照测试候选，不得在门禁、插件实测和用户确认前作为正式 GitHub Release 上传。
+- 验收范围：离线检查 Portable 文件清单、固定 Photoshop 对接 JSON、空数据目录、敏感文件排除、ZIP SHA-256；启动打包后的完整 Wails 程序，验证 Bridge health/session/profile 握手，但不提交任务、不调用真实或付费生图 API。
+- 回退/恢复点：本批不改产品代码；若构建失败，只保留日志和本节失败结论。可删除上述隔离输出目录后重跑，不得清理或重置当前工作树。
+
+### 构建与验收完成
+
+- 完整打包命令显式使用隔离 `-OutputRoot`，Wails v2.12.0 生产构建、CLI 构建、Portable 目录和 ZIP 均成功；未使用 Vite 页面或 `wails dev` 产物替代发布构建。
+- 原始 ZIP：`V2.0.4-开发版\临时验收输出\20260907-104145-PS插件实测候选\FHL-Image-Studio-Desktop-V2.0.4-Windows-Portable.zip`，SHA-256 `E2489FEE0092864E65EA38C6E8B1F306EA8715BA94FDB44B6443A95CE93AB158`。文件清单为同目录 `portable-file-manifest.json`。
+- 原始交付目录保持未启动、空输入输出和无 WebView 数据；单独复制 `运行验收副本`，通过包内一键启动脚本启动完整 Wails。当前 PID `52668`，Bridge 监听 `127.0.0.1:47631`，可供 Photoshop 插件实测。
+- health/session/profile 握手全部通过：协议主版本 `1`、契约修订 `2026-08-24`、Session 与 health 实例一致、Profile ready，Profile 响应无凭据字段。未提交任务或调用真实/付费生图 API。
+- 发布安全问题 `0`；Fast、Batch、TypeScript、Node `739/739`、UI `123/123`、Lint `0 errors / 55 warnings`、桌面/CLI Go、Worker `5/5` 与离线 smoke 全部通过。Wails 生成绑定的尾随空白已做无逻辑变化的规范化。
+- 当前包是含未提交开发改动的 Photoshop 实测候选，不是可追溯正式 Release。插件实测通过后，先审查并提交源码、确认工作树干净，再从明确提交重新构建最终 ZIP，之后才能准备 GitHub 上传。
+- 详细记录：`docs/changes/2026-09-07-windows-v2.0.4-ps-plugin-portable-candidate.md`。

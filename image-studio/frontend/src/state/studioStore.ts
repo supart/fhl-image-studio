@@ -134,6 +134,9 @@ import { resolvePromptTextSelection } from "../lib/promptTextProfiles";
 import {
   deleteFHLTextAPIKey,
   fhlTextAPIKeyHint,
+  FHL_TEXT_API_DEFAULT_MODEL_ID,
+  loadFHLTextAPIModelID,
+  persistFHLTextAPIModelID,
   FHL_TEXT_API_KEYRING_USER,
   formatFHLTextAPIError,
   loadFHLTextAPIKey,
@@ -185,7 +188,6 @@ import {
 import { base64ToBlob, getImageDimensions, getImageDimensionsFromBase64 } from "../lib/images";
 import {
   applyTheme,
-  augmentPromptWithAnnotations,
   buildMaskPNGDataURL,
   clearLegacyModeLocalStorage,
   genId,
@@ -234,6 +236,10 @@ import { createBrowserTaskLifecycle } from "./studioStore.browserTaskLifecycle";
 import { createWorkspaceActions } from "./studioStore.workspaces";
 import { createImageActions } from "./studioStore.images";
 import {
+  createAnnotationActions,
+  shouldPreserveAnnotationSubmit,
+} from "./studioStore.annotations";
+import {
   captureWorkspaceAction,
   invalidateWorkspaceActions,
   isWorkspaceActionCurrent,
@@ -248,6 +254,16 @@ import {
   loadApplicationSettings,
 } from "./studioStore.settings";
 import { hasActiveAPIWork } from "../lib/apiCredentialLibrary.ts";
+import {
+  augmentPromptWithAnnotationSemantics,
+  resolveAnnotationImageDimensions,
+} from "../features/annotation/annotationPrompt";
+import {
+  clampAnnotationFontSize,
+  clampAnnotationStrokeWidth,
+  normalizeAnnotation,
+} from "../features/annotation/annotationTypes";
+import { createAnnotationUpdateUndoEntry } from "../features/annotation/annotationHistory";
 import {
   APPLICATION_RESET_DEFAULT_LABELS,
   applicationStateEpoch,
@@ -316,10 +332,10 @@ import { sourceImagesForHistory, sourceImagesFromPaths } from "./historySourceIm
 import {
   panoramaHistoryIdsForMetadataRecovery,
   panoramaSourcePathsForMetadataRecovery,
-  recoverPanoramaHistoryMetadata,
   recoverPanoramaItemMetadata,
-  recoverPanoramaItemMetadataFromTask,
-  recoverPanoramaSourceMetadata,
+  recoverRoundtripHistoryMetadata,
+  recoverRoundtripItemMetadataFromTask,
+  recoverRoundtripSourceMetadata,
 } from "./panoramaRoundtripRecovery";
 import {
   currentImageIdForWorkspaceSnapshot,
@@ -753,6 +769,7 @@ function syntheticLocalPastebackResultItem(
           previewUrl: sourceItem.previewUrl,
         }]
       : undefined,
+    localEditPastebackState: "pasted",
     width,
     height,
     previewWidth: Number.isFinite(Number(imported.previewWidth)) ? Number(imported.previewWidth) : undefined,
@@ -884,7 +901,7 @@ function recoveredRunningHubHistoryItem(
     savedPath: imported.path,
     sourceImages,
     panoramaRoundtrip,
-    localEditRoundtrip: localEditRoundtripFromSources(sourceImages),
+    localEditRoundtrip: task.localEditRoundtrip ?? localEditRoundtripFromSources(sourceImages),
     panoramaProject: panoramaProjectFromEditSources(sourceImages, panoramaRoundtrip),
     width,
     height,
@@ -935,7 +952,7 @@ function recoveredAPIMartHistoryItem(
     savedPath: imported.path,
     sourceImages,
     panoramaRoundtrip,
-    localEditRoundtrip: localEditRoundtripFromSources(sourceImages),
+    localEditRoundtrip: task.localEditRoundtrip ?? localEditRoundtripFromSources(sourceImages),
     panoramaProject: panoramaProjectFromEditSources(sourceImages, panoramaRoundtrip),
     width,
     height,
@@ -1906,6 +1923,7 @@ async function resolvePromptTextProfile(s: StudioState): Promise<{
     textModelID: s.textModelID,
     profiles: s.profiles,
     fhlTextAPIConfigured: !readRuntimePlatformState().isAndroid && s.fhlTextAPIConfigured,
+    fhlTextAPIModelID: s.fhlTextAPIModelID,
   });
   if (!selection) return { apiKey: "", baseURL: "", textModelID: "" };
 
@@ -1930,7 +1948,7 @@ function promptOptimizeFailureMessage(error: unknown, profile: {
     apiMode: "responses",
     baseURL: profile.baseURL,
   });
-  if (isFHLTextRequest) return `Prompt 优化失败：${formatFHLTextAPIError(error)}`;
+  if (isFHLTextRequest) return `Prompt 优化失败：${formatFHLTextAPIError(error, profile.textModelID)}`;
   return `Prompt 优化失败：${detail || "未知错误"}`;
 }
 
@@ -3043,6 +3061,7 @@ async function startContinuousQueuedTask(taskId: string): Promise<boolean> {
         sources,
         currentImage: null,
         styleTag: task.styleTag || "",
+        localEditRoundtrip: task.localEditRoundtrip,
         continuousGenerateTest: true,
         batchProcessLink,
       }, {
@@ -3200,6 +3219,7 @@ async function submitCurrentRequest(
   set: (patch: Partial<StudioState> | ((state: StudioState) => Partial<StudioState>)) => void,
 ): Promise<void> {
   const s = get();
+  const preserveAnnotations = shouldPreserveAnnotationSubmit(s.activeWorkspaceId);
   if (s.isResettingApplication) return;
   const workspaceId = s.activeWorkspaceId;
   const submitEpoch = applicationStateEpoch.capture();
@@ -3411,7 +3431,7 @@ async function submitCurrentRequest(
   }
 
   let editSourcePaths: string[] = [];
-  let preparedSources = recoverPanoramaSourceMetadata(s.sources, s.history);
+  let preparedSources = recoverRoundtripSourceMetadata(s.sources, s.history);
   if (preparedSources !== s.sources) {
     set((state) => {
       const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
@@ -3548,7 +3568,16 @@ async function submitCurrentRequest(
     ? buildMaskPNGDataURL(s.strokes, s.currentImage?.imageB64 ? imageDims(s.currentImage.imageB64) : null)
     : null;
   const maskB64 = maskDataURL ? stripDataURLPrefix(maskDataURL) : "";
-  let augmentedPrompt = augmentPromptWithAnnotations(effectivePrompt, s.annotations, s.currentImage?.imageB64 ? imageDims(s.currentImage.imageB64) : null);
+  const normalizedAnnotationDims = s.annotations.length > 0
+    ? await resolveAnnotationImageDimensions(s.currentImage)
+    : null;
+  if (preserveAnnotations && s.annotations.length > 0 && !normalizedAnnotationDims) {
+    const message = "无法读取当前原图的自然像素尺寸，已停止批注修图；请重新导入或先保存原图后重试";
+    set({ errorMessage: message, errorRawPath: null });
+    get().pushToast(message, "error", 5200);
+    return;
+  }
+  let augmentedPrompt = augmentPromptWithAnnotationSemantics(effectivePrompt, s.annotations, normalizedAnnotationDims);
   const styleSuffix = STYLE_SUFFIXES[s.styleTag];
   if (styleSuffix) {
     augmentedPrompt = `${augmentedPrompt}, ${styleSuffix}`;
@@ -3633,6 +3662,7 @@ async function submitCurrentRequest(
           sourceImagePaths: combinedSourcePaths,
           sourceImages: sourceImages.length > 0 ? sourceImages : undefined,
           panoramaRoundtrip: panoramaRoundtripFromSources(sourceImages),
+          localEditRoundtrip: localEditRoundtripFromSources(sourceImages),
           batchSourcePath: source.path,
           batchSourceSlotIndex,
           maskB64,
@@ -3667,6 +3697,7 @@ async function submitCurrentRequest(
           sourceImagePaths: editSourcePaths,
           sourceImages: s.mode === "edit" ? preparedSources : undefined,
           panoramaRoundtrip: preparedPanoramaRoundtrip,
+          localEditRoundtrip: localEditRoundtripFromSources(preparedSources),
           maskB64,
           continuousPoolTask: fhlPoolSubmit,
           queuedReason: fhlPoolSubmit ? "continuous_pool" : undefined,
@@ -3694,7 +3725,7 @@ async function submitCurrentRequest(
     compareMode: "curtain",
     currentImage: continuousGenerateTest ? s.currentImage : (clearCurrentForNewRun ? null : s.currentImage),
     maskDataURL: null,
-    annotations: [],
+    annotations: preserveAnnotations ? s.annotations : [],
     strokes: [],
     jobsTotal: nextBatchTaskIds.length,
     workspaces: patchWorkspaceRuntime(state.workspaces, workspaceId, {
@@ -3839,6 +3870,7 @@ async function submitCurrentRequest(
       sources: preparedSources,
       currentImage: s.currentImage,
       styleTag: s.styleTag,
+      localEditRoundtrip: submittedTasks[i].localEditRoundtrip,
       continuousGenerateTest,
     });
   }
@@ -4015,7 +4047,7 @@ function sourceIdentityForBrowserGroupSlot(group: JobGroupSnapshot, slot: JobGro
     size: task?.size,
     sourceImages: sourceImages.length > 0 ? sourceImages : undefined,
     panoramaRoundtrip: task?.panoramaRoundtrip ?? panoramaRoundtripFromSources(sourceImages),
-    localEditRoundtrip: localEditRoundtripFromSources(sourceImages),
+    localEditRoundtrip: task?.localEditRoundtrip ?? localEditRoundtripFromSources(sourceImages),
   };
 }
 
@@ -4156,7 +4188,8 @@ async function syncHistoryItemFromBrowserJobSlotCore(
     size: taskForOutputSync?.size,
     sourceImages: taskForOutputSync ? sourceImagesForTask(taskForOutputSync) : undefined,
     panoramaRoundtrip: taskForOutputSync?.panoramaRoundtrip,
-    localEditRoundtrip: taskForOutputSync ? localEditRoundtripFromSources(sourceImagesForTask(taskForOutputSync)) : undefined,
+    localEditRoundtrip: taskForOutputSync?.localEditRoundtrip
+      ?? (taskForOutputSync ? localEditRoundtripFromSources(sourceImagesForTask(taskForOutputSync)) : undefined),
   });
   const isSyncCurrent = () => {
     const state = store.getState();
@@ -4323,6 +4356,19 @@ const imageActions = createImageActions({
   },
 });
 
+const annotationActions = createAnnotationActions({
+  getState: () => useStudioStore.getState(),
+  setState: (patch) => {
+    if (typeof patch === "function") {
+      useStudioStore.setState((state) => patch(state));
+      return;
+    }
+    useStudioStore.setState(patch);
+  },
+}, {
+  reuseAsSource: (item) => imageActions.reuseAsSource(item),
+});
+
 const settingsRuntime = {
   applyTheme,
   applyFontScale: (fontScale: number) => {
@@ -4478,6 +4524,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   apiMode: "responses",
   fhlTransportMode: "images",
   fhlTextAPIConfigured: false,
+  fhlTextAPIModelID: FHL_TEXT_API_DEFAULT_MODEL_ID,
   fhlTextAPIKeyHint: "",
   fhlTextAPITestStatus: "unconfigured",
   fhlTextAPITestMessage: "",
@@ -4511,6 +4558,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   panoramaViewerItem: null,
   panoramaAlignTarget: null,
   localEditWorkbenchDraft: null,
+  annotationSource: null,
   history: [],
   historyHasMore: false,
   historyLoading: false,
@@ -4528,6 +4576,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
   tool: "pan",
   brushSize: 30,
+  annotationStrokeWidth: 4,
+  annotationFontSize: 20,
   brushMode: "paint",
   annotationKind: "rect",
   annotationColor: "#ff4d4d",
@@ -5001,6 +5051,14 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const workspaceId = get().activeWorkspaceId;
     return submitSingleFlight(workspaceId, () => submitCurrentRequest(get, set));
   },
+
+  submitAnnotationEdit: () => annotationActions.submitAnnotationEdit(),
+  prepareAnnotationSource: () => annotationActions.prepareAnnotationSource(),
+  confirmAnnotationComposite: (mode = "strict") => annotationActions.confirmAnnotationComposite(mode),
+  beginAnnotationSession: () => annotationActions.beginAnnotationSession(),
+  isAnnotationSessionDirty: () => annotationActions.isAnnotationSessionDirty(),
+  cancelAnnotationSession: () => annotationActions.cancelAnnotationSession(),
+  endAnnotationSession: () => annotationActions.endAnnotationSession(),
 
   cancel: async () => {
     const s = get();
@@ -6017,6 +6075,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         apiMode: "responses",
         fhlTransportMode: "images",
         fhlTextAPIConfigured: false,
+        fhlTextAPIModelID: FHL_TEXT_API_DEFAULT_MODEL_ID,
         fhlTextAPIKeyHint: "",
         fhlTextAPITestStatus: "unconfigured",
         fhlTextAPITestMessage: "",
@@ -6128,6 +6187,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         historyTimelineOpen: false,
         tool: "pan",
         brushSize: 24,
+        annotationStrokeWidth: 4,
+        annotationFontSize: 20,
         brushMode: "paint",
         annotationKind: "rect",
         annotationColor: "#ff4d4d",
@@ -6402,6 +6463,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       ? await GetStoredAPIKey(keyringUserFor(activeProfile.id)).catch(() => "")
       : "";
     const fhlTextAPIKey = await loadFHLTextAPIKey().catch(() => "");
+    const fhlTextAPIModelID = loadFHLTextAPIModelID(!!fhlTextAPIKey);
     // Apply theme + font scale to root immediately.
     applyApplicationSettingsRuntime(applicationSettings, settingsRuntime);
     await GetOutputDir().catch(() => "");
@@ -6548,7 +6610,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       for (const item of panoramaSourceItems) byId.set(item.id, item);
       items = Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt);
     }
-    const recoveredPanoramaHistory = recoverPanoramaHistoryMetadata(items, restoredBatchTasksById);
+    const recoveredPanoramaHistory = recoverRoundtripHistoryMetadata(items, restoredBatchTasksById);
     items = recoveredPanoramaHistory.items;
     const repairedPanoramaById = new Map(
       recoveredPanoramaHistory.repaired.map((item) => [item.id, item]),
@@ -6558,7 +6620,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       if (!workspace.currentImageId || workspace.mode !== "edit" || workspace.sources.length === 0) continue;
       const item = recoveredItemsById.get(workspace.currentImageId);
       if (!item || item.panoramaRoundtrip) continue;
-      const recovered = recoverPanoramaItemMetadataFromTask(item, {
+      const recovered = recoverRoundtripItemMetadataFromTask(item, {
         sourceImages: workspace.sources,
         sourceImagePaths: workspace.sources.map((source) => source.path),
       }, items);
@@ -6571,7 +6633,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       await persistHistoryItems(Array.from(repairedPanoramaById.values())).catch(() => undefined);
     }
     restoredWorkspaces = restoredWorkspaces.map((workspace) => {
-      const sources = recoverPanoramaSourceMetadata(workspace.sources, items);
+      const sources = recoverRoundtripSourceMetadata(workspace.sources, items);
       return sources === workspace.sources ? workspace : { ...workspace, sources };
     });
     const restoredActiveWorkspace = restoredWorkspaces.find(
@@ -6622,6 +6684,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       continuousGenerateTest: restoredActiveWorkspace.continuousGenerateTest === true,
       fhlPoolPerAPIConcurrencyLimit,
       fhlTextAPIConfigured: !!fhlTextAPIKey,
+      fhlTextAPIModelID,
       fhlTextAPIKeyHint: fhlTextAPIKeyHint(fhlTextAPIKey),
       fhlTextAPITestStatus: fhlTextAPIKey ? "saved" : "unconfigured",
       fhlTextAPITestMessage: "",
@@ -6638,12 +6701,15 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       materialGroups,
       currentImage: restoredCurrentImage,
       localEditWorkbenchDraft: restoredActiveWorkspace.localEditWorkbenchDraft ?? null,
+      annotationSource: null,
       compareB: null,
       compareMode: "curtain",
       compareSplit: 0.5,
       sourcePreviewReturnImage: null,
       tool: "pan",
       brushSize: 30,
+      annotationStrokeWidth: 4,
+      annotationFontSize: 20,
       brushMode: "paint",
       annotationKind: "rect",
       annotationColor: "#ff4d4d",
@@ -6771,13 +6837,14 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   addAnnotation: (a) => {
+    const annotation = normalizeAnnotation(a);
     const entry: UndoEntry = {
       label: "annotation",
-      undo: (s) => ({ annotations: s.annotations.filter((x) => x.id !== a.id) }),
-      redo: () => ({ annotations: [...get().annotations, a] }),
+      undo: (s) => ({ annotations: s.annotations.filter((x) => x.id !== annotation.id) }),
+      redo: () => ({ annotations: [...get().annotations, annotation] }),
     };
     set({
-      annotations: [...get().annotations, a],
+      annotations: [...get().annotations, annotation],
       undoStack: [...get().undoStack, entry],
       redoStack: [],
     });
@@ -6802,6 +6869,40 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   updateAnnotation: (id, patch) => {
     set({
       annotations: get().annotations.map((a) => (a.id === id ? { ...a, ...patch } : a)),
+    });
+  },
+
+  commitAnnotationUpdate: (id, before, after, label = "annotation-update") => {
+    const current = get().annotations.find((annotation) => annotation.id === id);
+    if (!current) return;
+    const currentMatchesBefore = JSON.stringify(current) === JSON.stringify(before);
+    const finalAfter = currentMatchesBefore ? after : current;
+    const history = createAnnotationUpdateUndoEntry(id, before, finalAfter, label);
+    if (!history) return;
+    set({
+      annotations: get().annotations.map((annotation) => annotation.id === id ? history.after : annotation),
+      undoStack: [...get().undoStack, history.entry],
+      redoStack: [],
+    });
+  },
+
+  updateAnnotationStyle: (id, patch) => {
+    const target = get().annotations.find((annotation) => annotation.id === id);
+    if (!target) return;
+    const next = {
+      ...target,
+      ...(patch.strokeWidth === undefined ? {} : { strokeWidth: clampAnnotationStrokeWidth(patch.strokeWidth) }),
+      ...(patch.fontSize === undefined ? {} : { fontSize: clampAnnotationFontSize(patch.fontSize) }),
+    };
+    const entry: UndoEntry = {
+      label: "annotation-style",
+      undo: (state) => ({ annotations: state.annotations.map((annotation) => annotation.id === id ? target : annotation) }),
+      redo: (state) => ({ annotations: state.annotations.map((annotation) => annotation.id === id ? next : annotation) }),
+    };
+    set({
+      annotations: get().annotations.map((annotation) => annotation.id === id ? next : annotation),
+      undoStack: [...get().undoStack, entry],
+      redoStack: [],
     });
   },
 
@@ -6958,6 +7059,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   refreshFHLTextAPIConfig: async () => {
     const apiKey = await loadFHLTextAPIKey().catch(() => "");
     const configured = !!apiKey;
+    const fhlTextAPIModelID = loadFHLTextAPIModelID(configured);
     const keyHint = configured ? fhlTextAPIKeyHint(apiKey) : "";
     set((state) => {
       const preserveResult = configured
@@ -6966,6 +7068,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         && state.fhlTextAPITestStatus !== "unconfigured";
       return {
         fhlTextAPIConfigured: configured,
+        fhlTextAPIModelID,
         fhlTextAPIKeyHint: keyHint,
         fhlTextAPITestStatus: configured
           ? preserveResult ? state.fhlTextAPITestStatus : "saved"
@@ -6975,8 +7078,22 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     });
   },
 
-  saveAndTestFHLTextAPI: async (apiKeyInput = "") => {
+  setFHLTextAPIModelID: (modelID) => {
+    const normalized = persistFHLTextAPIModelID(modelID);
+    set((state) => ({
+      fhlTextAPIModelID: normalized,
+      fhlTextAPITestStatus: state.fhlTextAPIConfigured ? "saved" : "unconfigured",
+      fhlTextAPITestMessage: state.fhlTextAPIConfigured
+        ? `文本模型已切换为 ${normalized}，请重新测试。`
+        : "",
+    }));
+  },
+
+  saveAndTestFHLTextAPI: async (apiKeyInput = "", requestedModelID) => {
     if (get().isResettingApplication) throw new Error("应用正在初始化，请稍后再测试 API。");
+    const modelID = requestedModelID
+      ? persistFHLTextAPIModelID(requestedModelID)
+      : persistFHLTextAPIModelID(get().fhlTextAPIModelID);
     const input = apiKeyInput.trim();
     let apiKey = "";
     if (input) {
@@ -6990,28 +7107,29 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const keyHint = fhlTextAPIKeyHint(apiKey);
     set({
       fhlTextAPIConfigured: true,
+      fhlTextAPIModelID: modelID,
       fhlTextAPIKeyHint: keyHint,
       fhlTextAPITestStatus: "saved",
       fhlTextAPITestMessage: "FHL 文本 API 已保存，等待响应测试。",
     });
     set({
       fhlTextAPITestStatus: "testing",
-      fhlTextAPITestMessage: `正在测试 FHL Responses 文本响应（${FHL_TEXT_MODEL_ID}）...`,
+      fhlTextAPITestMessage: `正在测试 FHL Responses 文本响应（${modelID}）...`,
     });
 
     try {
-      await testFHLTextAPIKey(apiKey, {
+      await testFHLTextAPIKey(apiKey, modelID, {
         proxyMode: get().proxyMode,
         proxyURL: get().proxyURL,
       });
       set({
         fhlTextAPITestStatus: "success",
-        fhlTextAPITestMessage: `配置成功：FHL Responses 已返回 ${FHL_TEXT_MODEL_ID} 文本响应。`,
+        fhlTextAPITestMessage: `配置成功：FHL Responses 已返回 ${modelID} 文本响应。`,
       });
       get().pushToast("FHL 文本 API 配置成功。", "success", 3600);
       return true;
     } catch (error) {
-      const detail = formatFHLTextAPIError(error);
+      const detail = formatFHLTextAPIError(error, modelID);
       set({
         fhlTextAPITestStatus: "error",
         fhlTextAPITestMessage: `已保存，文本测试失败：${detail}`,
@@ -7254,7 +7372,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       if (!workspaceActionStillCurrent(token)) return;
       if (!reverseProfile) return;
       const detail = isOfficialFHLProfile({ apiMode: "responses", baseURL: reverseProfile.baseURL })
-        ? formatFHLTextAPIError(e)
+        ? formatFHLTextAPIError(e, reverseProfile.textModelID)
         : String(e?.message ?? e);
       const msg = `反推提示词失败：${detail}`;
       const errorRawPath = typeof e?.rawPath === "string" && e.rawPath ? e.rawPath : null;
@@ -7436,6 +7554,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           sources: sourceImages,
           currentImage: null,
           styleTag: group.styleTag || "",
+          localEditRoundtrip: retryTask.localEditRoundtrip,
           continuousGenerateTest: true,
         });
         get().pushToast("Queued task was submitted through the API backend", "success", 2600);
@@ -7768,6 +7887,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           sources: sourceImages,
           currentImage: null,
           styleTag: queuedTask.styleTag || "",
+          localEditRoundtrip: queuedTask.localEditRoundtrip,
           continuousGenerateTest: true,
           batchProcessLink: batchProcessLinkFromTask(queuedTask),
         });
@@ -7903,6 +8023,7 @@ async function launchOneJob(
     sources: SourceImage[];
     currentImage: HistoryItem | null;
     styleTag: string;
+    localEditRoundtrip?: HistoryItem["localEditRoundtrip"];
     continuousGenerateTest?: boolean;
     batchProcessLink?: {
       sourcePath: string;
@@ -8106,7 +8227,7 @@ async function launchOneJob(
             elapsedSec: Number(elapsedSec.toFixed(1)),
             sourceImages,
             panoramaRoundtrip,
-            localEditRoundtrip: localEditRoundtripFromSources(sourceImages),
+            localEditRoundtrip: snapshot.localEditRoundtrip ?? localEditRoundtripFromSources(sourceImages),
             panoramaProject,
             savedPath: r.savedPath,
             rawPath: r.rawPath,

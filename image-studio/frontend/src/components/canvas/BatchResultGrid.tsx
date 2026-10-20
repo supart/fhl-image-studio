@@ -14,6 +14,9 @@ import { apiSourceDetailLabel } from "../history/historyApiSource";
 import { RawResponseModal } from "../history/RawResponseModal";
 import { RECENT_BATCH_SUCCESS_PIN_MS, sortBatchGridSlotsForDisplay } from "./batchGridDisplayOrder";
 import { ReadImageAsBase64, RegisterMediaAsset } from "../../platform/runtime/host";
+import { WandSparkles } from "lucide-react";
+import { ContextMenu } from "../common/ContextMenu";
+import { isLocalEditPastebackTerminal } from "../../state/panoramaRoundtripRecovery";
 
 export type BatchGridSourcePreview = {
   path: string;
@@ -309,6 +312,10 @@ export function BatchResultGrid({
   hasMore = false,
   loadingMore = false,
   onLoadMore,
+  onAutoPasteLocalEdit,
+  onManualPasteLocalEdit,
+  onImportPasteLocalEdit,
+  localPastebackBusy = false,
 }: {
   items: HistoryItem[];
   slots?: BatchGridSlot[];
@@ -335,6 +342,10 @@ export function BatchResultGrid({
   hasMore?: boolean;
   loadingMore?: boolean;
   onLoadMore?: () => void;
+  onAutoPasteLocalEdit?: (item: HistoryItem) => void | Promise<void>;
+  onManualPasteLocalEdit?: (item: HistoryItem) => void;
+  onImportPasteLocalEdit?: (item: HistoryItem) => void;
+  localPastebackBusy?: boolean;
 }) {
   const gridSlots = useMemo<BatchGridSlot[]>(
     () => slots ?? items.map((item) => ({ type: "result", item }) satisfies BatchGridSlot),
@@ -576,6 +587,10 @@ export function BatchResultGrid({
                       onOpenItemContextMenu={onOpenItemContextMenu}
                       onSelect={onSelect}
                       onPreview={onPreview}
+                      onAutoPasteLocalEdit={onAutoPasteLocalEdit}
+                      onManualPasteLocalEdit={onManualPasteLocalEdit}
+                      onImportPasteLocalEdit={onImportPasteLocalEdit}
+                      localPastebackBusy={localPastebackBusy}
                     />
                   );
                 })}
@@ -597,6 +612,10 @@ const BatchGridTile = memo(function BatchGridTile({
   onOpenItemContextMenu,
   onSelect,
   onPreview,
+  onAutoPasteLocalEdit,
+  onManualPasteLocalEdit,
+  onImportPasteLocalEdit,
+  localPastebackBusy,
 }: {
   item: HistoryItem;
   index: number;
@@ -606,9 +625,18 @@ const BatchGridTile = memo(function BatchGridTile({
   onOpenItemContextMenu?: (item: HistoryItem, x: number, y: number) => void;
   onSelect: (item: HistoryItem) => void | Promise<void>;
   onPreview?: (item: HistoryItem) => void | Promise<void>;
+  onAutoPasteLocalEdit?: (item: HistoryItem) => void | Promise<void>;
+  onManualPasteLocalEdit?: (item: HistoryItem) => void;
+  onImportPasteLocalEdit?: (item: HistoryItem) => void;
+  localPastebackBusy: boolean;
 }) {
   const previewURL = useBlobURL(item.imageBlob ?? item.previewBlob ?? null, item.imageB64 ?? null);
   const [registeredPreviewURL, setRegisteredPreviewURL] = useState("");
+  const [pastebackMenu, setPastebackMenu] = useState<{ x: number; y: number } | null>(null);
+  const canPasteback = !preview
+    && item.localEditRoundtrip?.kind === "planar"
+    && !isLocalEditPastebackTerminal(item)
+    && (!!onAutoPasteLocalEdit || !!onManualPasteLocalEdit || !!onImportPasteLocalEdit);
   const src = historyPreviewSrc(
     registeredPreviewURL ? { ...item, previewUrl: registeredPreviewURL } : item,
     previewURL,
@@ -624,40 +652,79 @@ const BatchGridTile = memo(function BatchGridTile({
     return () => { cancelled = true; };
   }, [item.savedPath, item.thumbPath, src]);
   return (
-    <button
-      type="button"
-      className={`batch-grid-tile ${active ? "active" : ""} ${preview ? "previewing" : ""}`}
-      onClick={() => {
-        if (!preview) void onSelect(item);
-      }}
-      onDoubleClick={() => {
-        if (!preview) void (onPreview ?? onSelect)(item);
-      }}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        onOpenItemContextMenu?.(item, event.clientX, event.clientY);
-      }}
-      aria-disabled={preview ? "true" : undefined}
-      title={item.prompt}
-    >
-      <span className="batch-grid-image-shell" aria-hidden="true">
-        <img
-          src={src}
-          alt={item.prompt || `batch result ${index + 1}`}
-          loading="lazy"
-          decoding="async"
-          draggable={false}
-        />
-      </span>
-      {sourcePreview ? <TaskSourcePreviewAnchor sourcePreview={sourcePreview} index={index} /> : null}
-      <span className="batch-grid-index">{index + 1}</span>
-      <HistoryApiSourceBadge source={item} className="batch-grid-api-source rounded-[6px]" />
-      {!preview ? <ImagePixelSizeBadge width={item.width} height={item.height} className="batch-grid-pixel-size" /> : null}
-      {preview ? (
-        <span className="batch-grid-preview-wait">生成中预览，不是最终结果</span>
+    <div className={`batch-grid-tile-wrap ${active ? "active" : ""} ${preview ? "previewing" : ""}`}>
+      <button
+        type="button"
+        className={`batch-grid-tile ${active ? "active" : ""} ${preview ? "previewing" : ""}`}
+        onClick={() => {
+          if (!preview) void onSelect(item);
+        }}
+        onDoubleClick={() => {
+          if (!preview) void (onPreview ?? onSelect)(item);
+        }}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          onOpenItemContextMenu?.(item, event.clientX, event.clientY);
+        }}
+        aria-disabled={preview ? "true" : undefined}
+        title={item.prompt}
+      >
+        <span className="batch-grid-image-shell" aria-hidden="true">
+          <img
+            src={src}
+            alt={item.prompt || `batch result ${index + 1}`}
+            loading="lazy"
+            decoding="async"
+            draggable={false}
+          />
+        </span>
+        {sourcePreview ? <TaskSourcePreviewAnchor sourcePreview={sourcePreview} index={index} /> : null}
+        <span className="batch-grid-index">{index + 1}</span>
+        <HistoryApiSourceBadge source={item} className="batch-grid-api-source rounded-[6px]" />
+        {!preview ? <ImagePixelSizeBadge width={item.width} height={item.height} className="batch-grid-pixel-size" /> : null}
+        {preview ? (
+          <span className="batch-grid-preview-wait">生成中预览，不是最终结果</span>
+        ) : null}
+        {!preview && item.elapsedSec ? <span className="batch-grid-meta">{item.elapsedSec}s</span> : null}
+      </button>
+      {canPasteback ? (
+        <button
+          type="button"
+          className="batch-grid-pasteback-button"
+          data-testid={`batch-grid-pasteback-${item.id}`}
+          aria-label="打开局部重绘贴回菜单"
+          title="贴回局部重绘结果"
+          disabled={localPastebackBusy}
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const rect = event.currentTarget.getBoundingClientRect();
+            setPastebackMenu({ x: rect.right, y: rect.bottom + 4 });
+          }}
+        >
+          <WandSparkles className="h-3.5 w-3.5" aria-hidden="true" />
+          <span>贴回</span>
+        </button>
       ) : null}
-      {!preview && item.elapsedSec ? <span className="batch-grid-meta">{item.elapsedSec}s</span> : null}
-    </button>
+      {pastebackMenu ? (
+        <ContextMenu
+          x={pastebackMenu.x}
+          y={pastebackMenu.y}
+          onClose={() => setPastebackMenu(null)}
+          items={[
+            { label: "自动贴回", disabled: localPastebackBusy || !onAutoPasteLocalEdit, onClick: () => void onAutoPasteLocalEdit?.(item) },
+            { label: "手动贴回", disabled: localPastebackBusy || !onManualPasteLocalEdit, onClick: () => onManualPasteLocalEdit?.(item) },
+            { label: "导入贴回", disabled: localPastebackBusy || !onImportPasteLocalEdit, onClick: () => onImportPasteLocalEdit?.(item) },
+          ]}
+        />
+      ) : null}
+    </div>
   );
 });
 

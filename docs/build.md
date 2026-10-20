@@ -68,6 +68,26 @@ powershell -ExecutionPolicy Bypass -File .\scripts\package-windows-portable.ps1
 
 Portable ZIP 解压后使用 `一键启动FHL Studio V2.0.4.cmd`。包内 `.fhl-studio-portable` 标记决定数据边界，GUI 输出位于 `output\images`，CLI 输出位于 `output`，WebView 数据位于 `config\webview`。
 
+Portable 根目录还会由上述打包脚本自动生成固定文件
+`FHL Studio Photoshop 对接文件.json`。该文件是跨桌面版本稳定的非敏感启动元数据，字段固定为：
+
+```json
+{
+  "productId": "fhl-image-studio-desktop",
+  "integrationFileFormatMajor": 1,
+  "psBridgeProtocolMajor": 1,
+  "launchPath": "FHL Studio 方汤圆版 V2.0.4.exe",
+  "displayName": "FHL Studio 方汤圆版",
+  "desktopVersion": "V2.0.4"
+}
+```
+
+`launchPath` 只能是 Portable 根目录内的相对路径，打包时会拒绝绝对路径、`..` 路径穿越、包外解析结果和不存在的启动目标。`desktopVersion` 仅用于显示和诊断，不能作为插件兼容判断；Bridge 是否可用仍以当前实例的
+`GET /fhl-ps/v1/health`、`POST /fhl-ps/v1/session`、`GET /fhl-ps/v1/profile` 和
+capabilities 协商为准。该文件不包含 API Key、Session Token、Base URL、Credential Manager、用户配置、图片或绝对路径；`.fhl-studio-portable` 标记继续独立保留。
+
+后续 V2.0.5、V2.1.0 继续使用同一文件名和字段语义，只更新显示版本和包内相对启动目标。源码开发期可以在临时目录生成副本做合同测试，但不得把临时文件当作正式 Portable 发布物。
+
 ## 干净源码包
 
 ```powershell

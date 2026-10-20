@@ -73,6 +73,7 @@ export type ProbeUpstreamOptionsLike = {
 
 export type ProbeUpstreamResultLike = {
   modelCount: number;
+  models: string[];
 };
 
 export type JobStartedLike = { jobId: string };

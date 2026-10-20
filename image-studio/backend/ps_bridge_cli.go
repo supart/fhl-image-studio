@@ -116,6 +116,7 @@ func (b *PSBridge) cliFallbackProfileLocked() (PSBridgeProfileInput, PSBridgePro
 		SupportsMask: false,
 		MaxImages:    psBridgeMaxImages,
 		Ready:        true,
+		Capabilities: append([]string(nil), psBridgeCapabilities...),
 		ImageCapabilities: PSBridgeImageCapabilities{
 			AspectPresets:     []string{"1:1", "3:2", "2:3", "16:9", "9:16", "2:1"},
 			ResolutionPresets: []string{"2k", "4k"},

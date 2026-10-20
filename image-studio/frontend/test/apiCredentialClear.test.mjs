@@ -30,6 +30,7 @@ function state(overrides = {}) {
     requestPolicy: "openai",
     imagesNewAPICompat: false,
     fhlTextAPIConfigured: true,
+    fhlTextAPIModelID: "gpt-5.6-sol",
     fhlTextAPIKeyHint: "hint",
     fhlTextAPITestStatus: "success",
     fhlTextAPITestMessage: "ok",
@@ -53,6 +54,7 @@ function operations(overrides = {}) {
     clearLegacyKeys: () => undefined,
     persistProfiles: () => undefined,
     persistActiveProfileId: () => undefined,
+    persistFHLTextAPIModelID: () => undefined,
     ...overrides,
   };
 }
@@ -121,6 +123,7 @@ test("secure wipe clears every store credential field only after verification", 
     requestPolicy: "openai",
     imagesNewAPICompat: false,
     fhlTextAPIConfigured: false,
+    fhlTextAPIModelID: "gpt-5.6-sol",
     fhlTextAPIKeyHint: "",
     fhlTextAPITestStatus: "unconfigured",
     fhlTextAPITestMessage: "",

@@ -307,6 +307,12 @@ describe("FHLImagesPoolConfig active profile reconciliation", () => {
     expect(mocks.setStoredAPIKey).not.toHaveBeenCalled();
   });
 
+  it("uses the primary blue action style for bulk API configuration", () => {
+    render(<PoolHarness />);
+
+    expect(screen.getByRole("button", { name: "批量配置 10 个 API" })).toHaveClass("liquid-primary-button");
+  });
+
   it("cancels without changing manual drafts", () => {
     const manualDraft = syntheticAPIKey("existing-manual-draft");
     render(<PoolHarness />);

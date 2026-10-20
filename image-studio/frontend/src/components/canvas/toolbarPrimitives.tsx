@@ -100,19 +100,25 @@ export function ToolbarTextButton({
 }
 
 type ToolbarPrimaryButtonProps = {
+  ariaExpanded?: boolean;
   children: React.ReactNode;
+  dataAuditId?: string;
+  disabled?: boolean;
   onClick?: () => void;
   title?: string;
 };
 
-export function ToolbarPrimaryButton({ children, onClick, title }: ToolbarPrimaryButtonProps) {
+export function ToolbarPrimaryButton({ ariaExpanded, children, dataAuditId, disabled, onClick, title }: ToolbarPrimaryButtonProps) {
   const { isMac, usesFluentUI } = usePlatform();
   return (
     <button
       type="button"
       onClick={onClick}
+      aria-expanded={ariaExpanded}
+      data-audit-id={dataAuditId}
+      disabled={disabled}
       title={title}
-      className={`liquid-primary-button inline-flex shrink-0 items-center justify-center gap-1.5 border border-[color:var(--accent)] bg-[var(--accent)] font-medium text-white whitespace-nowrap shadow-sm transition-colors hover:bg-[var(--accent-2)] ${
+      className={`liquid-primary-button inline-flex shrink-0 items-center justify-center gap-1.5 border border-[color:var(--accent)] bg-[var(--accent)] font-medium text-white whitespace-nowrap shadow-sm transition-colors hover:bg-[var(--accent-2)] disabled:cursor-not-allowed disabled:opacity-40 ${
         isMac ? "min-h-[34px] min-w-[110px] rounded-[14px] px-4 py-2 text-[11px]" : usesFluentUI ? "rounded-[8px] px-3 py-1.5 text-[11px]" : "rounded-full px-3 py-1.5 text-[11px]"
       }`}
     >

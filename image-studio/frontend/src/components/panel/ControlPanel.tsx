@@ -111,10 +111,10 @@ export function ControlPanel() {
     outputFormat, batchCount, continuousGenerateTest, fhlPoolPerAPIConcurrencyLimit, fhlPoolEffectiveConcurrencyByProfileId,
     sources, currentImage, reversePromptImage, editSourceMode, batchProcess,
     errorMessage, errorRawPath, isRunning, runningJobs, lastPayload, isTestingKey, isOptimizingPrompt, isReversingPrompt,
-    apiMode, requestPolicy, baseURL, textModelID, profiles, activeProfileId, imageModelID, fhlTextAPIConfigured,
+    apiMode, requestPolicy, baseURL, textModelID, profiles, activeProfileId, imageModelID, fhlTextAPIConfigured, fhlTextAPIModelID,
     activeWorkspaceId, workspaces, jobGroupsByWorkspace, batchTasksById, batchResults, history,
     setField, clearError, pushToast,
-    selectSourceImage, selectBatchInputDir, selectBatchInputFiles, chooseBatchOutputDir, importSourceImageFile, selectReversePromptImage, importReversePromptImageFile, clearReversePromptImage, removeSource, clearSources,
+    selectSourceImage, selectBatchInputDir, selectBatchInputFiles, chooseBatchOutputDir, importSourceImageFile, importReversePromptImageFile, clearReversePromptImage, removeSource, clearSources,
     openUpstreamConfig,
     submit, cancel, retryLast, retryFailedBatchTasks, cancelQueuedBatchTasks, clearFailedBatchTasks, optimizePrompt, reversePromptFromImage, resetCurrentWorkspaceDraft,
     setFHLPoolPerAPIConcurrencyLimit,
@@ -151,6 +151,7 @@ export function ControlPanel() {
     textModelID,
     profiles,
     fhlTextAPIConfigured,
+    fhlTextAPIModelID,
   });
   const activeStyleLabel = STYLE_CHIPS.find((item) => item.id === styleTag)?.label ?? styleTag;
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId);
@@ -668,7 +669,6 @@ export function ControlPanel() {
         onSetPromptPrefix={(value) => setField("promptPrefix", value)}
         onSetPrompt={(value) => setField("prompt", value)}
         onSetOptimizationGuidance={(value) => setField("optimizationGuidance", value)}
-        onSelectReversePromptImage={selectReversePromptImage}
         onImportReversePromptImageFile={importReversePromptImageFile}
         onClearReversePromptImage={clearReversePromptImage}
         onOptimizePromptBase={() => optimizePrompt({ useGuidance: false })}

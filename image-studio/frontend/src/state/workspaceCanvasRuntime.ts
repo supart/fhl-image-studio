@@ -6,6 +6,8 @@ export function createDefaultWorkspaceCanvasRuntime(): WorkspaceCanvasRuntime {
     sourcePreviewReturnImage: null,
     tool: "pan",
     brushSize: 30,
+    annotationStrokeWidth: 4,
+    annotationFontSize: 20,
     brushMode: "paint",
     annotationKind: "rect",
     annotationColor: "#ff4d4d",
@@ -29,6 +31,8 @@ export function captureWorkspaceCanvasRuntime(state: StudioState): WorkspaceCanv
     sourcePreviewReturnImage: state.sourcePreviewReturnImage,
     tool: state.tool,
     brushSize: state.brushSize,
+    annotationStrokeWidth: state.annotationStrokeWidth,
+    annotationFontSize: state.annotationFontSize,
     brushMode: state.brushMode,
     annotationKind: state.annotationKind,
     annotationColor: state.annotationColor,
@@ -55,7 +59,12 @@ export function workspaceCanvasSelectionPatch(
   if (state.activeWorkspaceId) {
     workspaceCanvasRuntime[state.activeWorkspaceId] = captureWorkspaceCanvasRuntime(state);
   }
-  const target = workspaceCanvasRuntime[targetWorkspaceId] ?? createDefaultWorkspaceCanvasRuntime();
+  const target = {
+    ...createDefaultWorkspaceCanvasRuntime(),
+    ...(workspaceCanvasRuntime[targetWorkspaceId] ?? {}),
+    annotationStrokeWidth: workspaceCanvasRuntime[targetWorkspaceId]?.annotationStrokeWidth ?? 4,
+    annotationFontSize: workspaceCanvasRuntime[targetWorkspaceId]?.annotationFontSize ?? 20,
+  };
   workspaceCanvasRuntime[targetWorkspaceId] = target;
   return { ...target, workspaceCanvasRuntime };
 }

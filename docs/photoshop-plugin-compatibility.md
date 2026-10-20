@@ -36,6 +36,11 @@ FHL-Image-Studio Photoshop 插件是独立销售、独立维护和独立交付�
 | Photoshop 插件 | FHL-Image-Studio-Plugins V0.1.0 |
 | Bridge | `/fhl-ps/v1`，本机 `127.0.0.1:47631-47640` |
 
+V2.0.4 开发版的协议主版本为 `1`，契约修订为 `2026-08-24`。Health 和 Session
+会返回 `protocolMajor`、`minClientMajor`、`maxClientMajor`、`contractRevision`、
+`instanceId` 和 `capabilities`。独立契约源位于工作区的
+`FHL-PS-Bridge-Contract\v1`，不复制到桌面业务代码中。
+
 V2.0.4 开发版与后续 V2.0.4 Portable 使用相同 Bridge v1 协议，插件都可以连接。
 开发版需要手动启动；插件的目录授权和自动启动只接受带
 `.fhl-studio-portable` 标记及正式 V2.0.4 EXE 的 Portable 根目录。
@@ -46,12 +51,19 @@ V2.0.4 开发版与后续 V2.0.4 Portable 使用相同 Bridge v1 协议，插件
 ## 兼容承诺
 
 - 桌面 V2.0.4 维护 Bridge v1 的现有请求路径和会话模型。
+- 软件版本号与 Bridge 协议版本号分离；同一协议主版本允许小版本差异，破坏性
+  接口变化必须升级协议主版本。
+- 插件连接先校验服务名、协议主版本和客户端范围，再建立 Session；不兼容时
+  必须明确拒绝，不能静默切换到插件本地 API。
 - Bridge 不向插件公开 API Key、Credential Manager 用户名、上游 Base URL 或
   代理配置。
 - 桌面端升级如果改变 Bridge 字段、Profile 能力或 Portable 启动约定，必须先
   更新合同测试和本说明，再标记为支持现有插件。
 - 插件升级如果需要新的 Bridge 能力，应在独立插件项目完成验证后，仅把兼容
   版本和桌面端所需接口变化记录回桌面文档。
+- 未来 DeepSeek Harness Adapter 使用独立契约扩展
+  `dsh.harness.bridge.v1`，通过 Cordis service/event 消费 Bridge v1；它不改变
+  Photoshop 插件的核心接口，也不获得桌面 CLI、Provider 执行器或任何凭据访问。
 
 ## 用户获取方式
 

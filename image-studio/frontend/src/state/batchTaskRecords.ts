@@ -13,6 +13,7 @@ import type {
   SizeValue,
   PanoramaRoundtripRef,
   SourceImage,
+  LocalEditRoundtripRef,
   Workspace,
 } from "../types/domain";
 import { normalizeRuntimeText } from "../lib/runtimeText.ts";
@@ -45,6 +46,7 @@ export type BatchTaskCreateInput = {
   sourceImagePaths?: string[];
   sourceImages?: SourceImage[];
   panoramaRoundtrip?: PanoramaRoundtripRef;
+  localEditRoundtrip?: LocalEditRoundtripRef;
   batchSourcePath?: string;
   batchSourceSlotIndex?: number;
   maskB64?: string;
@@ -57,6 +59,26 @@ export type BatchTaskCreateInput = {
 
 function normalizeTaskAutoAspectResolution(value: unknown): Exclude<BatchProcessAutoAspectResolution, ""> | undefined {
   return value === "1k" || value === "2k" || value === "4k" ? value : undefined;
+}
+
+function cloneLocalEditRoundtrip(
+  value: LocalEditRoundtripRef | undefined,
+): LocalEditRoundtripRef | undefined {
+  if (!value) return undefined;
+  if (value.kind === "planar") {
+    return { ...value, cropRect: { ...value.cropRect } };
+  }
+  return {
+    ...value,
+    panoramaRoundtrip: {
+      ...value.panoramaRoundtrip,
+      roundtripState: {
+        ...value.panoramaRoundtrip.roundtripState,
+        source_erp: { ...value.panoramaRoundtrip.roundtripState.source_erp },
+        rect: { ...value.panoramaRoundtrip.roundtripState.rect },
+      },
+    },
+  };
 }
 
 export function makeBatchTaskId(workspaceId: string, slotIndex: number, createdAt = Date.now()) {
@@ -95,6 +117,7 @@ export function createBatchTaskRecord(input: BatchTaskCreateInput): BatchTaskRec
     sourceImagePaths: input.sourceImagePaths,
     sourceImages: input.sourceImages,
     panoramaRoundtrip: input.panoramaRoundtrip,
+    localEditRoundtrip: cloneLocalEditRoundtrip(input.localEditRoundtrip),
     batchSourcePath: input.batchSourcePath,
     batchSourceSlotIndex: input.batchSourceSlotIndex,
     maskB64: input.maskB64,
@@ -166,6 +189,7 @@ export function minimalHistoryItemFromBatchTask(task: BatchTaskRecord): HistoryI
     elapsedSec: task.elapsedSec,
     sourceImages: task.sourceImages,
     panoramaRoundtrip: task.panoramaRoundtrip,
+    localEditRoundtrip: task.localEditRoundtrip,
     parentId: task.batchSourcePath || task.sourceImagePaths?.[0],
     savedPath,
     rawPath: task.rawPath,
@@ -538,6 +562,7 @@ export function updateTaskFromHistoryItem(
       savedPath: item.savedPath || task.savedPath,
       rawPath: item.rawPath || task.rawPath,
       elapsedSec: Number.isFinite(Number(item.elapsedSec)) ? Number(item.elapsedSec) : task.elapsedSec,
+      localEditRoundtrip: item.localEditRoundtrip ?? task.localEditRoundtrip,
     },
   };
 }

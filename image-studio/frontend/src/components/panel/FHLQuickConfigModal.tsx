@@ -47,12 +47,30 @@ function DesktopFHLQuickConfigModal({
   onClose,
   onOpenUpstream,
 }: FHLQuickConfigModalProps) {
+  const [bulkPasteOpen, setBulkPasteOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) setBulkPasteOpen(false);
+  }, [open]);
+
+  function handleClose() {
+    setBulkPasteOpen(false);
+    onClose();
+  }
+
+  function handleOpenUpstream() {
+    setBulkPasteOpen(false);
+    void onOpenUpstream("");
+  }
+
   return (
-    <Modal open={open} onClose={onClose} title="FHL API 配置" width={900}>
+    <Modal open={open} onClose={handleClose} title="FHL API 配置" width={900}>
       <FHLDesktopAPIConfig
         active={open}
-        onClose={onClose}
-        onOpenAdvanced={() => void onOpenUpstream("")}
+        onClose={handleClose}
+        onOpenAdvanced={handleOpenUpstream}
+        bulkPasteOpen={bulkPasteOpen}
+        onBulkPasteOpenChange={setBulkPasteOpen}
       />
     </Modal>
   );

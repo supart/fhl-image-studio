@@ -69,6 +69,8 @@ test("reset patch returns a blank application state without owning API fields", 
   assert.equal(patch.theme, "system");
   assert.equal(patch.proxyMode, "system");
   assert.equal(patch.fhlPoolPerAPIConcurrencyLimit, 4);
+  assert.equal(patch.fhlTextAPIModelID, "gpt-5.6-sol");
+  assert.equal(patch.fhlTextAPIModelID, "gpt-5.6-sol");
 
   for (const apiField of [
     "profiles",

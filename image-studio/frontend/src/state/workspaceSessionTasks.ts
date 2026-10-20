@@ -1,4 +1,12 @@
-import type { BatchTaskRecord, Workspace } from "../types/domain";
+import type { BatchTaskRecord, LocalEditRoundtripRef, Workspace } from "../types/domain";
+
+export function storedLocalEditRoundtrip(value: unknown): LocalEditRoundtripRef | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const roundtrip = value as Partial<LocalEditRoundtripRef>;
+  return roundtrip.kind === "planar" || roundtrip.kind === "panorama"
+    ? value as LocalEditRoundtripRef
+    : undefined;
+}
 
 export function compactWorkspaceSessionTasks(
   workspaces: readonly Pick<Workspace, "id" | "batchTaskIds">[],

@@ -1,4 +1,4 @@
-import { lazy, Suspense, type MouseEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazy, Suspense, type ChangeEvent, type MouseEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ChevronDown, Clipboard, Copy, Expand, ImageUp, ListPlus, Minimize2, Plus, Sparkles, Trash2 } from "lucide-react";
 import { submitShortcutLabel } from "../../platform";
 import { usePlatform } from "../../platform/context";
@@ -30,7 +30,6 @@ export function PromptEditorSection({
   onSetPromptPrefix,
   onSetPrompt,
   onSetOptimizationGuidance,
-  onSelectReversePromptImage,
   onImportReversePromptImageFile,
   onClearReversePromptImage,
   onOptimizePromptBase,
@@ -57,7 +56,6 @@ export function PromptEditorSection({
   onSetPromptPrefix: (value: string) => void;
   onSetPrompt: (value: string) => void;
   onSetOptimizationGuidance: (value: string) => void;
-  onSelectReversePromptImage: () => void;
   onImportReversePromptImageFile: (file: File) => Promise<void>;
   onClearReversePromptImage: () => void;
   onOptimizePromptBase: () => void;
@@ -70,6 +68,7 @@ export function PromptEditorSection({
   const promptPrefixRef = useRef<HTMLTextAreaElement | null>(null);
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
   const optimizationGuidanceRef = useRef<HTMLTextAreaElement | null>(null);
+  const reversePromptFileInputRef = useRef<HTMLInputElement | null>(null);
   const mergePreviewTimerRef = useRef<number | null>(null);
   const [reverseDragActive, setReverseDragActive] = useState(false);
   const [reverseImageMenu, setReverseImageMenu] = useState<{ x: number; y: number } | null>(null);
@@ -99,6 +98,17 @@ export function PromptEditorSection({
     : promptTextProviderLabel
       ? "先上传、生成或导入一张图片"
       : promptTextStatus;
+  const openReversePromptFilePicker = () => {
+    const input = reversePromptFileInputRef.current;
+    if (!input) return;
+    input.value = "";
+    input.click();
+  };
+  const handleReversePromptFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (file) void onImportReversePromptImageFile(file);
+  };
   const promptPrefixMinHeight = usesFluentUI ? 72 : isMac ? 88 : 72;
   const promptCollapsedHeight = usesFluentUI ? 116 : isMac ? 132 : 116;
   const promptExpandedMinHeight = usesFluentUI ? 124 : isMac ? 176 : 124;
@@ -328,22 +338,33 @@ export function PromptEditorSection({
               </div>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={onSelectReversePromptImage}
-              onContextMenu={openReverseImageMenu}
-              disabled={promptBusy}
-              className={`flex min-h-[58px] w-full flex-col items-center justify-center gap-1 text-center transition-colors hover:bg-amber-100/70 disabled:cursor-not-allowed disabled:opacity-45 dark:hover:bg-yellow-400/10 ${usesFluentUI ? "rounded-[8px]" : "rounded-[10px]"}`}
-              title="可选功能：点击上传或拖入图片，用来反推中文提示词；不上传也可以直接输入提示词生成"
-            >
-              <span className="inline-flex items-center justify-center gap-2 text-[12px] font-medium text-amber-700 dark:text-yellow-200">
-                <ImageUp className="h-4 w-4" />
-                {reverseDragActive ? "松开导入反推图像" : "可选：导入反推图像"}
-              </span>
-              <span className="text-[10px] font-normal leading-4 text-amber-700/75 dark:text-yellow-100/70">
-                {reverseDragActive ? "释放后从图片反推中文提示词" : "不上传也可以直接输入提示词生成"}
-              </span>
-            </button>
+            <>
+              <input
+                ref={reversePromptFileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                tabIndex={-1}
+                aria-hidden="true"
+                className="sr-only"
+                onChange={handleReversePromptFileChange}
+              />
+              <button
+                type="button"
+                onClick={openReversePromptFilePicker}
+                onContextMenu={openReverseImageMenu}
+                disabled={promptBusy}
+                className={`flex min-h-[58px] w-full flex-col items-center justify-center gap-1 text-center transition-colors hover:bg-amber-100/70 disabled:cursor-not-allowed disabled:opacity-45 dark:hover:bg-yellow-400/10 ${usesFluentUI ? "rounded-[8px]" : "rounded-[10px]"}`}
+                title="可选功能：点击上传或拖入图片，用来反推中文提示词；不上传也可以直接输入提示词生成"
+              >
+                <span className="inline-flex items-center justify-center gap-2 text-[12px] font-medium text-amber-700 dark:text-yellow-200">
+                  <ImageUp className="h-4 w-4" />
+                  {reverseDragActive ? "松开导入反推图像" : "可选：导入反推图像"}
+                </span>
+                <span className="text-[10px] font-normal leading-4 text-amber-700/75 dark:text-yellow-100/70">
+                  {reverseDragActive ? "释放后从图片反推中文提示词" : "不上传也可以直接输入提示词生成"}
+                </span>
+              </button>
+            </>
           )}
         </div>
         {reverseImageMenu ? (

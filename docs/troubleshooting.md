@@ -64,7 +64,7 @@ Images API:
 
 还需要注意:
 
-- Images API 的多参考图支持取决于 relay；标准 OpenAI Images Edits 通常只接受单张 `image`。
+- Images API 会按参考图顺序重复发送 multipart `image` 字段；上游若只支持单图，仍可能拒绝或忽略后续图片。
 - 蒙版是否生效取决于目标模型和上游是否正确透传 multipart 或 Responses input mask。
 - 有些中转站会接受字段但静默忽略。
 

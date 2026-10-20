@@ -64,6 +64,7 @@ const expectedFacadeExports = [
   "ReversePrompt",
   "RotateImage",
   "SaveImageAs",
+  "SaveImageBlobToOutput",
   "SaveImagePathAs",
   "SaveImagePathToDir",
   "SaveImagePathToOutput",

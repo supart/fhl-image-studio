@@ -38,7 +38,10 @@ import { sourceContextPatchFromHistoryItem } from "./sourceContextSelection";
 import { patchWorkspaceRuntime, type WorkspacePatch } from "./workspaceRuntime";
 import { syncSharedEditAutoAspect } from "./sharedEditAutoAspect";
 import { applicationStateEpoch } from "./applicationStateReset.ts";
-import { recoverPanoramaHistoryMetadata } from "./panoramaRoundtripRecovery.ts";
+import {
+  recoverRoundtripHistoryMetadata,
+  recoverRoundtripItemMetadataFromTask,
+} from "./panoramaRoundtripRecovery.ts";
 import {
   captureWorkspaceAction,
   isWorkspaceActionCurrent,
@@ -185,6 +188,25 @@ async function ensureAllHistoryLoaded(store: StateAdapter): Promise<void> {
 }
 
 export function createMediaActions(store: StateAdapter) {
+  function recoverSelectedRoundtripItem(item: HistoryItem): HistoryItem {
+    const state = store.getState();
+    const task = Object.values(state.batchTasksById).find((candidate) => (
+      candidate.workspaceId === state.activeWorkspaceId
+      && (
+        candidate.historyItemId === item.id
+        || (!!candidate.savedPath && candidate.savedPath === item.savedPath)
+      )
+    ));
+    const recovered = recoverRoundtripItemMetadataFromTask(item, task, state.history);
+    if (recovered === item) return item;
+    store.setState((current) => ({
+      history: current.history.map((entry) => entry.id === recovered.id ? recovered : entry),
+      batchResults: current.batchResults.map((entry) => entry.id === recovered.id ? recovered : entry),
+    }));
+    void persistHistoryItems([recovered]).catch(() => undefined);
+    return recovered;
+  }
+
   async function transformCurrentImage(
     transform: (path: string) => Promise<{ path: string; acceleration?: string }>,
     successMessage: (result: { path: string; acceleration?: string }) => string,
@@ -348,6 +370,7 @@ export function createMediaActions(store: StateAdapter) {
     },
 
     selectBatchGridItem(item: HistoryItem) {
+      item = recoverSelectedRoundtripItem(item);
       const state = store.getState();
       store.setState({
         currentImage: toPreviewOnlyHistoryItem(item),
@@ -366,6 +389,7 @@ export function createMediaActions(store: StateAdapter) {
     },
 
     async selectBatchResult(item: HistoryItem) {
+      item = recoverSelectedRoundtripItem(item);
       const state = store.getState();
       const workspaceId = state.activeWorkspaceId;
       const token = captureWorkspaceAction(workspaceId, "select-batch-result", { supersede: true });
@@ -533,6 +557,7 @@ export function createMediaActions(store: StateAdapter) {
     },
 
     selectHistoryGalleryGridItem(item: HistoryItem) {
+      item = recoverSelectedRoundtripItem(item);
       const state = store.getState();
       store.setState({
         currentImage: toPreviewOnlyHistoryItem(item),
@@ -553,6 +578,7 @@ export function createMediaActions(store: StateAdapter) {
     },
 
     async selectHistoryGalleryResult(item: HistoryItem) {
+      item = recoverSelectedRoundtripItem(item);
       const state = store.getState();
       const workspaceId = state.activeWorkspaceId;
       const token = captureWorkspaceAction(workspaceId, "select-history-result", { supersede: true });
@@ -712,7 +738,7 @@ export function createMediaActions(store: StateAdapter) {
             ) return {};
             const existing = new Set(live.history.map((item) => item.id));
             incoming = nextPage.items.filter((item) => !existing.has(item.id));
-            const recovered = recoverPanoramaHistoryMetadata(
+            const recovered = recoverRoundtripHistoryMetadata(
               trimHistory([...live.history, ...incoming].sort((a, b) => b.createdAt - a.createdAt)),
               live.batchTasksById,
             );

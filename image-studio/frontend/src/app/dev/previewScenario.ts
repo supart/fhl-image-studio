@@ -53,6 +53,8 @@ export function applyMacWorkspacePreviewToStore(workspaceId = "preview-workspace
     historyTimelineOpen: false,
     tool: "pan",
     brushSize: 24,
+    annotationStrokeWidth: 4,
+    annotationFontSize: 20,
     brushMode: "paint",
     annotationKind: "rect",
     annotationColor: "#ff4d4d",

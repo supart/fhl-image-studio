@@ -13,6 +13,7 @@ test("desktop FHL setup uses ten independent Images slots while Android retains 
   const quickModal = source("../src/components/panel/FHLQuickConfigModal.tsx");
   const poolConfig = source("../src/components/panel/FHLImagesPoolConfig.tsx");
   const textAPI = source("../src/lib/fhlTextAPI.ts");
+  const textModel = source("../src/lib/fhlTextAPIModel.ts");
   const textConfig = source("../src/components/panel/FHLTextAPIConfig.tsx");
   const desktopConfig = source("../src/components/panel/FHLDesktopAPIConfig.tsx");
   const historyRail = source("../src/components/history/HistoryRail.tsx");
@@ -34,7 +35,13 @@ test("desktop FHL setup uses ten independent Images slots while Android retains 
 
   assert.match(quickModal, /if \(!isAndroid\) return <DesktopFHLQuickConfigModal/);
   assert.match(quickModal, /function DesktopFHLQuickConfigModal/);
-  assert.match(quickModal, /onOpenAdvanced=\{\(\) => void onOpenUpstream\(""\)\}/);
+  assert.match(quickModal, /const \[bulkPasteOpen, setBulkPasteOpen\] = useState\(false\)/);
+  assert.match(quickModal, /useEffect\(\(\) => \{[\s\S]{0,120}if \(!open\) setBulkPasteOpen\(false\)/);
+  assert.match(quickModal, /function handleClose\(\)[\s\S]{0,120}setBulkPasteOpen\(false\)[\s\S]{0,80}onClose\(\)/);
+  assert.match(quickModal, /function handleOpenUpstream\(\)[\s\S]{0,120}setBulkPasteOpen\(false\)[\s\S]{0,100}onOpenUpstream\(""\)/);
+  assert.match(quickModal, /onOpenAdvanced=\{handleOpenUpstream\}/);
+  assert.match(quickModal, /bulkPasteOpen=\{bulkPasteOpen\}/);
+  assert.match(quickModal, /onBulkPasteOpenChange=\{setBulkPasteOpen\}/);
   assert.match(quickModal, /function LegacyFHLQuickConfigModal/);
   assert.match(quickModal, /<FHLDesktopAPIConfig/);
   assert.match(quickModal, /configureFHLProfilesWithSharedAPIKey/);
@@ -135,14 +142,21 @@ test("desktop FHL setup uses ten independent Images slots while Android retains 
   assert.match(textAPI, /FHL_TEXT_API_CREDENTIAL_ID = "fhl-text-assistant"/);
   assert.match(textAPI, /FHL_TEXT_API_KEYRING_USER = keyringUserFor\(FHL_TEXT_API_CREDENTIAL_ID\)/);
   assert.match(textAPI, /OptimizePrompt\(\{/);
-  assert.match(textAPI, /textModelID: FHL_TEXT_API_MODEL_ID/);
+  assert.match(textAPI, /textModelID: modelID/);
+  assert.match(textModel, /FHL_TEXT_API_DEFAULT_MODEL_ID = "gpt-5\.6-sol"/);
+  assert.match(textModel, /FHL_TEXT_API_LEGACY_MODEL_ID = "gpt-5\.5"/);
+  assert.match(textModel, /gptcodex\.fhlTextAPI\.modelID\.v1/);
+  assert.match(textModel, /不能超过 128 个字符/);
+  assert.match(textModel, /不能包含控制字符/);
   assert.doesNotMatch(textAPI, /createProfile|updateProfile|localStorage/);
 
   assert.ok(desktopConfig.indexOf("<FHLTextAPIConfig") < desktopConfig.indexOf("<FHLImagesPoolConfig"));
   assert.match(textConfig, /data-audit-id="fhl-text-api-config"/);
   assert.match(textConfig, /type="password"/);
   assert.match(textConfig, /FHL Responses/);
-  assert.match(textConfig, /FHL_TEXT_API_MODEL_ID/);
+  assert.match(textConfig, /fhl-text-model-select/);
+  assert.match(textConfig, /fhl-text-custom-model-input/);
+  assert.match(textConfig, /setFHLTextAPIModelID/);
   assert.match(textConfig, /保存并测试文本 API/);
   assert.match(textConfig, /已保存，测试失败/);
   assert.doesNotMatch(textConfig, /GetStoredAPIKey|SetStoredAPIKey|localStorage/);
