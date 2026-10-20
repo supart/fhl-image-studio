@@ -263,6 +263,12 @@ func resolvePathWithExistingAncestor(path string) (string, error) {
 }
 
 func isWithinRoot(path, root string) bool {
+	if resolved, err := resolvePathWithExistingAncestor(path); err == nil {
+		path = resolved
+	}
+	if resolved, err := resolvePathWithExistingAncestor(root); err == nil {
+		root = resolved
+	}
 	rel, err := filepath.Rel(root, path)
 	if err != nil {
 		return false

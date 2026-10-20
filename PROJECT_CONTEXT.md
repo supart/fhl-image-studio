@@ -2,6 +2,7 @@
 
 ## 2026-10-21 V2.0.4 GitHub 正式发布基线
 
+- 首次远端 CI 的 Windows Desktop 测试暴露 `RUNNER~1` 与 `runneradmin` 的 8.3/长路径等价判断问题；共享 `isWithinRoot()` 已改为先解析现有祖先再做 `filepath.Rel`，不放宽托管目录边界。修复后必须重新通过本地 Go 测试和完整 GitHub CI，正式标签仍未创建。
 - 用户已确认 Windows V2.0.4 手动验收通过，本批次按 V2.0.3 的独立 Windows 发布方式收口。
 - 功能收口提交为 `92b4ce9`；正式发布分支为 `release/windows-v2.0.4`，标签固定为 `windows-v2.0.4-release`。
 - 不合并、不修改远程 `main`，不覆盖 macOS Release/DMG、Android、V2.0.3 或 Photoshop 插件项目。
