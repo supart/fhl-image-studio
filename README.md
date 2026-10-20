@@ -60,7 +60,8 @@ Photoshop UXP 插件是与桌面版、安卓版并列的独立销售项目。它
 - [构建与发布](./docs/build.md)
 - [V2.0.4 开发工作流](./docs/development-workflow.md)
 - [项目结构](./docs/project-structure.md)
-- [V2.0.4 开发发布说明](./RELEASE_NOTES_DESKTOP_V2.0.4.md)
+- [V2.0.4 正式发布说明](./RELEASE_NOTES_DESKTOP_V2.0.4.md)
+- [V2.0.4 验收报告](./V2.0.4_ACCEPTANCE_REPORT.md)
 - [V2.0.3 历史发布说明](./RELEASE_NOTES_DESKTOP_V2.0.3.md)
 - [V2.0.3 历史验收报告](./V2.0.3_ACCEPTANCE_REPORT.md)
 

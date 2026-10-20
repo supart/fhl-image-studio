@@ -22,4 +22,3 @@
 本批使用 Go handler 测试和插件 Mock Fetch 测试，不调用真实或付费图像 API，不
 修改 V2.0.3 正式文件、Adobe External 旁载、用户配置或运行数据。完整 `go test`
 和桌面分层门禁需在提交前执行。
-

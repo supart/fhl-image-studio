@@ -1,5 +1,14 @@
 # FHL Studio Windows V2.0.4 开发交接
 
+## 2026-10-21 V2.0.4 GitHub 正式发布基线
+
+- 用户已确认 Windows V2.0.4 手动验收通过，本批次按 V2.0.3 的独立 Windows 发布方式收口。
+- 功能收口提交为 `92b4ce9`；正式发布分支为 `release/windows-v2.0.4`，标签固定为 `windows-v2.0.4-release`。
+- 不合并、不修改远程 `main`，不覆盖 macOS Release/DMG、Android、V2.0.3 或 Photoshop 插件项目。
+- 公开手工附件只包含 Windows Portable ZIP、干净源码 ZIP 和 `SHA256SUMS.txt`；两个 ZIP 必须从最终标签提交重新生成。
+- 发布包默认无 API、无活动 Profile，不含 `cli.env.local`、Credential Manager 数据、WebView、用户图片、历史、任务或日志。
+- 恢复点：先完成本地门禁和发布文档提交，再推送独立 Windows 分支；GitHub CI 全绿后才创建正式标签、重建附件并公开 Release。
+
 ## 2026-10-20 V2.0.4 收口、无 API 默认状态与最终 Portable（已完成）
 
 - 当前断点：分支 `codex/windows-v2.0.4-feature/local-edit-360-parity`，提交基线 `70857fad718b6a8997b57cb1edbec1d6f808e5eb`；工作树仍包含本轮及此前未提交开发改动，不提交、不打标签、不推送，不能把成品标记为正式 GitHub Release。

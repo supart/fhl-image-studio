@@ -36,6 +36,8 @@
 | 文档 | 记录内容 |
 | --- | --- |
 | [CHANGELOG](../CHANGELOG.md) | 跨版本、面向发布的功能与修复摘要 |
+| [V2.0.4 发布说明](../RELEASE_NOTES_DESKTOP_V2.0.4.md) | Windows V2.0.4 正式交付内容、安装和安全边界 |
+| [V2.0.4 验收报告](../V2.0.4_ACCEPTANCE_REPORT.md) | 测试基线、默认状态和发布边界 |
 | [V2.0.3 发布说明](../RELEASE_NOTES_DESKTOP_V2.0.3.md) | 单一版本的交付内容、产物和已知边界 |
 | [V2.0.3 验收报告](../V2.0.3_ACCEPTANCE_REPORT.md) | 测试矩阵、Portable 产物校验和残余风险 |
 | [详细变更记录](./changes/) | 每个开发批次、事故调查或性能验证的完整过程 |

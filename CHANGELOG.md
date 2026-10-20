@@ -1,11 +1,11 @@
 # CHANGELOG
 
-## 桌面版 V2.0.4（开发中）
+## 桌面版 V2.0.4 - 2026-10-21
 
-- 完成当前开发候选收口并生成新的隔离 Windows Portable：重新构建 Wails EXE 与 CLI，发布安全检查为 `Issues: 0`，Portable 合同测试 `3/3`，包内不含 API 配置、用户图片、历史或 WebView 数据。本机开发/稳定命名空间的固定 FHL 凭据和源码 `cli.env.local` 已清除，源码 Wails 与 Portable 握手均确认 `profile.ready=false`。该包仍来自未提交开发工作树，不是正式 GitHub Release。详见 `docs/changes/2026-10-20-windows-v2.0.4-final-portable-api-reset.md`。
+- Windows V2.0.4 已完成功能收口与人工验收，正式交付使用独立 `release/windows-v2.0.4` 分支和 `windows-v2.0.4-release` 标签；仅发布脱敏源码、Windows Portable 和 SHA-256 清单，不修改 macOS `main`、Android、V2.0.3 或 Photoshop 插件项目。详见 `docs/changes/2026-10-21-windows-v2.0.4-github-release.md`。
 - FHL 文本模型拉取入口已移到模型下拉框右侧，并改为蓝色描边“拉取模型列表”；底部重复入口已移除，“保存并测试文本 API”仍是唯一蓝色实心主按钮。模型请求、凭据读取和选择持久化逻辑不变。详见 `docs/changes/2026-10-20-windows-v2.0.4-fhl-text-model-fetch-button.md`。
 - FHL 独立文本 API 新增手动“获取模型”：使用当前输入或已保存的文本 Key 请求 `/v1/models`，按上游顺序展示有效模型，保留未被新列表返回的当前选择和自定义模型入口。模型列表只在当前配置会话保留；选择后仍由“保存并测试文本 API”确认 `/v1/responses` 能力，不自动联网、不提前保存新 Key、不静默切换模型。详见 `docs/changes/2026-10-19-windows-v2.0.4-fhl-text-dynamic-model-list.md`。
-- 修复 Images API 多参考图中第二张及以后可能失效的问题：桌面 Wails/CLI 与浏览器远程回退路径现在都按原顺序重复发送 multipart `image` 字段，不再把后续参考图改名为 `image[]`。单图、Responses、APIMart、RunningHub 和 Bridge 协议不变；三张参考图已在源码 Wails 版通过真实 FHL Images 上游人工验收。V2.0.4 仍是开发版，不代表正式发布。详见 `docs/changes/2026-10-13-windows-v2.0.4-multi-reference-upload-fix.md`。
+- 修复 Images API 多参考图中第二张及以后可能失效的问题：桌面 Wails/CLI 与浏览器远程回退路径现在都按原顺序重复发送 multipart `image` 字段，不再把后续参考图改名为 `image[]`。单图、Responses、APIMart、RunningHub 和 Bridge 协议不变；三张参考图已在源码 Wails 版通过真实 FHL Images 上游人工验收，该修复已纳入 V2.0.4 正式版。详见 `docs/changes/2026-10-13-windows-v2.0.4-multi-reference-upload-fix.md`。
 - 修复普通局部重绘连续生成后贴回入口消失和重启后丢失裁切身份的问题：任务顶层保留 `localEditRoundtrip`，结果/历史按精确 ID 或规范化完整路径恢复；每张合格最终结果现在提供自动、手动、导入贴回菜单，已贴回终态不会重复显示入口。详见 `docs/changes/2026-09-07-windows-v2.0.4-local-edit-pasteback-state.md`。
 - 修复完整 Wails 开发程序点击“导入反推图像”时原生文件对话框导致 WebView2 崩溃的问题：反推入口现在使用 WebView 内置文件选择器，选中文件后仍复用原有受管导入链路；普通源图和批量文件入口保持不变。详见 `docs/changes/2026-08-27-windows-v2.0.4-reverse-image-picker-crash.md`。
 - Wails 事件清理现在兼容 WebView IPC 已关闭的退出阶段，避免文件选择器或窗口关闭后的二次异常。
