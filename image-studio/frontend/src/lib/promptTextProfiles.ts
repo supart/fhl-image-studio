@@ -1,6 +1,7 @@
 import type { APIMode, UpstreamProfile } from "../types/domain";
 import { isOfficialFHLProfile } from "./providerPolicy.ts";
-import { FHL_BASE_URL, FHL_TEXT_MODEL_ID } from "./profiles.ts";
+import { FHL_BASE_URL } from "./profiles.ts";
+import { FHL_TEXT_API_DEFAULT_MODEL_ID } from "./fhlTextAPIModel.ts";
 
 export type PromptTextProvider = "fhl-text" | "apimart" | "responses" | "current" | "none";
 
@@ -19,6 +20,7 @@ export interface PromptTextCapabilityInput {
   textModelID: string;
   profiles: UpstreamProfile[];
   fhlTextAPIConfigured?: boolean;
+  fhlTextAPIModelID?: string;
 }
 
 export interface PromptTextSelection {
@@ -52,7 +54,7 @@ export function resolvePromptTextSelection(input: PromptTextCapabilityInput): Pr
       source: "fhl-text",
       provider: "fhl-text",
       baseURL: FHL_BASE_URL,
-      textModelID: FHL_TEXT_MODEL_ID,
+      textModelID: clean(input.fhlTextAPIModelID) || FHL_TEXT_API_DEFAULT_MODEL_ID,
     };
   }
 
@@ -105,7 +107,7 @@ export function resolvePromptTextCapability(input: PromptTextCapabilityInput): P
     return {
       available: true,
       provider: "fhl-text",
-      label: `FHL 文本 API：${FHL_TEXT_MODEL_ID}`,
+      label: `FHL 文本 API：${selection.textModelID}`,
       reason: "",
     };
   }

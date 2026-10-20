@@ -1,14 +1,14 @@
 import {
   Brush, Crop, Eraser, FlipHorizontal, FlipVertical, Hand, WandSparkles,
-  ArrowLeft, Compass, FolderOpen, Info, MoveRight, Pencil, RotateCcw, RotateCw, Save, Share2, Square,
-  Trash2, Maximize, Minimize, Type as TypeIcon,
+  ArrowLeft, ChevronDown, ChevronUp, Compass, FolderOpen, Info, PenLine, RotateCcw, RotateCw, Save, Share2,
+  Trash2, Maximize, Minimize,
 } from "lucide-react";
-import { ANNOTATION_COLORS } from "../../types/domain";
-import { fullscreenShortcutLabel, redoShortcutLabel, undoShortcutLabel } from "../../platform";
+import { AnnotationToolbar } from "../../features/annotation/AnnotationToolbar";
+import type { AnnotationTool } from "../../features/annotation/annotationTypes";
+import { fullscreenShortcutLabel } from "../../platform";
 import { usePlatform } from "../../platform/context";
 import { HistoryMetaBadges } from "../history/HistoryMetaBadges";
 import {
-  colorDotRadius,
   pillRadius,
   ToolBtn,
   ToolbarNote,
@@ -19,38 +19,38 @@ import {
 export function BaseToolSection({
   hasImage,
   tool,
-  undoDisabled,
-  redoDisabled,
+  annotationToolsExpanded,
+  annotationPreparing = false,
   onSetTool,
-  onUndo,
-  onRedo,
+  onToggleAnnotationTools,
 }: {
   hasImage: boolean;
   tool: "pan" | "mask" | "annotate";
-  undoDisabled: boolean;
-  redoDisabled: boolean;
+  annotationToolsExpanded?: boolean;
+  annotationPreparing?: boolean;
   onSetTool: (tool: "pan" | "mask" | "annotate") => void;
-  onUndo: () => void;
-  onRedo: () => void;
+  onToggleAnnotationTools?: () => void;
 }) {
-  const { isMac } = usePlatform();
+  const { usesMacDesktopUI } = usePlatform();
   return (
     <>
-      <ToolBtn active={tool === "pan"} disabled={!hasImage} onClick={() => onSetTool("pan")} title="拖动 / 缩放 (1)" label={isMac ? "拖动" : undefined}>
+      <ToolBtn active={tool === "pan"} disabled={!hasImage} onClick={() => onSetTool("pan")} title="拖动 / 缩放 (1)" label={usesMacDesktopUI ? "拖动" : undefined}>
         <Hand className="w-3.5 h-3.5" />
       </ToolBtn>
-      <ToolBtn active={tool === "mask"} disabled={!hasImage} onClick={() => onSetTool("mask")} title="蒙版画笔 (2)" label={isMac ? "蒙版" : undefined}>
+      <ToolBtn active={tool === "mask"} disabled={!hasImage} onClick={() => onSetTool("mask")} title="蒙版画笔 (2)" label={usesMacDesktopUI ? "蒙版" : undefined}>
         <Brush className="w-3.5 h-3.5" />
       </ToolBtn>
-      <ToolBtn active={tool === "annotate"} disabled={!hasImage} onClick={() => onSetTool("annotate")} title="画框标注 (3)" label={isMac ? "标注" : undefined}>
-        <Square className="w-3.5 h-3.5" />
-      </ToolBtn>
-      <ToolBtn disabled={!hasImage || undoDisabled} onClick={onUndo} title={`撤销 (${undoShortcutLabel})`} label={isMac ? "撤销" : undefined}>
-        <RotateCcw className="w-3.5 h-3.5" />
-      </ToolBtn>
-      <ToolBtn disabled={!hasImage || redoDisabled} onClick={onRedo} title={`重做 (${redoShortcutLabel})`} label={isMac ? "重做" : undefined}>
-        <RotateCw className="w-3.5 h-3.5" />
-      </ToolBtn>
+      <ToolbarPrimaryButton
+        dataAuditId="annotation-tool-entry"
+        disabled={!hasImage || annotationPreparing}
+        ariaExpanded={tool === "annotate" ? annotationToolsExpanded : false}
+        onClick={onToggleAnnotationTools ?? (() => onSetTool("annotate"))}
+        title={annotationPreparing ? "正在压缩标注源图像" : tool === "annotate" && annotationToolsExpanded ? "收起图像标注工具 (3)" : "展开图像标注工具 (3)"}
+      >
+        <PenLine className="w-3.5 h-3.5" />
+        {annotationPreparing ? "压缩中…" : "图像标注工具"}
+        {!annotationPreparing && (tool === "annotate" && annotationToolsExpanded ? <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" /> : <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />)}
+      </ToolbarPrimaryButton>
     </>
   );
 }
@@ -61,14 +61,20 @@ export function ContextualSection({
   showViewReset,
   brushMode,
   brushSize,
+  annotationStrokeWidth,
+  annotationFontSize,
   annotationKind,
   annotationColor,
   onSetBrushMode,
   onSetBrushSize,
+  onSetAnnotationStrokeWidth,
+  onSetAnnotationFontSize,
   onResetMask,
   onSetAnnotationKind,
   onSetAnnotationColor,
   onClearAnnotations,
+  onConfirmAnnotations,
+  annotationConfirming = false,
   onResetView,
 }: {
   showMaskTools: boolean;
@@ -76,25 +82,31 @@ export function ContextualSection({
   showViewReset: boolean;
   brushMode: "paint" | "erase";
   brushSize: number;
-  annotationKind: "rect" | "arrow" | "freehand" | "text";
+  annotationStrokeWidth: number;
+  annotationFontSize: number;
+  annotationKind: AnnotationTool;
   annotationColor: string;
   onSetBrushMode: (mode: "paint" | "erase") => void;
   onSetBrushSize: (size: number) => void;
+  onSetAnnotationStrokeWidth: (size: number) => void;
+  onSetAnnotationFontSize: (size: number) => void;
   onResetMask: () => void;
-  onSetAnnotationKind: (kind: "rect" | "arrow" | "freehand" | "text") => void;
+  onSetAnnotationKind: (kind: AnnotationTool) => void;
   onSetAnnotationColor: (color: string) => void;
   onClearAnnotations: () => void;
   onResetView: () => void;
+  onConfirmAnnotations: () => void;
+  annotationConfirming?: boolean;
 }) {
-  const { isMac, usesFluentUI } = usePlatform();
+  const { usesMacDesktopUI } = usePlatform();
   return (
     <>
       {showMaskTools ? (
         <>
-          <ToolBtn active={brushMode === "paint"} onClick={() => onSetBrushMode("paint")} title="画笔" label={isMac ? "画笔" : undefined}>
+          <ToolBtn active={brushMode === "paint"} onClick={() => onSetBrushMode("paint")} title="画笔" label={usesMacDesktopUI ? "画笔" : undefined}>
             <Brush className="w-3.5 h-3.5" />
           </ToolBtn>
-          <ToolBtn active={brushMode === "erase"} onClick={() => onSetBrushMode("erase")} title="橡皮(取消蒙版)" label={isMac ? "橡皮" : undefined}>
+          <ToolBtn active={brushMode === "erase"} onClick={() => onSetBrushMode("erase")} title="橡皮(取消蒙版)" label={usesMacDesktopUI ? "橡皮" : undefined}>
             <Eraser className="w-3.5 h-3.5" />
           </ToolBtn>
           <span className="ml-1 text-[11px] text-zinc-500">大小</span>
@@ -115,35 +127,20 @@ export function ContextualSection({
 
       {showAnnotationTools ? (
         <>
-          <ToolBtn active={annotationKind === "rect"} onClick={() => onSetAnnotationKind("rect")} title="矩形" label={isMac ? "矩形" : undefined}>
-            <Square className="w-3.5 h-3.5" />
-          </ToolBtn>
-          <ToolBtn active={annotationKind === "arrow"} onClick={() => onSetAnnotationKind("arrow")} title="箭头" label={isMac ? "箭头" : undefined}>
-            <MoveRight className="w-3.5 h-3.5" />
-          </ToolBtn>
-          <ToolBtn active={annotationKind === "freehand"} onClick={() => onSetAnnotationKind("freehand")} title="自由画笔" label={isMac ? "自由画" : undefined}>
-            <Pencil className="w-3.5 h-3.5" />
-          </ToolBtn>
-          <ToolBtn active={annotationKind === "text"} onClick={() => onSetAnnotationKind("text")} title="文字" label={isMac ? "文字" : undefined}>
-            <TypeIcon className="w-3.5 h-3.5" />
-          </ToolBtn>
-          <span className="mx-0.5 h-4 w-px bg-black/10 dark:bg-white/10" />
-          <div className="flex items-center gap-1">
-            {ANNOTATION_COLORS.map((c) => (
-              <button
-                key={c}
-                onClick={() => onSetAnnotationColor(c)}
-                title={c}
-                style={{ background: c }}
-                className={`h-4 w-4 ring-1 transition-all ${
-                  annotationColor === c ? "ring-2 ring-offset-1 ring-[color:var(--accent)]" : "ring-black/10 dark:ring-white/10"
-                } ${colorDotRadius(usesFluentUI)}`}
-              />
-            ))}
-          </div>
-          <ToolbarTextButton onClick={onClearAnnotations} tone="danger">
-            清空标注
-          </ToolbarTextButton>
+          <AnnotationToolbar
+            tool={annotationKind}
+            color={annotationColor}
+            strokeWidth={annotationStrokeWidth}
+            fontSize={annotationFontSize}
+            onToolChange={onSetAnnotationKind}
+            onColorChange={onSetAnnotationColor}
+            onStrokeWidthChange={onSetAnnotationStrokeWidth}
+            onFontSizeChange={onSetAnnotationFontSize}
+            onClear={onClearAnnotations}
+            onConfirm={onConfirmAnnotations}
+            disabled={annotationConfirming}
+            busy={annotationConfirming}
+          />
         </>
       ) : null}
 
@@ -152,7 +149,7 @@ export function ContextualSection({
           <ToolbarTextButton onClick={onResetView} title="重置视图 (F)">
             重置视图
           </ToolbarTextButton>
-          {isMac ? <ToolbarNote>拖动画布 · 滚轮缩放</ToolbarNote> : null}
+          {usesMacDesktopUI ? <ToolbarNote>拖动画布 · 滚轮缩放</ToolbarNote> : null}
         </>
       ) : null}
     </>
@@ -178,7 +175,7 @@ export function TransformSection({
   cropAction: null | (() => void);
   localEditAction?: null | (() => void);
 }) {
-  const { isMac, usesFluentUI } = usePlatform();
+  const { usesMacDesktopUI, usesFluentUI } = usePlatform();
   return (
     <>
       {isAndroidPhone ? (
@@ -192,16 +189,16 @@ export function TransformSection({
         </ToolbarTextButton>
       ) : (
         <>
-          <ToolBtn onClick={() => onRotate(-90)} disabled={!currentImageSavedPath} title="左转 90°" label={isMac ? "左转" : undefined}>
+          <ToolBtn onClick={() => onRotate(-90)} disabled={!currentImageSavedPath} title="左转 90°" label={usesMacDesktopUI ? "左转" : undefined}>
             <RotateCcw className="w-3.5 h-3.5" />
           </ToolBtn>
-          <ToolBtn onClick={() => onRotate(90)} disabled={!currentImageSavedPath} title="右转 90°" label={isMac ? "右转" : undefined}>
+          <ToolBtn onClick={() => onRotate(90)} disabled={!currentImageSavedPath} title="右转 90°" label={usesMacDesktopUI ? "右转" : undefined}>
             <RotateCw className="w-3.5 h-3.5" />
           </ToolBtn>
-          <ToolBtn onClick={() => onFlip(true)} disabled={!currentImageSavedPath} title="水平翻转" label={isMac ? "水平翻转" : undefined}>
+          <ToolBtn onClick={() => onFlip(true)} disabled={!currentImageSavedPath} title="水平翻转" label={usesMacDesktopUI ? "水平翻转" : undefined}>
             <FlipHorizontal className="w-3.5 h-3.5" />
           </ToolBtn>
-          <ToolBtn onClick={() => onFlip(false)} disabled={!currentImageSavedPath} title="竖直翻转" label={isMac ? "竖直翻转" : undefined}>
+          <ToolBtn onClick={() => onFlip(false)} disabled={!currentImageSavedPath} title="竖直翻转" label={usesMacDesktopUI ? "竖直翻转" : undefined}>
             <FlipVertical className="w-3.5 h-3.5" />
           </ToolBtn>
         </>
@@ -342,11 +339,11 @@ export function ActionSection({
   onSaveAs: () => void;
   onShare: () => void;
 }) {
-  const { isMac, usesFluentUI, isAndroidPhone } = usePlatform();
+  const { usesMacDesktopUI, usesFluentUI, isAndroidPhone } = usePlatform();
   const clearViewTitle = clearViewDisabled ? "运行中暂不能清空视图" : "清空当前批次，不删除历史和文件";
   return (
     <>
-      <ToolBtn onClick={onToggleFullscreen} title={fullscreen ? `退出全屏 (${fullscreenShortcutLabel})` : `全屏 (${fullscreenShortcutLabel})`} label={isMac ? "全屏" : undefined}>
+      <ToolBtn onClick={onToggleFullscreen} title={fullscreen ? `退出全屏 (${fullscreenShortcutLabel})` : `全屏 (${fullscreenShortcutLabel})`} label={usesMacDesktopUI ? "全屏" : undefined}>
         {fullscreen ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
       </ToolBtn>
       {hasViewContent ? (
@@ -387,10 +384,10 @@ export function ActionSection({
               </ToolbarTextButton>
             )
           ) : null}
-          <ToolBtn onClick={onOpenDetail} title="查看本张图的详细信息" label={isMac ? "详情" : undefined}>
+          <ToolBtn onClick={onOpenDetail} title="查看本张图的详细信息" label={usesMacDesktopUI ? "详情" : undefined}>
             <Info className="w-3.5 h-3.5" />
           </ToolBtn>
-          <ToolBtn onClick={onShare} title="分享图片" label={isMac ? "分享" : undefined}>
+          <ToolBtn onClick={onShare} title="分享图片" label={usesMacDesktopUI ? "分享" : undefined}>
             <Share2 className="w-3.5 h-3.5" />
           </ToolBtn>
           {!isAndroidPhone ? (

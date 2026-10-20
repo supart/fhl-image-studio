@@ -2,4 +2,40 @@
 set -eu
 
 ROOT=$(git rev-parse --show-toplevel)
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$ROOT/scripts/dev-check.ps1" -Level Fast
+
+if command -v powershell.exe >/dev/null 2>&1; then
+  exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$ROOT/scripts/dev-check.ps1" -Level Fast
+fi
+
+cd "$ROOT"
+git -c core.autocrlf=false -c core.safecrlf=false diff --check
+git -c core.autocrlf=false -c core.safecrlf=false diff --cached --check
+node scripts/sync-version-metadata.mjs --check
+
+node - "$ROOT" <<'NODE'
+const { execFileSync } = require("node:child_process");
+
+const root = process.argv[2];
+const output = execFileSync(
+  "git",
+  ["-C", root, "diff", "--cached", "--name-only", "-z"],
+  { encoding: "utf8" },
+);
+const paths = output.split("\0").filter(Boolean);
+const forbidden = paths.filter((filePath) => {
+  const generatedOrPrivateDirectory = /(^|\/)(node_modules|config\/webview|frontend\/dist|build\/bin)\//.test(filePath);
+  const privateOrBinaryFile = /(^|\/)(cli\.env\.local|.*\.local(?:\.json)?|.*\.log|.*\.exe)$/.test(filePath);
+  const runtimeDirectory = /(^|\/)(input|output|intermediate)\//.test(filePath)
+    && !/(^|\/)(input|output|intermediate)\/\.gitkeep$/.test(filePath);
+  const archiveDirectory = /(^|\/)开发归档\//.test(filePath);
+  return generatedOrPrivateDirectory || privateOrBinaryFile || runtimeDirectory || archiveDirectory;
+});
+
+if (forbidden.length > 0) {
+  console.error("Refusing to commit private, generated, or binary files:");
+  for (const filePath of forbidden) console.error(`- ${filePath}`);
+  process.exit(1);
+}
+
+console.log("[git hook] staged file safety passed");
+NODE

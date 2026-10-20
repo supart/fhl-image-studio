@@ -172,10 +172,14 @@ func renderCLIEnv(input CLIConfigSyncInput) string {
 		"IMAGE_STUDIO_QUALITY=" + input.Quality,
 		"IMAGE_STUDIO_SIZE=" + input.Size,
 		"IMAGE_STUDIO_PARTIAL_IMAGES=" + strconv.Itoa(input.PartialImages),
-		`IMAGE_STUDIO_INPUT_DIR=.\input`,
-		`IMAGE_STUDIO_OUTPUT_DIR=.\output`,
-		`IMAGE_STUDIO_RAW_DIR=.\output\log`,
+		"IMAGE_STUDIO_INPUT_DIR=" + cliRelativePath("input"),
+		"IMAGE_STUDIO_OUTPUT_DIR=" + cliRelativePath("output"),
+		"IMAGE_STUDIO_RAW_DIR=" + cliRelativePath("output", "log"),
 		"",
 	}
 	return strings.Join(lines, "\n")
+}
+
+func cliRelativePath(parts ...string) string {
+	return "." + string(filepath.Separator) + filepath.Join(parts...)
 }

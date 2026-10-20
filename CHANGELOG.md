@@ -1,7 +1,70 @@
 # CHANGELOG
 
-## 桌面版 V2.0.4（开发中）
+## 桌面版 V2.0.4（macOS 正式发布；Windows 继续独立开发）
 
+- macOS V2.0.4 以独立 `codex/macos-v2.0.4-release` 分支和注解标签 `v2.0.4` 封板，不合并或改写 `main`，也不改动 Windows/Android 的分支、标签、资产和 Latest 状态。正式 Release 固定提供 Universal DMG、对应源码 ZIP 与 `SHA256SUMS.txt` 三项资产，并由同一标签提交重新构建和校验。
+
+- 恢复 macOS V2.0.3 已验证的宿主/展示平台分离：真实宿主保持 macOS，桌面展示使用 `windows-parity` Fluent 基线。根节点同时记录 host、presentation 和 UI variant；Fluent 样式改按 `data-presentation-platform="windows"` 生效，macOS 快捷键、WKWebView、Finder、Keychain、原生面板、拖拽和路径语义保持不变。
+- macOS 已恢复 Windows V2.0.4 的完整工作区入口与结构：Header 一键/完整 FHL 配置、FHL Images/Responses 切换与推广信息，紧凑 Compose/Advanced、工具栏、完整状态栏、`WindowsHistoryRail`，以及含输出目录、GitHub、反馈、统计、运行状态和版本的 Footer；现有标注、本地编辑、360、API 池、动态模型和批次任务能力不回退。
+- macOS 视觉恢复为 V2.0.3 的蓝灰 Fluent 色板与紧凑尺寸，并保留 `86px` 交通灯安全区。bundle 新增 `顶部推广信息.txt` Resources 回退、`FHLDesktopUIVariant`/`FHLVisualBaseline` plist 合同及对应只读验证；新增 parity 合同和壳层离线测试，未调用真实或付费 API。
+- 本轮 parity 修改后的 Universal `.app` 已完成重新构建、启动、进程确认和只读验证；前端、Desktop Go、CLI、双平台 production build、Keychain/Bridge 冒烟及 `1280x800`、`1440x900` 浅深色实机布局检查均通过。正式哈希不沿用开发候选值，以 Release 同页的 `SHA256SUMS.txt` 和从标签提交重建的产物验证结果为准；ad-hoc + hardened runtime 未获得 Developer ID 或公证分发信任。
+- 完成当前开发候选收口并生成新的隔离 Windows Portable：重新构建 Wails EXE 与 CLI，发布安全检查为 `Issues: 0`，Portable 合同测试 `3/3`，包内不含 API 配置、用户图片、历史或 WebView 数据。本机开发/稳定命名空间的固定 FHL 凭据和源码 `cli.env.local` 已清除，源码 Wails 与 Portable 握手均确认 `profile.ready=false`。该包仍来自未提交开发工作树，不是正式 GitHub Release。详见 `docs/changes/2026-10-20-windows-v2.0.4-final-portable-api-reset.md`。
+- FHL 文本模型拉取入口已移到模型下拉框右侧，并改为蓝色描边“拉取模型列表”；底部重复入口已移除，“保存并测试文本 API”仍是唯一蓝色实心主按钮。模型请求、凭据读取和选择持久化逻辑不变。详见 `docs/changes/2026-10-20-windows-v2.0.4-fhl-text-model-fetch-button.md`。
+- FHL 独立文本 API 新增手动“获取模型”：使用当前输入或已保存的文本 Key 请求 `/v1/models`，按上游顺序展示有效模型，保留未被新列表返回的当前选择和自定义模型入口。模型列表只在当前配置会话保留；选择后仍由“保存并测试文本 API”确认 `/v1/responses` 能力，不自动联网、不提前保存新 Key、不静默切换模型。详见 `docs/changes/2026-10-19-windows-v2.0.4-fhl-text-dynamic-model-list.md`。
+- 修复 Images API 多参考图中第二张及以后可能失效的问题：桌面 Wails/CLI 与浏览器远程回退路径现在都按原顺序重复发送 multipart `image` 字段，不再把后续参考图改名为 `image[]`。单图、Responses、APIMart、RunningHub 和 Bridge 协议不变；三张参考图已在源码 Wails 版通过真实 FHL Images 上游人工验收。V2.0.4 仍是开发版，不代表正式发布。详见 `docs/changes/2026-10-13-windows-v2.0.4-multi-reference-upload-fix.md`。
+- 修复普通局部重绘连续生成后贴回入口消失和重启后丢失裁切身份的问题：任务顶层保留 `localEditRoundtrip`，结果/历史按精确 ID 或规范化完整路径恢复；每张合格最终结果现在提供自动、手动、导入贴回菜单，已贴回终态不会重复显示入口。详见 `docs/changes/2026-09-07-windows-v2.0.4-local-edit-pasteback-state.md`。
+- 修复完整 Wails 开发程序点击“导入反推图像”时原生文件对话框导致 WebView2 崩溃的问题：反推入口现在使用 WebView 内置文件选择器，选中文件后仍复用原有受管导入链路；普通源图和批量文件入口保持不变。详见 `docs/changes/2026-08-27-windows-v2.0.4-reverse-image-picker-crash.md`。
+- Wails 事件清理现在兼容 WebView IPC 已关闭的退出阶段，避免文件选择器或窗口关闭后的二次异常。
+- FHL 独立文本 API 配置新增模型选择：未保存模型设置时统一默认 `gpt-5.6-sol`，并保留 `gpt-5.5` 和自定义模型 ID；已有明确选择不会被覆盖。模型选择按桌面 namespace 保存到本地设置，不写入 Keyring，不影响普通 Profile、Images 池、APIMart 或 RunningHub；测试、AI 优化、图片反推和 Bridge prompt profile 使用同一个所选模型，模型不支持时不自动降级。详见 `docs/changes/2026-08-27-windows-v2.0.4-fhl-text-model-selector.md`。
+- 修复 Windows Portable 启动器在 Windows PowerShell 5.1 下读取中文 EXE 文件名时的 UTF-8 乱码：`portable-windows-launcher.ps1` 现在带 UTF-8 BOM，V2.0.4 启动器可正确找到 `FHL Studio 方汤圆版 V2.0.4.exe`。本轮只重新打包 V2.0.4 隔离成品，不升级或修改 V2.0.5。
+- Windows Portable 打包现在在根目录第一层自动生成固定文件 `FHL Studio Photoshop 对接文件.json`：只包含产品标识、对接文件格式主版本、Bridge 协议主版本、包内相对 EXE 路径、显示名称和诊断版本。版本号不参与兼容判断，`.fhl-studio-portable` 标记保持独立；Bridge 可用性继续以 health/session/profile/capabilities 握手为准。详见 `docs/changes/2026-08-24-windows-v2.0.4-portable-photoshop-integration-file.md`。
+- 修复桌面快速配置入口遗漏批量 API 状态回调的问题：现在“批量配置 10 个 API”在快速配置和普通上游配置入口均可用，关闭后不会残留批量粘贴弹窗；Android Legacy 配置流程保持不变。详见 `docs/changes/2026-08-24-windows-v2.0.4-bulk-config-entry-fix.md`。
+- FHL PS Bridge 长期契约现在以独立 `I:\AI\Image-Studio\FHL-PS-Bridge-Contract` 为唯一标准：`/fhl-ps/v1` 核心语义冻结，只允许可选字段、capability 和命名空间扩展；破坏性变化必须进入 `/fhl-ps/v2`。新增 `dsh.harness.bridge.v1` 作为未来 DSH Cordis Adapter 的契约边界，CLI 继续只作为桌面内部执行器。详见 `docs/changes/2026-08-24-dsh-bridge-contract-governance.md`。
+- Photoshop Bridge 继续使用 `/fhl-ps/v1`，并在 Health/Session 增加协议主版本、契约修订、客户端兼容范围、实例 ID 和 capabilities 握手；插件遇到不兼容协议会明确拒绝，不静默切换本地 API。中立契约源和规则见 `I:\AI\Image-Studio\FHL-PS-Bridge-Contract\v1` 与 `docs/changes/2026-08-24-fhl-ps-bridge-contract.md`。
+- 普通“文字”和批注箭头现在共用同一套不透明文本编辑面板：编辑器外层提供实体主题背景、边框和阴影，输入框在浅色/深色主题下均保持清晰可读；“确认文字”按钮和双击编辑、框外提交语义不变。详见 `docs/changes/2026-08-23-windows-v2.0.4-annotation-text-editor-surface.md`。
+- 修复标注文字确认后看似消失的问题：确认/失焦提交读取输入框最新草稿并保留当前对象；指针模式下单击只选中，双击才进入文字或批注箭头编辑，且不会触发画布缩放。
+- 标注文字/批注箭头编辑框新增画布内“确认文字”按钮；确认或点击画布外会保存草稿并自动切到指针，避免文字失焦变空或误创建下一条标注。确认后的对象可继续拖动、变形和调整字体/描边。
+- “批量配置 10 个 API”入口现在使用亮蓝主操作按钮样式，与其他主要操作保持一致；批量配置逻辑不变。
+- 修复标注后退/前进跳过移动和变形的问题：一次完整拖动、变形、批注标签拖动或文字提交现在各自形成一个可逆步骤；新建对象仍保持独立步骤，不会一次性回退到新建前。详见 `docs/changes/2026-08-22-windows-v2.0.4-annotation-history-steps.md`。
+- 普通图像标注模式新增画布底部中央浮动操作栏：后退（撤销）、前进（重做）、删除选中标注、确认标注和取消。浮窗复用现有标注撤销栈与 PNG 合成事务，确认入口仍保留在顶部；取消有改动时会先确认并恢复本轮快照，不产生 Output/历史半成品。详见 `docs/changes/2026-08-22-windows-v2.0.4-annotation-floating-actions.md`。
+- 标注会话快照按工作区和当前图隔离，取消不会把临时标注恢复到其他标签；新增 UI/Node 合同覆盖按钮禁用、删除选中、确认共享和取消恢复。
+
+- Windows 全局默认参数统一为 2K 与“标准”：普通生成、工作区重置、新工作区和图生图自动适配缺省均使用 2K；用户已明确选择的 1K/4K 保持不变。质量默认继续为 `medium`（标准）。详见 `docs/changes/2026-08-22-windows-v2.0.4-global-defaults-2k-standard.md`。
+- 指针模式右键命中标注后改为打开上下文菜单，不再直接删除；明确选择“删除标注”才会删除并进入撤销栈，同时新增“复制标注”生成带自然像素偏移的副本。空白处右键不创建、不删除对象。详见 `docs/changes/2026-08-22-windows-v2.0.4-annotation-context-menu.md`。
+- 指针工具现在支持批注箭头文字标签独立拖动：标签命中后只更新 `labelX/labelY`，箭头端点和弯曲保持不变；拖动箭头本体时，已独立定位的标签会同步平移。预览和 PNG 合成复用同一自然像素标签位置，旧标注缺失坐标时保持兼容默认位置。
+- 新增交接记录 `docs/changes/2026-08-22-windows-v2.0.4-annotation-label-drag.md`。本轮定向几何 `10/10`、Node `717/717`、UI `117/117`、typecheck、lint、Windows 构建、Fast、Batch、Go test/vet、Worker smoke、`git diff --check` 和 Codex 浏览器离线验收均通过。
+- 指针激活后的选中标注现在显示轻量变形句柄：矩形/椭圆/自由画/高亮支持四角拉伸，直线和箭头支持端点调整，文字和箭头标签可按自然像素比例缩放字号；句柄随画布缩放保持稳定屏幕尺寸，拖动限制在图像边界并保持最小尺寸。
+- 变形计算集中在 annotation 几何纯函数中，箭头弯曲值按端点长度比例同步，文字字号统一限制在 `8–128px`；继续复用现有指针拖动、右键删除、文字编辑和自然像素合成链路，不新增旋转字段或第二套画布。定向几何 `9/9`、Node `716/716`、UI `117/117`、typecheck、lint、Fast、Batch、Windows 构建和三档浏览器离线验收通过。详见 `docs/changes/2026-08-22-windows-v2.0.4-annotation-transform-handles.md`。
+- 指针模式现在支持拖动已选标注、从描边外约两倍线宽的扩散范围命中，以及右键删除当前标注；删除继续进入标注撤销栈，不影响原图像素。
+- 浏览器离线验收已实际验证矩形拖动、框外扩散命中和右键删除，未新增 warning/error。详见 `docs/changes/2026-08-22-windows-v2.0.4-annotation-pointer-font-default.md`。
+- 标注工具栏最左侧新增“指针（选择标注）”：已确认的文字、批注箭头和其他标注可重新选中，文字/标签箭头会再次打开编辑框；指针不会在空白处误创建新对象。
+- 标注字体默认值改为按当前 4K 临时源最长边自动计算（`最长边 ÷ 64`，最小 `16px`，范围仍为 `8–128px`）；例如 `480×480` 默认 `16px`、`1152×1536` 默认 `24px`、4K 长边默认约 `60px`。选中对象时滑条显示对象当前样式，未选中时显示工作区默认值。
+- 新增交接记录 `docs/changes/2026-08-22-windows-v2.0.4-annotation-pointer-font-default.md`，记录指针重选、字体初始化规则和浏览器验收结果。
+- 标注尺寸与画布缩放统一按图像自然像素处理：新增独立“标注描边”`1–96px`（默认 `4px`）和“标注字体”`8–128px`滑条，正常进入标注时按当前 4K 临时源尺寸自动初始化字体，无法确认尺寸时才回退 `20px`；蒙版 `brushSize` 不再串用。Stage 缩放只整体缩放画布，视窗预览与最终 PNG 使用同一线宽、字体和箭头尺寸。
+- 选中标注对象时，描边/字体滑条立即更新对象并支持撤销/重做；未选中对象时只更新后续新建标注默认值。旧标注缺失 `fontSize` 时兼容恢复 `20px`，旧 `strokeWidth` 按图像像素保留。
+- 标注工具栏显示固定“等比锁定”状态；`1252×930`、`1440×900`、`1024×768` 浏览器验收无横向溢出，控制台新增 warning/error 为 `0`。详见 `docs/changes/2026-08-22-windows-v2.0.4-annotation-scale-consistency.md`。
+- 标注工作台进入时自动准备 4K 临时源：最长边超过 `3840px` 的原图按原比例缩小到 4K 上限，小图不放大，不再跟随外部 1K/2K 分辨率设置；原图和原参考图槽保持不变。
+- 标注画布与“确认标注”复用同一压缩 Blob，楼房测试图 `7876×10835 -> 2791×3840`；确认后的 Output、历史、当前画布和新增参考图均记录实际压缩尺寸，失败时保留标注供重试。
+- 新增本批交接记录 `docs/changes/2026-08-22-windows-v2.0.4-annotation-4k-source.md`，记录 85MP 原图导致合成/上传失败的根因、4K 上限规则、浏览器实测和残余 DPI 风险。
+- 本批门禁通过：Node `712/712`、UI `117/117`、Windows 构建 `1994 modules`、typecheck、Fast、Batch、Go test/vet、Worker smoke 和 `git diff --check`；lint `0 errors / 55 existing warnings`。
+- 修复浏览器预览确认标注在合成完成后写入 Output 失败的问题：受管临时图片现在优先由本地开发服务按路径直接复制到 `output/images`，大图不再重复编码为 Base64 JSON；旧预览服务器和虚拟图片仍保留兼容回退。
+- 修复标注确认按钮在 Windows 工具栏中显示为透明、难以点击的问题：现在始终使用亮蓝主按钮样式，并在合成期间显示“合成中…”，防止重复点击。
+- 修复“确认标注”成功后画布仍显示原图的问题：合成 PNG 现在同时成为当前 workspace 的当前图和画布预览；原图继续保留在历史与参考图槽，结果/历史预览、旧对比图和蒙版状态会在切换时清理。
+- “确认标注”现在自动将原图与箭头、线条、形状、自由画、高亮和文字合成为 PNG，写入受管 `Output/images`、创建历史并追加当前 workspace 参考图；不触发“批注修图”生图提交，原参考图保留，成功后清空当前结构化标注与标注撤销记录。
+- 标注越界时先提供“返回调整”或“扩展白底并保存”：前者不创建任何文件/历史，后者按自然像素联合边界扩展纯白画布；输出受 `100MP / 16,384px / 768MiB` 门禁保护。
+- 标注合成保存动作按 workspace、当前图和标注快照隔离，Output/媒体注册/历史任一步失败都会清理临时文件；重复点击、取消或切换标签不产生半成品。
+- 修复浏览器离线完整 SVG 原图被二进制头解析误判为“无法确认自然尺寸”的问题；现在对完整 Blob 使用浏览器解码尺寸，仍不使用 `previewWidth/previewHeight` 猜测。
+- 修复“批注修图”按钮误触发提交的问题：标注工具内按钮现在明确显示为“确认标注”，点击只退出标注工具并回到拖动/缩放状态，保留已有标注，不创建生成任务、历史记录或参考图。
+- 修复标注工具点击后选中态不明显的问题：当前工具现在显示强调色边框、浅色底、环形高亮和阴影，并继续通过 `aria-pressed` 暴露真实选中状态。
+- 标注工具展开时，旋转、翻转、裁出和“裁切局部重绘”入口固定在工具栏第一排；九个标注工具单独排在下一排，不再把变换入口推到标注控件下面。
+- 主画布工具栏移除与图片旋转图标视觉相似的全局撤销/重做按钮，仅保留旋转和翻转入口；撤销/重做快捷键及局部编辑、360 工作台内的撤销能力不变。
+- 图像标注入口改为醒目的蓝色“图像标注工具”按钮，替换旧的方框图标入口；按钮带上下三角并支持展开/收起九个标注控件，切换到其他画布工具后再次进入会自动展开。
+- 新增独立 Cowart 风格批注模块：批注箭头、普通箭头、直线、矩形、椭圆、自由画、高亮、文字和对象橡皮擦；标注数据按图像坐标保存，旧矩形/箭头/自由画/文字数据继续兼容。
+- 收口批注 natural-pixel 尺寸链路：完整 Blob/Base64、可读取的受管 `fullUrl` 和自然宽高优先于 `previewWidth/previewHeight`；复用历史图、导入图不再把原图尺寸降级为预览尺寸。
+- 批注修图源图准备失败现在本地提示并安全清理提交锁，不产生未处理 Promise、半成品参考槽或模式切换；工作区切换取消仍保持两侧状态隔离。
+- 批注箭头创建后自动弯曲并进入多行标签编辑，支持全选、失焦提交、Ctrl/Cmd+Enter、Escape 和空标签删除；普通箭头保持直线且不自动打开标签编辑，颜色与笔画宽度可调。
+- 新增“批注修图”提交闭环：把当前图物化为唯一编辑源，按创建顺序序列化标注语义，明确保持未标注区域并移除批注痕迹，复用现有 edit、任务、失败恢复、历史和结果网格流程。
+- 画布标注渲染和交互移入 `frontend/src/features/annotation/`，`CanvasStage` 只保留图像、Konva Stage、视图变换和蒙版；详细边界、Cowart 源码定位与交接指令见工作区外的 `cowart-批注能力提取与FHL-V2.0.4模块化接入记录.md`。
 - 修复点击“清空视图”后画布工具栏按钮全部消失的问题：空画布继续保留工具、变换和对比入口，图像相关操作显示为禁用态，全屏仍可用；清空视图仍不删除历史或文件。残留矩形标注也不会在无当前图时暴露“裁出”动作。
 - 修复卷帘对比左侧原图误用 384px 缩略图的问题：参考图现在按受管路径解析完整媒体，双图/卷帘视图均优先使用原始像素；完整媒体不可用时才降级到缩略图，原图和历史不变。
 - 普通图“镜头预览”浮窗现在可从标题栏拖动，并始终限制在左侧画布工作区内；展开/收起和窗口缩放后会自动重新约束位置，不遮挡原图取景。
@@ -22,6 +85,7 @@
 - Windows 参考图右键菜单新增照片属性读取；支持实际存在的相机、镜头、曝光和原始像素字段，缺失字段不显示。
 - 普通图局部编辑入口和提示统一命名为“裁切局部重绘”。
 - 100MP 以内的 Sony/哈苏大图可保留原始像素进行局部裁切；超过 `64MP` 的源图贴回改由 Windows 桌面端磁盘路径处理，不把整图 Base64 放进浏览器，输出完整尺寸 PNG。
+- Cowart 标注文字编辑器与自由画/高亮命中区域已按屏幕像素稳定在不同画布缩放下；本轮浏览器验收未发现自动重复打开图片。开发测试产生的临时预览标签已清理，产品既有“主动打开图片时新建单个标签”语义保持不变。
 - 本地相机文件导入上限提高到 `200MB`，仅用于受管本地编辑；FHL/API 上传仍受原有 `50MB` 和浏览器规范化策略约束。
 - 浏览器批量图生图现在在 Vite CLI 代理层规范化 FHL 参考图；相机图最长边超过 `1600px`、文件超过 `6MiB` 或包含透明通道时生成无元数据 JPEG 上传副本，任务结束自动清理，原图不变。
 - 失败的批量任务卡片现在支持右键打开共享历史菜单，可执行“应用参数（不生成）”而不自动重新提交。
@@ -295,3 +359,8 @@
 ## Desktop V2.0.0
 
 - 首个桌面魔改版发布，包含 FHL API 配置、文生图/图生图、历史记录与基础画布能力。
+## Windows V2.0.4 - 2026-08-22
+
+- 修复高清图“确认标注”保存失败：自然像素标注合成 PNG 改用二进制 Output 保存，并将该专用请求上限提高到 512MiB，避免 85MP 楼房图等 150MB 级 PNG 被旧 90MB body 限制截断。
+- 保留 `100MP / 16,384px / 768MiB` 合成安全门禁；成功后 Output、历史、当前画布和参考图槽同步，结构化标注清空，原始参考图保留。
+- 实测同一张 `7876×10835` 楼房测试图：确认按钮显示“合成中…”，约 15 秒完成，历史 `15 -> 16`、参考图 `3 -> 4`，Output 文件尺寸与历史自然像素一致；未调用真实生图 API。

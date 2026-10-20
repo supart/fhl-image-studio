@@ -3,8 +3,8 @@
 package backend
 
 /*
-#cgo CFLAGS: -x objective-c -fobjc-arc -mmacosx-version-min=10.13
-#cgo LDFLAGS: -framework Cocoa -framework Foundation -mmacosx-version-min=10.13
+#cgo CFLAGS: -x objective-c -fobjc-arc -mmacosx-version-min=13.0
+#cgo LDFLAGS: -framework Cocoa -framework Foundation -mmacosx-version-min=13.0
 
 #import <Cocoa/Cocoa.h>
 #import <Foundation/Foundation.h>
@@ -47,40 +47,44 @@ static int image_studio_begin_file_drag(const char *path, char **errOut) {
 			*errOut = image_studio_make_drag_error("invalid drag path");
 			return 1;
 		}
-		BOOL isDir = NO;
-		if (![[NSFileManager defaultManager] fileExistsAtPath:filePath isDirectory:&isDir] || isDir) {
-			*errOut = image_studio_make_drag_error("drag file does not exist");
-			return 1;
-		}
-
-		NSWindow *window = [NSApp keyWindow];
-		if (window == nil) {
-			window = [NSApp mainWindow];
-		}
-		if (window == nil) {
-			*errOut = image_studio_make_drag_error("no active window for drag");
-			return 1;
-		}
-		NSView *contentView = [window contentView];
-		if (contentView == nil) {
-			*errOut = image_studio_make_drag_error("no content view for drag");
-			return 1;
-		}
-
-		NSImage *icon = [[NSWorkspace sharedWorkspace] iconForFile:filePath];
-		if (icon == nil) {
-			icon = [NSImage imageNamed:NSImageNameMultipleDocuments];
-		}
-		if (icon == nil) {
-			*errOut = image_studio_make_drag_error("failed to build drag icon");
-			return 1;
-		}
-		[icon setSize:NSMakeSize(96, 96)];
-
 		__block BOOL ok = NO;
 		__block char *blockErr = NULL;
-		dispatch_sync(dispatch_get_main_queue(), ^{
-			NSDraggingItem *dragItem = [[NSDraggingItem alloc] initWithPasteboardWriter:[NSURL fileURLWithPath:filePath]];
+		void (^beginDrag)(void) = ^{
+			BOOL isDir = NO;
+			if (![[NSFileManager defaultManager] fileExistsAtPath:filePath isDirectory:&isDir] || isDir) {
+				blockErr = image_studio_make_drag_error("drag file does not exist or is not a regular file");
+				return;
+			}
+			NSWindow *window = [NSApp keyWindow];
+			if (window == nil) {
+				window = [NSApp mainWindow];
+			}
+			if (window == nil) {
+				blockErr = image_studio_make_drag_error("no active window for drag");
+				return;
+			}
+			NSView *contentView = [window contentView];
+			if (contentView == nil) {
+				blockErr = image_studio_make_drag_error("no content view for drag");
+				return;
+			}
+
+			NSImage *icon = [[NSWorkspace sharedWorkspace] iconForFile:filePath];
+			if (icon == nil) {
+				icon = [NSImage imageNamed:NSImageNameMultipleDocuments];
+			}
+			if (icon == nil) {
+				blockErr = image_studio_make_drag_error("failed to build drag icon");
+				return;
+			}
+			[icon setSize:NSMakeSize(96, 96)];
+
+			NSURL *fileURL = [NSURL fileURLWithPath:filePath isDirectory:NO];
+			if (fileURL == nil || !fileURL.isFileURL) {
+				blockErr = image_studio_make_drag_error("failed to build drag file URL");
+				return;
+			}
+			NSDraggingItem *dragItem = [[NSDraggingItem alloc] initWithPasteboardWriter:fileURL];
 			NSPoint mouse = [contentView convertPoint:[window mouseLocationOutsideOfEventStream] fromView:nil];
 			NSRect rect = NSMakeRect(mouse.x - 48, mouse.y - 48, 96, 96);
 			[dragItem setDraggingFrame:rect contents:icon];
@@ -103,7 +107,12 @@ static int image_studio_begin_file_drag(const char *path, char **errOut) {
 			ImageStudioDraggingSource *source = [ImageStudioDraggingSource new];
 			[contentView beginDraggingSessionWithItems:@[dragItem] event:event source:source];
 			ok = YES;
-		});
+		};
+		if ([NSThread isMainThread]) {
+			beginDrag();
+		} else {
+			dispatch_sync(dispatch_get_main_queue(), beginDrag);
+		}
 		if (!ok) {
 			*errOut = blockErr != NULL ? blockErr : image_studio_make_drag_error("failed to start drag session");
 			return 1;
@@ -122,11 +131,19 @@ import "C"
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"unsafe"
 )
 
 func beginNativeFileDrag(path string) error {
-	cPath := C.CString(path)
+	validatedPath, err := validateNativeDragFile(path)
+	if err != nil {
+		return err
+	}
+	cPath := C.CString(validatedPath)
 	defer C.free(unsafe.Pointer(cPath))
 
 	var errPtr *C.char
@@ -143,4 +160,27 @@ func beginNativeFileDrag(path string) error {
 		return errors.New("native drag failed")
 	}
 	return nil
+}
+
+func validateNativeDragFile(path string) (string, error) {
+	clean := strings.TrimSpace(path)
+	if clean == "" {
+		return "", errors.New("empty drag path")
+	}
+	abs, err := filepath.Abs(clean)
+	if err != nil {
+		return "", fmt.Errorf("invalid drag path: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", fmt.Errorf("drag file does not exist: %w", err)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", fmt.Errorf("drag file does not exist: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("drag path is not a regular file: %s", filepath.Base(resolved))
+	}
+	return resolved, nil
 }

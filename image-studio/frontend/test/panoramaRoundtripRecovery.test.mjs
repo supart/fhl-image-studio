@@ -216,3 +216,144 @@ test("bulk repair returns only changed history records for persistence", () => {
   assert.equal(repaired.items[0], unrelated);
   assert.equal(repaired.items[2], shotItem);
 });
+
+function planarFixture() {
+  const roundtrip = {
+    version: 1,
+    kind: "planar",
+    sourceHistoryId: "planar-source",
+    sourcePath: "I:/output/source.png",
+    sourceWidth: 2048,
+    sourceHeight: 1536,
+    cropRect: { x: 120, y: 80, width: 800, height: 600 },
+    editWidth: 1600,
+    editHeight: 1200,
+  };
+  const crop = {
+    id: "planar-crop",
+    savedPath: "I:/output/crop.png",
+    prompt: "crop",
+    mode: "edit",
+    size: "1600x1200",
+    quality: "medium",
+    createdAt: 1,
+    localEditRoundtrip: roundtrip,
+  };
+  return { roundtrip, crop };
+}
+
+test("recovers planar metadata by normalized exact path and task precedence", () => {
+  const { roundtrip, crop } = planarFixture();
+  const result = {
+    id: "planar-result",
+    savedPath: "I:/output/result.png",
+    parentId: "i:\\OUTPUT\\CROP.PNG",
+    prompt: "edited crop",
+    mode: "edit",
+    size: "1600x1200",
+    quality: "medium",
+    createdAt: 2,
+  };
+  const taskRoundtrip = { ...roundtrip, cropRect: { ...roundtrip.cropRect, x: 400 } };
+  const fromPath = recovery.recoverRoundtripItemMetadataFromTask(result, null, [result, crop]);
+  const fromTask = recovery.recoverRoundtripItemMetadataFromTask(result, { localEditRoundtrip: taskRoundtrip }, [result, crop]);
+
+  assert.deepEqual(fromPath.localEditRoundtrip, roundtrip);
+  assert.deepEqual(fromTask.localEditRoundtrip, taskRoundtrip);
+});
+
+test("prefers result nested planar metadata over task metadata", () => {
+  const { roundtrip, crop } = planarFixture();
+  const nested = { ...roundtrip, cropRect: { ...roundtrip.cropRect, y: 240 } };
+  const taskRoundtrip = { ...roundtrip, cropRect: { ...roundtrip.cropRect, y: 360 } };
+  const result = {
+    id: "planar-result",
+    prompt: "edited crop",
+    mode: "edit",
+    size: "1600x1200",
+    quality: "medium",
+    createdAt: 2,
+    sourceImages: [{ path: crop.savedPath, name: "crop.png", size: 0, localEditRoundtrip: nested }],
+  };
+
+  const recovered = recovery.recoverRoundtripItemMetadataFromTask(
+    result,
+    { localEditRoundtrip: taskRoundtrip },
+    [result, crop],
+  );
+  assert.deepEqual(recovered.localEditRoundtrip, nested);
+});
+
+test("does not guess planar metadata from a matching filename or dimensions", () => {
+  const { crop } = planarFixture();
+  const result = {
+    id: "planar-result",
+    savedPath: "I:/other/result.png",
+    parentId: "D:/different/crop.png",
+    prompt: crop.prompt,
+    mode: "edit",
+    size: crop.size,
+    quality: "medium",
+    width: 1600,
+    height: 1200,
+    createdAt: 2,
+  };
+
+  assert.equal(recovery.recoverRoundtripItemMetadataFromTask(result, null, [result, crop]), result);
+});
+
+test("matches planar history ids exactly instead of case folding them", () => {
+  const { crop } = planarFixture();
+  const result = {
+    id: "planar-result",
+    parentId: crop.id.toUpperCase(),
+    prompt: "edited crop",
+    mode: "edit",
+    size: "1600x1200",
+    quality: "medium",
+    createdAt: 2,
+  };
+
+  assert.equal(recovery.recoverRoundtripItemMetadataFromTask(result, null, [result, crop]), result);
+});
+
+test("keeps planar pasteback results terminal even when a task points to the crop", () => {
+  const { crop } = planarFixture();
+  const pasted = {
+    id: "pasted-planar",
+    parentId: crop.savedPath,
+    prompt: "(局部贴回)done",
+    mode: "edit",
+    size: "2048x1536",
+    quality: "medium",
+    createdAt: 3,
+    localEditPastebackState: "pasted",
+  };
+
+  assert.equal(
+    recovery.recoverRoundtripItemMetadataFromTask(pasted, { sourceImagePaths: [crop.savedPath] }, [pasted, crop]),
+    pasted,
+  );
+});
+
+test("bulk planar recovery stays linked by exact task result id across reordered workspaces", () => {
+  const { roundtrip } = planarFixture();
+  const otherRoundtrip = {
+    ...roundtrip,
+    sourceHistoryId: "other-source",
+    sourcePath: "I:/output/other-source.png",
+    cropRect: { ...roundtrip.cropRect, x: 620 },
+  };
+  const first = { id: "result-a", savedPath: "I:/output/a.png", prompt: "a", mode: "edit", size: "1600x1200", quality: "medium", createdAt: 2 };
+  const second = { id: "result-b", savedPath: "I:/output/b.png", prompt: "b", mode: "edit", size: "1600x1200", quality: "medium", createdAt: 3 };
+  const repaired = recovery.recoverRoundtripHistoryMetadata(
+    [second, first],
+    {
+      "task-a": { workspaceId: "workspace-a", historyItemId: first.id, savedPath: first.savedPath, localEditRoundtrip: roundtrip },
+      "task-b": { workspaceId: "workspace-b", historyItemId: second.id, savedPath: second.savedPath, localEditRoundtrip: otherRoundtrip },
+    },
+  );
+
+  assert.equal(repaired.items[0].localEditRoundtrip.sourceHistoryId, "other-source");
+  assert.equal(repaired.items[1].localEditRoundtrip.sourceHistoryId, "planar-source");
+});

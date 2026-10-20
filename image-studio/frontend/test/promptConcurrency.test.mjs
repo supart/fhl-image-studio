@@ -21,6 +21,15 @@ test("reverse prompt preview shows the whole image without cropping", () => {
   assert.match(promptEditorSource, /alt="反推参考图预览" className="h-full w-full object-contain object-center"/);
 });
 
+test("reverse prompt picker stays in the WebView and imports through the existing file handler", () => {
+  assert.match(promptEditorSource, /ref=\{reversePromptFileInputRef\}/);
+  assert.match(promptEditorSource, /type="file"/);
+  assert.match(promptEditorSource, /accept="image\/png,image\/jpeg,image\/webp"/);
+  assert.match(promptEditorSource, /input\.click\(\)/);
+  assert.match(promptEditorSource, /void onImportReversePromptImageFile\(file\)/);
+  assert.doesNotMatch(promptEditorSource, /onClick=\{onSelectReversePromptImage\}/);
+});
+
 test("reverse prompt image slot exposes right-click clipboard paste", () => {
   assert.match(promptEditorSource, /import \{ ContextMenu \} from "\.\.\/common\/ContextMenu";/);
   assert.match(promptEditorSource, /const \[reverseImageMenu, setReverseImageMenu\] = useState<\{ x: number; y: number \} \| null>\(null\);/);

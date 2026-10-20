@@ -1,10 +1,10 @@
 /* Windows compose accordion. Mirrors macOS density, rendered with Fluent chrome. */
 
-html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-panel {
+html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-compose-panel {
   padding: 12px;
 }
 
-html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-toggle {
+html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-compose-toggle {
   display: flex;
   width: 100%;
   min-width: 0;
@@ -14,7 +14,7 @@ html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-toggle {
   text-align: left;
 }
 
-html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-title {
+html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-compose-title {
   display: block;
   color: var(--text);
   font-size: 11px;
@@ -23,7 +23,7 @@ html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-title {
   text-transform: uppercase;
 }
 
-html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-summary {
+html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-compose-summary {
   display: block;
   min-width: 0;
   overflow: hidden;
@@ -35,7 +35,7 @@ html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-summary 
   white-space: nowrap;
 }
 
-html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-state {
+html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-compose-state {
   display: inline-flex;
   min-height: 30px;
   flex: 0 0 auto;
@@ -47,36 +47,36 @@ html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-state {
   font-size: 12px;
 }
 
-html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-toggle:hover .windows-compose-state {
+html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-compose-toggle:hover .windows-compose-state {
   background: var(--tool-hover-bg);
   color: var(--text);
 }
 
-html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-body {
+html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-compose-body {
   display: flex;
   flex-direction: column;
   gap: 10px;
   margin-top: 12px;
 }
 
-html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-body > .platform-card,
-html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-body > section {
+html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-compose-body > .platform-card,
+html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-compose-body > section {
   padding: 12px;
 }
 
-html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-batch-option {
+html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-compose-batch-option {
   border-color: var(--border);
   background: transparent;
   color: var(--text-muted);
 }
 
-html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-batch-option:hover {
+html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-compose-batch-option:hover {
   border-color: color-mix(in srgb, var(--accent) 38%, transparent);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--text);
 }
 
-html[data-platform="windows"][data-ui-family="fluent"] .windows-compose-batch-option[aria-pressed="true"] {
+html[data-presentation-platform="windows"][data-ui-family="fluent"] .windows-compose-batch-option[aria-pressed="true"] {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 13%, var(--surface));
   color: var(--accent);

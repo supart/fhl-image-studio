@@ -5,6 +5,7 @@ import { clearBrowserCredentialStorage } from "./browserCredentialCleanup.ts";
 import { clearLocalCredentialFiles } from "./localCredentialCleanup.ts";
 import { clearRunningHubCredential } from "./runningHubCredentialCleanup.ts";
 import { clearLegacyAPIKeys } from "./storage.ts";
+import { persistFHLTextAPIModelID } from "./fhlTextAPIModel.ts";
 import {
   clearAllAPIConfigurations,
   type APICredentialClearOperations,
@@ -19,6 +20,7 @@ const RUNTIME_CLEAR_OPERATIONS: APICredentialClearOperations = {
   clearLegacyKeys: clearLegacyAPIKeys,
   persistProfiles,
   persistActiveProfileId,
+  persistFHLTextAPIModelID: (modelID) => { persistFHLTextAPIModelID(modelID); },
 };
 
 export function clearAllRuntimeAPIConfigurations(

@@ -8,6 +8,7 @@ const projectRoot = path.resolve(__dirname, "..");
 const command = process.argv[2] ?? "dev";
 const explicitMode = process.argv[3] ?? "";
 const supportedModes = new Set(["macos", "windows", "linux", "android", "android-pad"]);
+const supportedDesktopUIVariants = new Set(["native", "windows-parity"]);
 
 function mapHostPlatform(value) {
   switch (value) {
@@ -41,7 +42,16 @@ const mode = explicitMode || process.env.VITE_TARGET_PLATFORM || mapHostPlatform
 if (!supportedModes.has(mode)) {
   throw new Error(`Unsupported target platform: ${mode}. Expected one of ${Array.from(supportedModes).join(", ")}`);
 }
-const env = { ...process.env, NODE_USE_ENV_PROXY: process.env.NODE_USE_ENV_PROXY || "1", VITE_TARGET_PLATFORM: mode };
+const desktopUIVariant = process.env.VITE_DESKTOP_UI_VARIANT?.trim() || (mode === "macos" ? "windows-parity" : "native");
+if (!supportedDesktopUIVariants.has(desktopUIVariant)) {
+  throw new Error(`Unsupported desktop UI variant: ${desktopUIVariant}. Expected one of ${Array.from(supportedDesktopUIVariants).join(", ")}`);
+}
+const env = {
+  ...process.env,
+  NODE_USE_ENV_PROXY: process.env.NODE_USE_ENV_PROXY || "1",
+  VITE_TARGET_PLATFORM: mode,
+  VITE_DESKTOP_UI_VARIANT: desktopUIVariant,
+};
 // Browser fallback credentials are origin-scoped, so keep the local dev origin stable.
 const devHost = process.env.IMAGE_STUDIO_DEV_HOST?.trim() || "127.0.0.1";
 const devPort = process.env.IMAGE_STUDIO_DEV_PORT?.trim() || "";

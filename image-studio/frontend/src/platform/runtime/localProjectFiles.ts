@@ -89,6 +89,75 @@ export async function saveProjectImage(
   }
 }
 
+/**
+ * Copy an already managed image into the preview Output/images directory.
+ * This keeps large composites on disk instead of re-encoding them as JSON
+ * base64 in the browser request body.
+ */
+export async function copyProjectImageToOutput(
+  sourcePath: string,
+  suggestedName: string,
+): Promise<SavedProjectImage | null> {
+  if (!isLocalPreviewHost() || !sourcePath.trim()) return null;
+  lastProjectImageSaveError = "";
+  try {
+    const response = await fetch(`${PROJECT_FILES_PREFIX}/copy-image-to-output`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: sourcePath, suggestedName }),
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      lastProjectImageSaveError = body
+        ? `本地 Output 复制接口返回 ${response.status}: ${body.slice(0, 500)}`
+        : `本地 Output 复制接口返回 ${response.status}`;
+      if (typeof console !== "undefined") console.warn(lastProjectImageSaveError);
+      return null;
+    }
+    return await response.json() as SavedProjectImage;
+  } catch (error) {
+    lastProjectImageSaveError = `本地 Output 复制接口请求失败: ${error instanceof Error ? error.message : String(error)}`;
+    if (typeof console !== "undefined") console.warn("copy project image to output failed", error);
+    return null;
+  }
+}
+
+export async function saveProjectImageBlob(
+  kind: ProjectImageKind,
+  blob: Blob,
+  suggestedName: string,
+  options: SaveProjectImageOptions = {},
+): Promise<SavedProjectImage | null> {
+  if (!isLocalPreviewHost() || !blob || blob.size <= 0) return null;
+  lastProjectImageSaveError = "";
+  try {
+    const params = new URLSearchParams({
+      kind,
+      suggestedName,
+      subdir: options.subdir ?? "",
+      preserveName: options.preserveName === true ? "1" : "0",
+    });
+    const response = await fetch(`${PROJECT_FILES_PREFIX}/save-image-binary?${params.toString()}`, {
+      method: "POST",
+      headers: { "Content-Type": blob.type || "application/octet-stream" },
+      body: blob,
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      lastProjectImageSaveError = body
+        ? `本地二进制图片保存接口返回 ${response.status}: ${body.slice(0, 500)}`
+        : `本地二进制图片保存接口返回 ${response.status}`;
+      if (typeof console !== "undefined") console.warn(lastProjectImageSaveError);
+      return null;
+    }
+    return await response.json() as SavedProjectImage;
+  } catch (error) {
+    lastProjectImageSaveError = `本地二进制图片保存请求失败: ${error instanceof Error ? error.message : String(error)}`;
+    if (typeof console !== "undefined") console.warn("save project image blob failed", error);
+    return null;
+  }
+}
+
 export async function readProjectImage(path: string): Promise<string | null> {
   if (!isLocalPreviewHost() || !path.trim()) return null;
   try {

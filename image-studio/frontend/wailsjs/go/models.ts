@@ -1,44 +1,5 @@
 export namespace backend {
 
-	export class PlanarPastebackOptions {
-	    cropX: number;
-	    cropY: number;
-	    cropWidth: number;
-	    cropHeight: number;
-	    offsetXRatio?: number;
-	    offsetYRatio?: number;
-	    scale?: number;
-	    rotationDeg?: number;
-	    featherFraction?: number;
-	    brightness?: number;
-	    contrast?: number;
-	    hueRotationDeg?: number;
-	    maskB64?: string;
-	    maskFeatherPx?: number;
-
-	    static createFrom(source: any = {}) {
-	        return new PlanarPastebackOptions(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.cropX = source["cropX"];
-	        this.cropY = source["cropY"];
-	        this.cropWidth = source["cropWidth"];
-	        this.cropHeight = source["cropHeight"];
-	        this.offsetXRatio = source["offsetXRatio"];
-	        this.offsetYRatio = source["offsetYRatio"];
-	        this.scale = source["scale"];
-	        this.rotationDeg = source["rotationDeg"];
-	        this.featherFraction = source["featherFraction"];
-	        this.brightness = source["brightness"];
-	        this.contrast = source["contrast"];
-	        this.hueRotationDeg = source["hueRotationDeg"];
-	        this.maskB64 = source["maskB64"];
-	        this.maskFeatherPx = source["maskFeatherPx"];
-	    }
-	}
-
 	export class AutomationStatus {
 	    enabled: boolean;
 	    mode?: string;
@@ -311,8 +272,26 @@ export namespace backend {
 	        this.height = source["height"];
 	        this.previewWidth = source["previewWidth"];
 	        this.previewHeight = source["previewHeight"];
-        this.photoMetadata = source["photoMetadata"] ? new PhotoMetadata(source["photoMetadata"]) : undefined;
+	        this.photoMetadata = this.convertValues(source["photoMetadata"], PhotoMetadata);
 	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class JobStarted {
 	    jobId: string;
@@ -547,6 +526,7 @@ export namespace backend {
 	    maxImages: number;
 	    ready: boolean;
 	    promptOptimizationReady: boolean;
+	    capabilities: string[];
 	    promptProviderLabel?: string;
 	    imageCapabilities: PSBridgeImageCapabilities;
 
@@ -565,6 +545,7 @@ export namespace backend {
 	        this.maxImages = source["maxImages"];
 	        this.ready = source["ready"];
 	        this.promptOptimizationReady = source["promptOptimizationReady"];
+	        this.capabilities = source["capabilities"];
 	        this.promptProviderLabel = source["promptProviderLabel"];
 	        this.imageCapabilities = this.convertValues(source["imageCapabilities"], PSBridgeImageCapabilities);
 	    }
@@ -680,6 +661,45 @@ export namespace backend {
 		    return a;
 		}
 	}
+
+	export class PlanarPastebackOptions {
+	    cropX: number;
+	    cropY: number;
+	    cropWidth: number;
+	    cropHeight: number;
+	    offsetXRatio?: number;
+	    offsetYRatio?: number;
+	    scale?: number;
+	    rotationDeg?: number;
+	    featherFraction?: number;
+	    brightness?: number;
+	    contrast?: number;
+	    hueRotationDeg?: number;
+	    maskB64?: string;
+	    maskFeatherPx?: number;
+
+	    static createFrom(source: any = {}) {
+	        return new PlanarPastebackOptions(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.cropX = source["cropX"];
+	        this.cropY = source["cropY"];
+	        this.cropWidth = source["cropWidth"];
+	        this.cropHeight = source["cropHeight"];
+	        this.offsetXRatio = source["offsetXRatio"];
+	        this.offsetYRatio = source["offsetYRatio"];
+	        this.scale = source["scale"];
+	        this.rotationDeg = source["rotationDeg"];
+	        this.featherFraction = source["featherFraction"];
+	        this.brightness = source["brightness"];
+	        this.contrast = source["contrast"];
+	        this.hueRotationDeg = source["hueRotationDeg"];
+	        this.maskB64 = source["maskB64"];
+	        this.maskFeatherPx = source["maskFeatherPx"];
+	    }
+	}
 	export class ProbeUpstreamOptions {
 	    apiKey: string;
 	    baseURL: string;
@@ -700,6 +720,7 @@ export namespace backend {
 	}
 	export class ProbeUpstreamResult {
 	    modelCount: number;
+	    models: string[];
 
 	    static createFrom(source: any = {}) {
 	        return new ProbeUpstreamResult(source);
@@ -708,6 +729,7 @@ export namespace backend {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.modelCount = source["modelCount"];
+	        this.models = source["models"];
 	    }
 	}
 	export class PromptOptimizeOptions {
@@ -793,8 +815,26 @@ export namespace backend {
 	        this.height = source["height"];
 	        this.previewWidth = source["previewWidth"];
 	        this.previewHeight = source["previewHeight"];
-        this.photoMetadata = source["photoMetadata"] ? new PhotoMetadata(source["photoMetadata"]) : undefined;
+	        this.photoMetadata = this.convertValues(source["photoMetadata"], PhotoMetadata);
 	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class SelectFilesResponse {
 	    files: BatchInputImage[];

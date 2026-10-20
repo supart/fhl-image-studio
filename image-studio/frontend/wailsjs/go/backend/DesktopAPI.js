@@ -118,12 +118,12 @@ export function OpenOutputDir() {
   return window['go']['backend']['DesktopAPI']['OpenOutputDir']();
 }
 
-export function PasteLocalEdit(arg1, arg2, arg3) {
-  return window['go']['backend']['DesktopAPI']['PasteLocalEdit'](arg1, arg2, arg3);
-}
-
 export function OptimizePrompt(arg1) {
   return window['go']['backend']['DesktopAPI']['OptimizePrompt'](arg1);
+}
+
+export function PasteLocalEdit(arg1, arg2, arg3) {
+  return window['go']['backend']['DesktopAPI']['PasteLocalEdit'](arg1, arg2, arg3);
 }
 
 export function ProbeUpstream(arg1) {

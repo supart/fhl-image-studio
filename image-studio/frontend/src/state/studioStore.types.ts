@@ -38,6 +38,8 @@ import type { HistoryPageCursor } from "../lib/storage";
 import type { MaterialOutputSyncResultLike } from "../platform/runtime/hostTypes";
 import type { RunningJobMeta } from "./workspaceRuntime";
 import type { ResetSummary } from "./applicationStateReset";
+import type { AnnotationTool } from "../features/annotation/annotationTypes";
+import type { AnnotationSourceSession } from "../features/annotation/annotationSource";
 
 export interface ModeConfig {
   baseURL: string;
@@ -51,6 +53,9 @@ export type CompareMode = "curtain" | "sideBySide";
 
 export type FHLTransportMode = "images" | "responses";
 export type { ReversePromptImage } from "../types/domain";
+
+export type AnnotationOverflowMode = "strict" | "expand-white";
+export type AnnotationCompositeSaveResult = "saved" | "overflow" | "cancelled";
 
 export interface SourceImageImportOptions {
   replaceSourcePath?: string;
@@ -112,6 +117,8 @@ export interface WorkspaceCanvasRuntime {
   sourcePreviewReturnImage: HistoryItem | null;
   tool: StudioState["tool"];
   brushSize: number;
+  annotationStrokeWidth: number;
+  annotationFontSize: number;
   brushMode: StudioState["brushMode"];
   annotationKind: StudioState["annotationKind"];
   annotationColor: string;
@@ -159,6 +166,7 @@ export interface StudioState {
   noPromptRevision: boolean;
   fhlTransportMode: FHLTransportMode;
   fhlTextAPIConfigured: boolean;
+  fhlTextAPIModelID: string;
   fhlTextAPIKeyHint: string;
   fhlTextAPITestStatus: FHLTextAPITestStatus;
   fhlTextAPITestMessage: string;
@@ -199,8 +207,10 @@ export interface StudioState {
   historyTimelineOpen: boolean;
   tool: "pan" | "mask" | "annotate";
   brushSize: number;
+  annotationStrokeWidth: number;
+  annotationFontSize: number;
   brushMode: "paint" | "erase";
-  annotationKind: "rect" | "arrow" | "freehand" | "text";
+  annotationKind: AnnotationTool;
   annotationColor: string;
   selectedAnnotationId: string | null;
   maskDataURL: string | null;
@@ -231,6 +241,8 @@ export interface StudioState {
   workspaceCanvasRuntime: Record<string, WorkspaceCanvasRuntime>;
   workspaceCloseRequest: WorkspaceCloseRequest | null;
   localEditWorkbenchDraft: LocalEditWorkbenchDraft | null;
+  /** Ephemeral compressed source used only while the annotation tool is open. */
+  annotationSource: AnnotationSourceSession | null;
   styleTag: string;
   undoStack: UndoEntry[];
   redoStack: UndoEntry[];
@@ -272,6 +284,13 @@ export interface StudioState {
   clearSources: () => void;
   reorderSources: (from: number, to: number) => void;
   submit: () => Promise<void>;
+  submitAnnotationEdit: () => Promise<void>;
+  prepareAnnotationSource: () => Promise<boolean>;
+  confirmAnnotationComposite: (mode?: AnnotationOverflowMode) => Promise<AnnotationCompositeSaveResult>;
+  beginAnnotationSession: () => void;
+  isAnnotationSessionDirty: () => boolean;
+  cancelAnnotationSession: () => void;
+  endAnnotationSession: () => void;
   cancel: () => Promise<void>;
   selectBatchTask: (taskId: string | null) => void;
   selectBatchTaskForCancel: (taskId: string | null) => void;
@@ -310,6 +329,8 @@ export interface StudioState {
   addAnnotation: (a: Annotation) => void;
   removeAnnotation: (id: string) => void;
   updateAnnotation: (id: string, patch: Partial<Annotation>) => void;
+  commitAnnotationUpdate: (id: string, before: Annotation, after: Annotation, label?: string) => void;
+  updateAnnotationStyle: (id: string, patch: Pick<Annotation, "strokeWidth" | "fontSize">) => void;
   clearAnnotations: () => void;
   undo: () => void;
   redo: () => void;
@@ -376,7 +397,8 @@ export interface StudioState {
   testAPIKey: () => Promise<void>;
   testProfileConnection: (profileId: string) => Promise<boolean>;
   refreshFHLTextAPIConfig: () => Promise<void>;
-  saveAndTestFHLTextAPI: (apiKeyInput?: string) => Promise<boolean>;
+  setFHLTextAPIModelID: (modelID: string) => void;
+  saveAndTestFHLTextAPI: (apiKeyInput?: string, modelID?: string) => Promise<boolean>;
   deleteFHLTextAPIConfig: () => Promise<void>;
   isTestingKey: boolean;
   isResettingApplication: boolean;

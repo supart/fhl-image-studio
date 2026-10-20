@@ -1,0 +1,231 @@
+name: macOS V2.0.4 Release
+
+on:
+  push:
+    branches:
+      - codex/macos-v2.0.4-release
+    tags:
+      - v2.0.4
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24.13.1"
+  GO_VERSION: "1.26.3"
+  MACOSX_DEPLOYMENT_TARGET: "13.0"
+  GOTOOLCHAIN: local
+
+jobs:
+  build-and-verify:
+    name: Build and verify macOS release assets
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            go-cli/go.sum
+            image-studio/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: image-studio/frontend/package-lock.json
+
+      - name: Validate release identity and explicit ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/sync-version-metadata.mjs --check
+
+          product_version="$(node -p 'require("./product-version.json").version')"
+          display_version="$(node -p 'require("./product-version.json").displayVersion')"
+          macos_tag="$(node -p 'require("./product-version.json").macosTag')"
+
+          test "$product_version" = "2.0.4"
+          test "$display_version" = "V2.0.4"
+          test "$macos_tag" = "v2.0.4"
+
+          case "$GITHUB_REF_TYPE" in
+            branch)
+              test "$GITHUB_REF_NAME" = "codex/macos-v2.0.4-release"
+              ;;
+            tag)
+              test "$GITHUB_REF_NAME" = "$macos_tag"
+              test "$(git cat-file -t "refs/tags/$macos_tag")" = "tag"
+              test "$(git rev-parse "refs/tags/$macos_tag^{commit}")" = "$(git rev-parse HEAD)"
+              test "$(git rev-parse origin/codex/macos-v2.0.4-release)" = "$(git rev-parse HEAD)"
+              ;;
+            *)
+              echo "Unsupported release ref type: $GITHUB_REF_TYPE" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Check source whitespace
+        run: git -c core.autocrlf=false -c core.safecrlf=false diff --check HEAD^ HEAD
+
+      - name: Install frontend dependencies
+        working-directory: image-studio/frontend
+        run: npm ci
+
+      - name: Frontend lint and typecheck
+        working-directory: image-studio/frontend
+        run: |
+          npm run lint
+          npm run typecheck
+
+      - name: Frontend behavior tests
+        working-directory: image-studio/frontend
+        run: |
+          npm run test:node
+          npm run test:ui
+
+      - name: Build Windows production frontend
+        working-directory: image-studio/frontend
+        env:
+          VITE_TARGET_PLATFORM: windows
+          VITE_APP_VERSION: "2.0.4"
+          IMAGE_STUDIO_STORAGE_NAMESPACE: fhl-image-studio-desktop
+        run: npm run build:windows
+
+      - name: Build macOS production frontend
+        working-directory: image-studio/frontend
+        env:
+          VITE_TARGET_PLATFORM: macos
+          VITE_DESKTOP_UI_VARIANT: windows-parity
+          VITE_APP_VERSION: "2.0.4"
+          IMAGE_STUDIO_STORAGE_NAMESPACE: fhl-image-studio-desktop
+        run: npm run build:macos
+
+      - name: Test and vet desktop
+        working-directory: image-studio
+        run: |
+          go test . ./backend
+          go vet . ./backend
+
+      - name: Test, vet, and cross-build CLI
+        working-directory: go-cli
+        run: |
+          go test ./...
+          go vet ./...
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/gptcodex-image-arm64" ./cmd/gptcodex-image
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/gptcodex-image-amd64" ./cmd/gptcodex-image
+          file "$RUNNER_TEMP/gptcodex-image-arm64" "$RUNNER_TEMP/gptcodex-image-amd64"
+
+      - name: Test worker
+        working-directory: cloudflare-worker
+        run: npm test
+
+      - name: Build, launch, and verify application bundle
+        env:
+          VITE_TARGET_PLATFORM: macos
+          VITE_DESKTOP_UI_VARIANT: windows-parity
+          VITE_APP_VERSION: "2.0.4"
+          IMAGE_STUDIO_STORAGE_NAMESPACE: fhl-image-studio-desktop
+        run: ./script/build_and_run.sh --verify
+
+      - name: Stop verified application
+        if: always()
+        shell: bash
+        run: |
+          executable="$(node -p 'require("./image-studio/wails.json").outputfilename')"
+          app_executable="$GITHUB_WORKSPACE/image-studio/build/bin/FHL Studio.app/Contents/MacOS/$executable"
+          ps -axo pid=,command= | awk -v executable="$app_executable" '
+            {
+              pid = $1
+              sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", $0)
+              if ($0 == executable) print pid
+            }
+          ' | xargs -n 1 kill 2>/dev/null || true
+
+      - name: Package release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          assets="$RUNNER_TEMP/release-assets"
+          mkdir -p "$assets"
+          ./scripts/package-macos-release.sh --output-dir "$assets"
+          ./scripts/package-release-source.sh --ref "$GITHUB_SHA" --output-dir "$assets"
+          ./scripts/create-release-checksums.sh --output-dir "$assets"
+          node scripts/verify-macos-release-assets.mjs --assets-dir "$assets"
+
+      - name: Upload verified release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-v2.0.4-release-assets
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/release-assets/FHL-Image-Studio-Desktop-V2.0.4-macOS-Universal.dmg
+            ${{ runner.temp }}/release-assets/FHL-Image-Studio-Desktop-V2.0.4-Source.zip
+            ${{ runner.temp }}/release-assets/SHA256SUMS.txt
+
+  publish:
+    name: Publish explicit macOS tag
+    if: github.event_name == 'push' && github.ref == 'refs/tags/v2.0.4'
+    needs: build-and-verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Validate tagged release identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/sync-version-metadata.mjs --check
+          macos_tag="$(node -p 'require("./product-version.json").macosTag')"
+          test "$GITHUB_REPOSITORY" = "supart/fhl-image-studio"
+          test "$macos_tag" = "v2.0.4"
+          test "$GITHUB_REF_NAME" = "$macos_tag"
+          test "$(git cat-file -t "refs/tags/$macos_tag")" = "tag"
+          test "$(git rev-parse "refs/tags/$macos_tag^{commit}")" = "$(git rev-parse HEAD)"
+          test "$(git rev-parse origin/codex/macos-v2.0.4-release)" = "$(git rev-parse HEAD)"
+          remote_tag_object="$(git ls-remote --exit-code --tags origin "refs/tags/$macos_tag" | awk '{print $1}')"
+          test "$remote_tag_object" = "$(git rev-parse "refs/tags/$macos_tag")"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-v2.0.4-release-assets
+          path: release-assets
+
+      - name: Verify downloaded checksums
+        working-directory: release-assets
+        run: sha256sum --check SHA256SUMS.txt
+
+      - name: Publish GitHub Release without changing Latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          macos_tag="$(node -p 'require("./product-version.json").macosTag')"
+          if gh release view "$macos_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $macos_tag already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+          gh release create "$macos_tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "FHL Image Studio macOS V2.0.4" \
+            --notes-file RELEASE_NOTES_MACOS_V2.0.4.md \
+            --latest=false \
+            release-assets/FHL-Image-Studio-Desktop-V2.0.4-macOS-Universal.dmg \
+            release-assets/FHL-Image-Studio-Desktop-V2.0.4-Source.zip \
+            release-assets/SHA256SUMS.txt

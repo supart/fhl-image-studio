@@ -13,6 +13,7 @@ const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 const version = String(manifest.version ?? "").trim();
 const displayVersion = String(manifest.displayVersion ?? "").trim();
 const windowsTag = String(manifest.windowsTag ?? "").trim();
+const macosTag = String(manifest.macosTag ?? "").trim();
 
 if (!/^\d+\.\d+\.\d+$/.test(version)) {
   throw new Error(`product-version.json version must be semver core, got: ${version || "<empty>"}`);
@@ -22,6 +23,9 @@ if (displayVersion !== `V${version}`) {
 }
 if (windowsTag !== `windows-v${version}-release`) {
   throw new Error(`windowsTag must equal windows-v${version}-release, got: ${windowsTag || "<empty>"}`);
+}
+if (macosTag !== `v${version}`) {
+  throw new Error(`macosTag must equal v${version}, got: ${macosTag || "<empty>"}`);
 }
 
 const expectedExeBase = `FHL Studio 方汤圆版 ${displayVersion}`;
@@ -90,6 +94,7 @@ replaceOne(
 
 const requiredPaths = [
   "scripts/package-windows-portable.ps1",
+  "scripts/portable-photoshop-integration.ps1",
   "scripts/prepare-release-source.ps1",
   "scripts/portable-windows-launcher.cmd",
   "scripts/portable-windows-launcher.ps1",
@@ -112,11 +117,11 @@ if (mode === "--write") {
     fs.writeFileSync(path.join(root, relativePath), updates.get(relativePath), "utf8");
     process.stdout.write(`[version] updated ${relativePath}\n`);
   }
-  process.stdout.write(`[version] synchronized ${displayVersion} (${windowsTag})\n`);
+  process.stdout.write(`[version] synchronized ${displayVersion} (${windowsTag}, ${macosTag})\n`);
 } else if (drift.length > 0) {
   process.stderr.write(`[version] metadata drift for ${displayVersion}:\n`);
   for (const relativePath of drift) process.stderr.write(`- ${relativePath}\n`);
   process.exitCode = 1;
 } else {
-  process.stdout.write(`[version] metadata is synchronized: ${displayVersion} (${windowsTag})\n`);
+  process.stdout.write(`[version] metadata is synchronized: ${displayVersion} (${windowsTag}, ${macosTag})\n`);
 }

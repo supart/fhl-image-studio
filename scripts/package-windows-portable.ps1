@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$SourceRoot = "",
   [string]$OutputRoot = "",
   [string]$GoExe = "",
@@ -8,6 +8,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+$integrationHelper = Join-Path $PSScriptRoot "portable-photoshop-integration.ps1"
+if (-not (Test-Path -LiteralPath $integrationHelper -PathType Leaf)) {
+  throw "找不到 Photoshop 对接文件生成 helper: $integrationHelper"
+}
+. $integrationHelper
 
 function Resolve-SourceRoot {
   param([string]$Value)
@@ -193,6 +199,12 @@ foreach ($dir in @("input", "output", "output\images", "output\thumbs", "output\
 Ensure-Dir (Join-Path $PackageRoot "runtime")
 Ensure-Dir (Join-Path $PackageRoot "runtime\cli")
 New-Item -ItemType File -Path (Join-Path $PackageRoot ".fhl-studio-portable") -Force | Out-Null
+
+Write-FhlPhotoshopIntegrationMetadata `
+  -PackageRoot $PackageRoot `
+  -LaunchPath $ExeName `
+  -DesktopVersion $DisplayVersion `
+  -FileName "FHL Studio Photoshop 对接文件.json" | Out-Null
 
 Copy-IfExists (Join-Path $Root "README.md") (Join-Path $PackageRoot "README.md")
 Copy-IfExists (Join-Path $Root "NOTICE.md") (Join-Path $PackageRoot "NOTICE.md")

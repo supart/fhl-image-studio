@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ChevronLeft, ChevronRight, RotateCw, Upload, WandSparkles } from "lucide-react";
-import { Stage, Layer, Image as KonvaImage, Line, Rect, Arrow } from "react-konva";
+import { Stage, Layer, Image as KonvaImage, Line } from "react-konva";
 import Konva from "konva";
 import { useStudioStore } from "../../state/studioStore";
 import type { BatchTaskRecord, HistoryItem, JobGroupSnapshot, JobSlotSnapshot } from "../../types/domain";
@@ -14,8 +14,10 @@ import { SideBySideCompareOverlay } from "./SideBySideCompareOverlay";
 import type { Stroke } from "../../state/studioStore.types";
 import { EmptyState } from "./EmptyState";
 import { copyHistoryItemImageToClipboard, useImageFromSource } from "./canvasImage";
-import { AnnotationShape } from "./AnnotationShape";
 import { useCanvasShortcuts } from "./useCanvasShortcuts";
+import { AnnotationLayer } from "../../features/annotation/AnnotationLayer";
+import { AnnotationTextEditor } from "../../features/annotation/AnnotationTextEditor";
+import { useAnnotationInteractions } from "../../features/annotation/useAnnotationInteractions";
 import { StreamPreviewBadge } from "./StreamPreviewBadge";
 import { streamPreviewItemsFromPreviews } from "../../state/studioStore.streamPreview";
 import { historyFullSrc, isTransientPreviewItem, mediaFullUrlFromImageId } from "../../lib/images";
@@ -39,9 +41,12 @@ import { PanoramaViewerModal } from "../panorama/PanoramaViewerModal";
 import { PanoramaPastebackAlignModal } from "../panorama/PanoramaPastebackAlignModal";
 import { LocalEditWorkspaceModal } from "../localEdit/LocalEditWorkspaceModal";
 import { hasPanoramaRoundtripRef } from "../../panorama/core";
-import { recoverPanoramaItemMetadataFromTask } from "../../state/panoramaRoundtripRecovery";
+import { isLocalEditPastebackTerminal, recoverRoundtripItemMetadataFromTask } from "../../state/panoramaRoundtripRecovery";
 import { ImportImagePath, ReadImageAsBase64 } from "../../platform/runtime/host";
 import { normalizeFHLImagesPoolSlot } from "../../lib/profiles";
+import { persistHistoryItem } from "../../lib/storage";
+import { annotationBounds } from "../../features/annotation/annotationGeometry";
+import { cloneAnnotationForCopy } from "../../features/annotation/annotationTypes";
 
 function sourceFileName(filePath: string) {
   return filePath.split(/[\\/]/).pop() || "source.png";
@@ -214,13 +219,13 @@ function apimartRecoveryState(task: BatchTaskRecord | null | undefined): {
 
 export function CanvasStage() {
   const {
-    currentImage, tool, brushSize, brushMode,
+    currentImage, annotationSource, tool, brushSize, annotationStrokeWidth, annotationFontSize, brushMode,
     annotationKind, annotationColor,
     selectedAnnotationId,
-    annotations, addAnnotation, removeAnnotation, clearAnnotations,
+    annotations, addAnnotation, removeAnnotation, updateAnnotation, commitAnnotationUpdate,
     setMaskDataURL,
     strokes, pushStroke,
-    undoStack, redoStack, undo, redo,
+    undo, redo,
     compareB, compareMode, compareSplit, setCompareSplit, setCompareB,
     isRunning, cancel, errorMessage, setField,
     streamPreview,
@@ -266,8 +271,11 @@ export function CanvasStage() {
     activeProfileId,
   } = useStudioStore(useShallow((state) => ({
     currentImage: state.currentImage,
+    annotationSource: state.annotationSource,
     tool: state.tool,
     brushSize: state.brushSize,
+    annotationStrokeWidth: state.annotationStrokeWidth,
+    annotationFontSize: state.annotationFontSize,
     brushMode: state.brushMode,
     annotationKind: state.annotationKind,
     annotationColor: state.annotationColor,
@@ -275,12 +283,11 @@ export function CanvasStage() {
     annotations: state.annotations,
     addAnnotation: state.addAnnotation,
     removeAnnotation: state.removeAnnotation,
-    clearAnnotations: state.clearAnnotations,
+    updateAnnotation: state.updateAnnotation,
+    commitAnnotationUpdate: state.commitAnnotationUpdate,
     setMaskDataURL: state.setMaskDataURL,
     strokes: state.strokes,
     pushStroke: state.pushStroke,
-    undoStack: state.undoStack,
-    redoStack: state.redoStack,
     undo: state.undo,
     redo: state.redo,
     compareB: state.compareB,
@@ -346,10 +353,13 @@ export function CanvasStage() {
     apiMode: state.apiMode,
     activeProfileId: state.activeProfileId,
   })));
-  const { isMac } = usePlatform();
+
+  const [annotationMenu, setAnnotationMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const { isMacHost } = usePlatform();
   const panoramaPastebackImportInputRef = useRef<HTMLInputElement>(null);
   const [panoramaPastebackImportAnchor, setPanoramaPastebackImportAnchor] = useState<HistoryItem | null>(null);
   const [panoramaQuickPastebackBusy, setPanoramaQuickPastebackBusy] = useState(false);
+  const [localPastebackImportBusy, setLocalPastebackImportBusy] = useState(false);
   const streamPreviewItems = streamPreviewItemsFromPreviews(streamPreviews, {
     workspaceId: useStudioStore.getState().activeWorkspaceId,
     mode: useStudioStore.getState().mode,
@@ -707,8 +717,11 @@ export function CanvasStage() {
   const maskLayerRef = useRef<Konva.Layer | null>(null);
   const roRef = useRef<ResizeObserver | null>(null);
 
-  const currentImageBlob = currentImage?.imageBlob ?? currentImage?.previewBlob ?? null;
-  const currentImageURL = currentImage?.previewUrl?.startsWith("blob:")
+  const annotationSourceMatches = annotationSource?.sourceHistoryId === currentImage?.id;
+  const currentImageBlob = annotationSourceMatches
+    ? annotationSource?.blob ?? null
+    : currentImage?.imageBlob ?? currentImage?.previewBlob ?? null;
+  const currentImageURL = annotationSourceMatches ? null : currentImage?.previewUrl?.startsWith("blob:")
     ? currentImage.previewUrl
     : historyFullSrc(currentImage, null);
   const handleCurrentImageLoadError = useCallback((failedSrc: string) => {
@@ -954,10 +967,22 @@ export function CanvasStage() {
             sourceImagePaths: currentImageTask?.sourceImagePaths ?? activeSources.map((source) => source.path),
           }
         : currentImageTask;
-      return recoverPanoramaItemMetadataFromTask(currentImage, recoveryTask, history);
+      return recoverRoundtripItemMetadataFromTask(currentImage, recoveryTask, history);
     },
     [activeWorkspace?.mode, activeWorkspace?.sources, currentImage, currentImageIsWorkspaceResult, currentImageTask, history],
   );
+  useEffect(() => {
+    if (!currentImage || !currentPanoramaPastebackItem || currentPanoramaPastebackItem === currentImage) return;
+    if (isCurrentStreamPreview || currentImage.id.startsWith("source-preview-")) return;
+    const isPersistedResult = history.some((item) => item.id === currentImage.id)
+      || batchResults.some((item) => item.id === currentImage.id);
+    useStudioStore.setState((state) => ({
+      currentImage: state.currentImage?.id === currentImage.id ? currentPanoramaPastebackItem : state.currentImage,
+      history: state.history.map((item) => item.id === currentImage.id ? currentPanoramaPastebackItem : item),
+      batchResults: state.batchResults.map((item) => item.id === currentImage.id ? currentPanoramaPastebackItem : item),
+    }));
+    if (isPersistedResult) void persistHistoryItem(currentPanoramaPastebackItem).catch(() => undefined);
+  }, [batchResults, currentImage, currentPanoramaPastebackItem, history, isCurrentStreamPreview]);
   const canQuickPanoramaPasteback = !!currentPanoramaPastebackItem
     && !!currentImageBounds
     && !isCurrentStreamPreview
@@ -967,7 +992,8 @@ export function CanvasStage() {
     && !!currentImageBounds
     && !isCurrentStreamPreview
     && !currentPanoramaPastebackItem.id.startsWith("source-preview-")
-    && currentPanoramaPastebackItem.localEditRoundtrip?.kind === "planar";
+    && currentPanoramaPastebackItem.localEditRoundtrip?.kind === "planar"
+    && !isLocalEditPastebackTerminal(currentPanoramaPastebackItem);
   const panoramaPastebackQuickBounds = canQuickPanoramaPasteback && currentImageBounds
     ? {
         left: clampCanvasOverlayValue(
@@ -1013,7 +1039,10 @@ export function CanvasStage() {
   }, [view.x, view.y, view.scale, image, hostSize.w, hostSize.h]);
 
   // Double-click on the stage: cycle between fit and 100%.
-  function onStageDblClick() {
+  function onStageDblClick(e: Konva.KonvaEventObject<MouseEvent>) {
+    // Annotation objects own their double-click gesture for text editing;
+    // only the image or empty stage keeps the fit/100% zoom shortcut.
+    if (effectiveTool === "annotate" && e.target !== stageRef.current && e.target.getClassName?.() !== "Image") return;
     if (!image || hostSize.w === 0) return;
     if (!userView || Math.abs(userView.scale - 1) > 0.001) {
       // Currently fit (or not at 100%) 鈫?snap to 100% centred on image.
@@ -1031,8 +1060,6 @@ export function CanvasStage() {
   const drawingRef = useRef<{ active: boolean; current: Stroke | null }>({ active: false, current: null });
   const [, setDrawingTick] = useState(0);
 
-  // Annotation drag state.
-  const [drag, setDrag] = useState<null | { kind: "rect" | "arrow" | "freehand" | "text"; sx: number; sy: number; x: number; y: number }>(null);
   const {
     buildMenu,
     closeMenu,
@@ -1122,45 +1149,46 @@ export function CanvasStage() {
     };
   }
 
-  // In-progress freehand annotation buffer (kept in ref to keep mousemove cheap).
-  const freehandRef = useRef<number[] | null>(null);
+  const annotationInteractions = useAnnotationInteractions({
+    image,
+    stageRef,
+    view,
+    effectiveTool,
+    annotationKind,
+    annotationColor,
+    annotationStrokeWidth,
+    annotationFontSize,
+    annotations,
+    selectedAnnotationId,
+    resetKey: `${activeWorkspaceId}:${currentImage?.id ?? ""}:${canvasViewResetTick}`,
+    addAnnotation,
+    removeAnnotation,
+    updateAnnotation,
+    commitAnnotationUpdate,
+    setSelectedAnnotationId: (id) => setField("selectedAnnotationId", id),
+    setAnnotationKind: (kind) => setField("annotationKind", kind),
+    onAnnotationContextMenu: (id, x, y) => setAnnotationMenu({ id, x, y }),
+  });
+  const {
+    drag,
+    freehandPoints,
+    annotationEdit,
+  } = annotationInteractions;
 
   function onMouseDown(e: Konva.KonvaEventObject<MouseEvent>) {
+    setAnnotationMenu(null);
     if (!image) return;
     const local = stagePointerToImageCoord();
     if (!local) return;
     if (effectiveTool === "mask") {
       drawingRef.current = { active: true, current: { points: [local.x, local.y], size: brushSize, erase: brushMode === "erase" } };
-    } else if (effectiveTool === "annotate") {
-      // Click on empty area while in annotate mode clears any selection.
-      // Click on an annotation shape is handled by the shape's own onClick.
-      const target = e.target;
-      if (target === stageRef.current || target.getClassName?.() === "Image") {
-        setField("selectedAnnotationId", null);
-      }
-      if (annotationKind === "freehand") {
-        freehandRef.current = [local.x, local.y];
-        setDrawingTick((n) => n + 1);
-      } else if (annotationKind === "text") {
-        // Text annotations are created via a prompt on mouse down (no drag).
-        const text = window.prompt("文字标注内容:");
-        if (text && text.trim()) {
-          addAnnotation({
-            id: crypto.randomUUID(),
-            kind: "text",
-            x: local.x,
-            y: local.y,
-            text: text.trim(),
-            color: annotationColor,
-          });
-        }
-      } else {
-        setDrag({ kind: annotationKind, sx: local.x, sy: local.y, x: local.x, y: local.y });
-      }
+    } else {
+      annotationInteractions.onMouseDown(e);
     }
   }
 
   function openCanvasMenu(e: Konva.KonvaEventObject<PointerEvent>) {
+    if (annotationInteractions.onContextMenu(e)) return;
     if (!currentPanoramaPastebackItem) return;
     e.evt.preventDefault();
     openMenu(currentPanoramaPastebackItem, e.evt.clientX, e.evt.clientY);
@@ -1200,10 +1228,15 @@ export function CanvasStage() {
     event.currentTarget.value = "";
     setPanoramaPastebackImportAnchor(null);
     if (!file || !anchor) return;
-    if (anchor.localEditRoundtrip?.kind === "planar") {
-      await importExternalLocalPastebackImage(anchor, file);
-    } else {
-      await importExternalPanoramaPastebackImage(anchor, file);
+    setLocalPastebackImportBusy(true);
+    try {
+      if (anchor.localEditRoundtrip?.kind === "planar") {
+        await importExternalLocalPastebackImage(anchor, file);
+      } else {
+        await importExternalPanoramaPastebackImage(anchor, file);
+      }
+    } finally {
+      setLocalPastebackImportBusy(false);
     }
   }
 
@@ -1215,11 +1248,8 @@ export function CanvasStage() {
     if (effectiveTool === "mask" && drawingRef.current.active && drawingRef.current.current) {
       drawingRef.current.current.points.push(local.x, local.y);
       setDrawingTick((n) => n + 1);
-    } else if (effectiveTool === "annotate" && annotationKind === "freehand" && freehandRef.current) {
-      freehandRef.current.push(local.x, local.y);
-      setDrawingTick((n) => n + 1);
-    } else if (effectiveTool === "annotate" && drag) {
-      setDrag({ ...drag, x: local.x, y: local.y });
+    } else {
+      annotationInteractions.onMouseMove();
     }
   }
 
@@ -1228,46 +1258,8 @@ export function CanvasStage() {
       const finished = drawingRef.current.current;
       drawingRef.current = { active: false, current: null };
       pushStroke(finished);
-    } else if (effectiveTool === "annotate" && annotationKind === "freehand" && freehandRef.current) {
-      const pts = freehandRef.current;
-      freehandRef.current = null;
-      if (pts.length >= 4) {
-        addAnnotation({
-          id: crypto.randomUUID(),
-          kind: "freehand",
-          x: 0,
-          y: 0,
-          color: annotationColor,
-          points: pts,
-        });
-      }
-    } else if (effectiveTool === "annotate" && drag) {
-      const w = drag.x - drag.sx;
-      const h = drag.y - drag.sy;
-      if (Math.abs(w) > 3 && Math.abs(h) > 3) {
-        if (drag.kind === "rect") {
-          addAnnotation({
-            id: crypto.randomUUID(),
-            kind: "rect",
-            x: Math.min(drag.sx, drag.x),
-            y: Math.min(drag.sy, drag.y),
-            width: Math.abs(w),
-            height: Math.abs(h),
-            color: annotationColor,
-          });
-        } else if (drag.kind === "arrow") {
-          addAnnotation({
-            id: crypto.randomUUID(),
-            kind: "arrow",
-            x: drag.sx,
-            y: drag.sy,
-            width: drag.x - drag.sx,
-            height: drag.y - drag.sy,
-            color: annotationColor,
-          });
-        }
-      }
-      setDrag(null);
+    } else {
+      annotationInteractions.onMouseUp();
     }
   }
 
@@ -1329,7 +1321,7 @@ export function CanvasStage() {
     },
     currentImage,
     errorMessage,
-    isMac,
+    isMac: isMacHost,
     isRunning,
     redo,
     removeAnnotation,
@@ -1379,8 +1371,17 @@ export function CanvasStage() {
         data-panorama-current-workspace-result={currentImageIsWorkspaceResult ? "true" : "false"}
         data-panorama-task-linked={currentImageTask ? "true" : "false"}
         data-panorama-active-source-count={activeWorkspace?.sources.length ?? 0}
-        style={{ cursor: !currentImage ? "default" : (effectiveTool === "pan" ? (spacePan ? "grabbing" : "grab") : "crosshair") }}
+        style={{ cursor: !currentImage
+          ? "default"
+          : effectiveTool === "pan"
+            ? (spacePan ? "grabbing" : "grab")
+            : annotationKind === "pointer" ? "pointer" : "crosshair" }}
       >
+        <div
+          className="annotation-action-portal"
+          data-annotation-action-portal
+          aria-hidden={tool !== "annotate"}
+        />
         {!currentImage && !showingResultGrid && !showingHistoryGallery && <EmptyState state={isRunning ? "running" : "idle"} />}
         {streamPreview && currentImage && !showingLiveBatchGrid ? (
           <div className="stream-preview-overlay">
@@ -1459,6 +1460,10 @@ export function CanvasStage() {
             }}
             onCancelTask={({ taskId }) => cancelBatchTask(taskId)}
             onPromoteTask={({ taskId }) => promoteBatchTask(taskId)}
+            onAutoPasteLocalEdit={(item) => autoPasteCurrentLocal(item)}
+            onManualPasteLocalEdit={(item) => openLocalPastebackAligner(item)}
+            onImportPasteLocalEdit={(item) => openExternalPanoramaPastebackPicker(item)}
+            localPastebackBusy={panoramaQuickPastebackBusy || localPastebackImportBusy}
             onClose={closeResultGrid}
             showClose={!showingLiveBatchGrid}
             preserveSlotOrder={hasBatchTaskRecords}
@@ -1483,6 +1488,10 @@ export function CanvasStage() {
             hasMore={historyHasMore}
             loadingMore={historyLoading}
             onLoadMore={() => void loadMoreHistory()}
+            onAutoPasteLocalEdit={(item) => autoPasteCurrentLocal(item)}
+            onManualPasteLocalEdit={(item) => openLocalPastebackAligner(item)}
+            onImportPasteLocalEdit={(item) => openExternalPanoramaPastebackPicker(item)}
+            localPastebackBusy={panoramaQuickPastebackBusy || localPastebackImportBusy}
           />
         )}
         {!showingResultGrid && !showingHistoryGallery && currentImage && compareB && compareMode === "sideBySide" && (
@@ -1578,51 +1587,38 @@ export function CanvasStage() {
           </Layer>
 
           <Layer>
-            {annotations.map((a) => (
-              <AnnotationShape
-                key={a.id}
-                annotation={a}
-                selected={selectedAnnotationId === a.id}
-                onSelect={() => setField("selectedAnnotationId", a.id)}
-              />
-            ))}
-            {drag && drag.kind === "rect" && (
-              <Rect
-                x={Math.min(drag.sx, drag.x)}
-                y={Math.min(drag.sy, drag.y)}
-                width={Math.abs(drag.x - drag.sx)}
-                height={Math.abs(drag.y - drag.sy)}
-                stroke={annotationColor}
-                strokeWidth={2 / view.scale}
-                dash={[6 / view.scale, 4 / view.scale]}
-                listening={false}
-              />
-            )}
-            {drag && drag.kind === "arrow" && (
-              <Arrow
-                points={[drag.sx, drag.sy, drag.x, drag.y]}
-                stroke={annotationColor}
-                strokeWidth={2 / view.scale}
-                fill={annotationColor}
-                pointerLength={12 / view.scale}
-                pointerWidth={12 / view.scale}
-                listening={false}
-              />
-            )}
-            {freehandRef.current && freehandRef.current.length >= 4 && (
-              <Line
-                // Fresh array reference forces react-konva to repaint while drawing.
-                points={freehandRef.current.slice()}
-                stroke={annotationColor}
-                strokeWidth={3 / view.scale}
-                lineCap="round"
-                lineJoin="round"
-                tension={0.4}
-                listening={false}
-              />
-            )}
+            <AnnotationLayer
+              annotations={annotations}
+              selectedAnnotationId={selectedAnnotationId}
+              annotationKind={annotationKind}
+              viewScale={view.scale}
+              color={annotationColor}
+              drag={drag}
+              freehandPoints={freehandPoints}
+              strokeWidth={annotationStrokeWidth}
+              onSelect={annotationInteractions.onSelect}
+              onActivate={annotationInteractions.onActivate}
+            />
           </Layer>
         </Stage>
+        {annotationEdit ? (() => {
+          const target = annotations.find((annotation) => annotation.id === annotationEdit.id);
+          if (!target) return null;
+          return (
+            <AnnotationTextEditor
+              value={annotationEdit.text}
+              x={view.x + target.x * view.scale}
+              y={view.y + target.y * view.scale - annotationFontSize * view.scale}
+              color={target.color}
+              fontSize={target.fontSize ?? annotationFontSize}
+              scale={view.scale}
+              onChange={annotationInteractions.onEditChange}
+              onCancel={annotationInteractions.onEditCancel}
+              onCommit={annotationInteractions.onEditCommit}
+              onBlurCommit={annotationInteractions.onEditBlur}
+            />
+          );
+        })() : null}
         {currentImageBadgeBounds && currentImageApiSource ? (
           <div className="canvas-api-source-badge-host" style={currentImageBadgeBounds} aria-hidden="true">
             <HistoryApiSourceBadge source={currentImageApiSource} className="canvas-api-source-badge rounded-[6px]" />
@@ -1752,6 +1748,42 @@ export function CanvasStage() {
           y={menu.y}
           items={buildMenu(menu.item)}
           onClose={closeMenu}
+        />
+      ) : null}
+      {annotationMenu && annotations.some((annotation) => annotation.id === annotationMenu.id) ? (
+        <ContextMenu
+          x={annotationMenu.x}
+          y={annotationMenu.y}
+          items={[
+            {
+              label: "复制标注",
+              onClick: () => {
+                const target = annotations.find((annotation) => annotation.id === annotationMenu.id);
+                if (!target) return;
+                const bounds = annotationBounds(target);
+                const imageWidth = image?.naturalWidth ?? image?.width ?? Number.POSITIVE_INFINITY;
+                const imageHeight = image?.naturalHeight ?? image?.height ?? Number.POSITIVE_INFINITY;
+                const offsetX = bounds.x + bounds.width + 16 <= imageWidth
+                  ? 16
+                  : bounds.x >= 16 ? -16 : 0;
+                const offsetY = bounds.y + bounds.height + 16 <= imageHeight
+                  ? 16
+                  : bounds.y >= 16 ? -16 : 0;
+                const copy = cloneAnnotationForCopy(target, crypto.randomUUID(), offsetX, offsetY);
+                addAnnotation(copy);
+                setField("selectedAnnotationId", copy.id);
+              },
+            },
+            {
+              label: "删除标注",
+              danger: true,
+              onClick: () => {
+                removeAnnotation(annotationMenu.id);
+                setField("selectedAnnotationId", null);
+              },
+            },
+          ]}
+          onClose={() => setAnnotationMenu(null)}
         />
       ) : null}
       <PanoramaViewerModal />

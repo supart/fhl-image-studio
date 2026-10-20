@@ -23,9 +23,9 @@ import type {
   ThemeMode,
   Workspace,
 } from "../types/domain";
-import { compactWorkspaceSessionTasks } from "./workspaceSessionTasks";
+import { compactWorkspaceSessionTasks, storedLocalEditRoundtrip } from "./workspaceSessionTasks";
 import type { FHLTransportMode, ModeConfig, Stroke } from "./studioStore.types";
-import { isWindows } from "../platform";
+import { isWindowsHost } from "../platform";
 import { normalizeLocalEditLens } from "../localEdit/lens";
 import {
   ACTIVE_PROFILE_LS_KEY,
@@ -109,7 +109,7 @@ export function applyTheme(theme: ThemeMode) {
   unbindSystemThemeListener();
   document.documentElement.setAttribute("data-appearance", theme);
   writeResolvedTheme(resolvedTheme(theme));
-  if (isWindows) {
+  if (isWindowsHost) {
     if (theme === "system") WindowSetSystemDefaultTheme();
     else if (theme === "dark") WindowSetDarkTheme();
     else WindowSetLightTheme();
@@ -704,6 +704,7 @@ export function normalizeBatchTasks(value: unknown): Record<string, BatchTaskRec
         ? raw.sourceImagePaths.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
         : undefined,
       panoramaRoundtrip: raw.panoramaRoundtrip,
+      localEditRoundtrip: storedLocalEditRoundtrip(raw.localEditRoundtrip),
       batchSourcePath: typeof raw.batchSourcePath === "string" && raw.batchSourcePath.trim() ? raw.batchSourcePath.trim() : undefined,
       batchSourceSlotIndex: Number.isFinite(Number(raw.batchSourceSlotIndex)) ? Math.max(0, Math.floor(Number(raw.batchSourceSlotIndex))) : undefined,
       maskB64: typeof raw.maskB64 === "string" ? raw.maskB64 : undefined,

@@ -31,6 +31,7 @@ const APIMART_LEGACY_BASE_URL = ProviderPolicy.apimart.legacyBaseURL;
 const APIMART_LOCAL_PROXY_PREFIX = "/__image-studio-apimart";
 const APIMART_LEGACY_LOCAL_PROXY_PREFIX = "/__image-studio-apimart-legacy";
 const APIMART_PROBE_TIMEOUT_MS = 15_000;
+const UPSTREAM_PROBE_MAX_BODY_BYTES = 1 << 20;
 
 function normalizeProbeBaseURL(
   raw: string,
@@ -54,6 +55,31 @@ function summarizeProbeBody(raw: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 260);
+}
+
+function probeModelIDs(values: unknown[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const raw = typeof value === "string"
+      ? value
+      : value && typeof value === "object" && "id" in value
+        ? (value as { id?: unknown }).id
+        : "";
+    const id = String(raw ?? "").trim();
+    if (!id || Array.from(id).length > 128 || /\p{Cc}/u.test(id) || seen.has(id)) continue;
+    seen.add(id);
+    result.push(id);
+  }
+  return result;
+}
+
+function normalizeProbeResult(value: ProbeUpstreamResultLike | null | undefined): ProbeUpstreamResultLike {
+  const models = probeModelIDs(Array.isArray(value?.models) ? value.models : []);
+  const modelCount = Number.isFinite(Number(value?.modelCount))
+    ? Math.max(0, Math.floor(Number(value?.modelCount)))
+    : models.length;
+  return { modelCount, models };
 }
 
 function fallbackAPIMartProbeBaseURL(baseURL: string): string {
@@ -85,7 +111,7 @@ async function probeUpstreamFromBrowser(
   baseURL: string,
   apiKey: string,
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<ProbeUpstreamResultLike> {
   const normalizedBaseURL = normalizeProbeBaseURL(baseURL);
   const headerAPIKey = validateAPIKeyForHeader(apiKey);
   if (!normalizedBaseURL) throw new Error("BASE_URL 不能为空");
@@ -98,6 +124,9 @@ async function probeUpstreamFromBrowser(
     signal,
   });
   const raw = await response.text();
+  if (new TextEncoder().encode(raw).byteLength > UPSTREAM_PROBE_MAX_BODY_BYTES) {
+    throw new Error("上游 /v1/models 响应超过 1 MiB 限制");
+  }
   if (!response.ok) {
     const summary = summarizeProbeBody(raw);
     throw new Error(summary ? `上游 /v1/models 返回 ${response.status}: ${summary}` : `上游 /v1/models 返回 ${response.status}`);
@@ -111,6 +140,10 @@ async function probeUpstreamFromBrowser(
   if (!Array.isArray(parsed?.data)) {
     throw new Error("上游 /v1/models 响应缺少 data 数组");
   }
+  return {
+    modelCount: parsed.data.length,
+    models: probeModelIDs(parsed.data),
+  };
 }
 
 async function probeAPIMartFromBrowser(
@@ -279,30 +312,27 @@ export async function probeCurrentUpstream(
   proxyURL = "",
   apiModeOrSignal: string | AbortSignal = "responses",
   maybeSignal?: AbortSignal,
-): Promise<void> {
+): Promise<ProbeUpstreamResultLike> {
   const apiMode = typeof apiModeOrSignal === "string" ? apiModeOrSignal : "responses";
   const signal = typeof apiModeOrSignal === "string" ? maybeSignal : apiModeOrSignal;
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
   if (apiMode === "apimart") {
     await probeAPIMartFromBrowser(baseURL, apiKey, signal);
-    return;
+    return { modelCount: 0, models: [] };
   }
   if (apiMode === "runninghub") {
     await probeRunningHubFromBrowser(baseURL, signal);
-    return;
+    return { modelCount: 0, models: [] };
   }
   const options: ProbeUpstreamOptionsLike = { baseURL, apiKey, proxyMode, proxyURL };
   if (hasServiceMethod("ProbeUpstream")) {
-    await invokeService<ProbeUpstreamResultLike>(unsupportedMessage, "ProbeUpstream", options);
-    return;
+    return normalizeProbeResult(await invokeService<ProbeUpstreamResultLike>(unsupportedMessage, "ProbeUpstream", options));
   }
   if (canInvokeAndroidMethod("ProbeUpstream")) {
-    await invokeAndroid<ProbeUpstreamResultLike>(unsupportedMessage, "ProbeUpstream", options);
-    return;
+    return normalizeProbeResult(await invokeAndroid<ProbeUpstreamResultLike>(unsupportedMessage, "ProbeUpstream", options));
   }
   if (detectHostKind() === "browser") {
-    await probeUpstreamFromBrowser(baseURL, apiKey, signal);
-    return;
+    return probeUpstreamFromBrowser(baseURL, apiKey, signal);
   }
   throw new Error(unsupportedMessage("ProbeUpstream"));
 }

@@ -106,3 +106,17 @@ func TestSyncCLIConfigRunningHubNeverPersistsAPIKey(t *testing.T) {
 		t.Fatal("RunningHub config persisted the supplied API key")
 	}
 }
+
+func TestRenderCLIEnvUsesHostPathSeparator(t *testing.T) {
+	rendered := renderCLIEnv(CLIConfigSyncInput{})
+	prefix := "." + string(filepath.Separator)
+	for _, want := range []string{
+		"IMAGE_STUDIO_INPUT_DIR=" + prefix + "input",
+		"IMAGE_STUDIO_OUTPUT_DIR=" + prefix + "output",
+		"IMAGE_STUDIO_RAW_DIR=" + prefix + filepath.Join("output", "log"),
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("CLI config missing host path %q:\n%s", want, rendered)
+		}
+	}
+}

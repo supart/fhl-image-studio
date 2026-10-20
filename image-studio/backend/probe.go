@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/yuanhua/image-gptcodex/pkg/client"
 )
@@ -16,7 +18,9 @@ const probeUpstreamTimeout = 20 * time.Second
 const probeUpstreamMaxBody = 1 << 20
 
 type modelsListProbeResponse struct {
-	Data []json.RawMessage `json:"data"`
+	Data []struct {
+		ID string `json:"id"`
+	} `json:"data"`
 }
 
 func (s *Service) ProbeUpstream(opts ProbeUpstreamOptions) (ProbeUpstreamResult, error) {
@@ -64,7 +68,10 @@ func probeUpstream(parent context.Context, opts ProbeUpstreamOptions) (ProbeUpst
 	}
 	defer resp.Body.Close()
 
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, probeUpstreamMaxBody))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, probeUpstreamMaxBody+1))
+	if len(body) > probeUpstreamMaxBody {
+		return ProbeUpstreamResult{}, fmt.Errorf("上游 /v1/models 响应超过 1 MiB 限制")
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		summary := summarizeProbeBody(body)
 		if summary == "" && readErr != nil {
@@ -86,7 +93,39 @@ func probeUpstream(parent context.Context, opts ProbeUpstreamOptions) (ProbeUpst
 	if parsed.Data == nil {
 		return ProbeUpstreamResult{}, fmt.Errorf("上游 /v1/models 响应缺少 data 数组")
 	}
-	return ProbeUpstreamResult{ModelCount: len(parsed.Data)}, nil
+	return ProbeUpstreamResult{
+		ModelCount: len(parsed.Data),
+		Models:     probeModelIDs(parsed.Data),
+	}, nil
+}
+
+func probeModelIDs(models []struct {
+	ID string `json:"id"`
+}) []string {
+	seen := make(map[string]struct{}, len(models))
+	result := make([]string, 0, len(models))
+	for _, model := range models {
+		id := strings.TrimSpace(model.ID)
+		if id == "" || utf8.RuneCountInString(id) > 128 {
+			continue
+		}
+		invalid := false
+		for _, r := range id {
+			if unicode.IsControl(r) {
+				invalid = true
+				break
+			}
+		}
+		if invalid {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+	return result
 }
 
 func summarizeProbeBody(body []byte) string {

@@ -164,6 +164,54 @@ func TestManagedWritableDirectoryRejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestIsWithinRootResolvesExistingSymlinkAncestor(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("creating symlinks on Windows requires an optional privilege")
+	}
+	realRoot := t.TempDir()
+	aliasParent := t.TempDir()
+	aliasRoot := filepath.Join(aliasParent, "alias")
+	if err := os.Symlink(realRoot, aliasRoot); err != nil {
+		t.Fatal(err)
+	}
+
+	candidate := filepath.Join(aliasRoot, "not-created", "preview.png")
+	if !isWithinRoot(candidate, realRoot) {
+		t.Fatalf("expected %q to resolve within %q", candidate, realRoot)
+	}
+}
+
+func TestIsWithinRootRejectsSymlinkEscapeForMissingChild(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("creating symlinks on Windows requires an optional privilege")
+	}
+	root := t.TempDir()
+	outside := t.TempDir()
+	link := filepath.Join(root, "escape")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+
+	if isWithinRoot(filepath.Join(link, "not-created.png"), root) {
+		t.Fatal("expected path below escaping symlink to be rejected")
+	}
+}
+
+func TestIsWithinRootFailsClosedForDanglingSymlink(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("creating symlinks on Windows requires an optional privilege")
+	}
+	root := t.TempDir()
+	link := filepath.Join(root, "dangling")
+	if err := os.Symlink(filepath.Join(t.TempDir(), "missing-target"), link); err != nil {
+		t.Fatal(err)
+	}
+
+	if isWithinRoot(filepath.Join(link, "not-created.png"), root) {
+		t.Fatal("expected unresolvable path to be rejected")
+	}
+}
+
 func TestResetOutputDirRevokesCurrentOutputRoot(t *testing.T) {
 	t.Setenv(publicRootEnvName, "")
 	svc := NewService()

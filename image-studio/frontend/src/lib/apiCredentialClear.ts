@@ -7,6 +7,7 @@ import {
 } from "./apiCredentialLibrary.ts";
 import type { StudioState } from "../state/studioStore.types.ts";
 import { legacyStorageNamespacesFor } from "./storageNamespace.ts";
+import { FHL_TEXT_API_DEFAULT_MODEL_ID } from "./fhlTextAPIModel.ts";
 
 export type APICredentialClearOperations = {
   deleteKey: (user: string) => Promise<void>;
@@ -17,6 +18,7 @@ export type APICredentialClearOperations = {
   clearLegacyKeys: () => void;
   persistProfiles: (profiles: StudioState["profiles"]) => void;
   persistActiveProfileId: (id: string) => void;
+  persistFHLTextAPIModelID?: (modelID: string) => void;
 };
 
 export async function clearAllAPIConfigurations(
@@ -68,6 +70,7 @@ export async function clearAllAPIConfigurations(
   operations.clearLegacyKeys();
   operations.persistProfiles([]);
   operations.persistActiveProfileId("");
+  operations.persistFHLTextAPIModelID?.(FHL_TEXT_API_DEFAULT_MODEL_ID);
   setState({
     profiles: [],
     activeProfileId: "",
@@ -79,6 +82,7 @@ export async function clearAllAPIConfigurations(
     requestPolicy: "openai",
     imagesNewAPICompat: false,
     fhlTextAPIConfigured: false,
+    fhlTextAPIModelID: FHL_TEXT_API_DEFAULT_MODEL_ID,
     fhlTextAPIKeyHint: "",
     fhlTextAPITestStatus: "unconfigured",
     fhlTextAPITestMessage: "",

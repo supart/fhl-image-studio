@@ -111,10 +111,10 @@ export function ControlPanel() {
     outputFormat, batchCount, continuousGenerateTest, fhlPoolPerAPIConcurrencyLimit, fhlPoolEffectiveConcurrencyByProfileId,
     sources, currentImage, reversePromptImage, editSourceMode, batchProcess,
     errorMessage, errorRawPath, isRunning, runningJobs, lastPayload, isTestingKey, isOptimizingPrompt, isReversingPrompt,
-    apiMode, requestPolicy, baseURL, textModelID, profiles, activeProfileId, imageModelID, fhlTextAPIConfigured,
+    apiMode, requestPolicy, baseURL, textModelID, profiles, activeProfileId, imageModelID, fhlTextAPIConfigured, fhlTextAPIModelID,
     activeWorkspaceId, workspaces, jobGroupsByWorkspace, batchTasksById, batchResults, history,
     setField, clearError, pushToast,
-    selectSourceImage, selectBatchInputDir, selectBatchInputFiles, chooseBatchOutputDir, importSourceImageFile, selectReversePromptImage, importReversePromptImageFile, clearReversePromptImage, removeSource, clearSources,
+    selectSourceImage, selectBatchInputDir, selectBatchInputFiles, chooseBatchOutputDir, importSourceImageFile, importReversePromptImageFile, clearReversePromptImage, removeSource, clearSources,
     openUpstreamConfig,
     submit, cancel, retryLast, retryFailedBatchTasks, cancelQueuedBatchTasks, clearFailedBatchTasks, optimizePrompt, reversePromptFromImage, resetCurrentWorkspaceDraft,
     setFHLPoolPerAPIConcurrencyLimit,
@@ -128,7 +128,7 @@ export function ControlPanel() {
   const [continuousSubmitHintOpen, setContinuousSubmitHintOpen] = useState(false);
   const [customConcurrency, setCustomConcurrency] = useState("");
   const [panoramaStudioOpen, setPanoramaStudioOpen] = useState(false);
-  const { isAndroid, isAndroidPhone, isAndroidPad, isMac, isWindows, usesAndroidUI, usesAppleUI, usesFluentUI } = usePlatform();
+  const { isAndroid, isAndroidPhone, isAndroidPad, usesMacDesktopUI, usesWindowsDesktopUI, usesAndroidUI, usesAppleUI, usesFluentUI } = usePlatform();
 
   if (isAndroidPhone) {
     return <AndroidPhoneComposePanel />;
@@ -151,6 +151,7 @@ export function ControlPanel() {
     textModelID,
     profiles,
     fhlTextAPIConfigured,
+    fhlTextAPIModelID,
   });
   const activeStyleLabel = STYLE_CHIPS.find((item) => item.id === styleTag)?.label ?? styleTag;
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId);
@@ -240,8 +241,8 @@ export function ControlPanel() {
       || sources[0]?.imageBlob
     )
   );
-  const compactMacCompose = isMac;
-  const compactWindowsCompose = isWindows;
+  const compactMacCompose = usesMacDesktopUI;
+  const compactWindowsCompose = usesWindowsDesktopUI;
   const advancedSummary = [
     negativePrompt.trim() ? "已填负向提示词" : "无负向限制",
     outputFormat.toUpperCase(),
@@ -315,8 +316,8 @@ export function ControlPanel() {
   }
 
   return (
-    <div data-audit-area="control-panel" className={`control-panel box-border flex shrink-0 flex-col overflow-y-auto border-r border-[var(--border)] bg-[var(--sidebar)] backdrop-blur-2xl ${usesAppleUI ? "liquid-sidebar" : ""} ${usesAndroidUI ? "android-surface-pane" : ""} ${isMac ? "w-[408px] gap-5 px-6 py-5" : "w-[372px] gap-4 px-5 py-4"} ${usesFluentUI ? "pt-3" : ""}`}>
-      <section className={`platform-card ${isMac ? "px-5 py-5" : "px-4 py-4"}`}>
+    <div data-audit-area="control-panel" className={`control-panel box-border flex shrink-0 flex-col overflow-y-auto border-r border-[var(--border)] bg-[var(--sidebar)] backdrop-blur-2xl ${usesAppleUI ? "liquid-sidebar" : ""} ${usesAndroidUI ? "android-surface-pane" : ""} ${usesMacDesktopUI ? "w-[408px] gap-5 px-6 py-5" : "w-[372px] gap-4 px-5 py-4"} ${usesFluentUI ? "pt-3" : ""}`}>
+      <section className={`platform-card ${usesMacDesktopUI ? "px-5 py-5" : "px-4 py-4"}`}>
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between gap-3">
@@ -338,7 +339,7 @@ export function ControlPanel() {
               </button>
             </div>
             {!isAndroid && (
-              <p className={`${isMac ? "mt-1 text-[12px] leading-6" : "mt-0.5 text-[11px] leading-relaxed"} text-zinc-500 dark:text-zinc-400`}>
+              <p className={`${usesMacDesktopUI ? "mt-1 text-[12px] leading-6" : "mt-0.5 text-[11px] leading-relaxed"} text-zinc-500 dark:text-zinc-400`}>
                 保持界面简洁，把注意力留给 prompt、参考图和结果。
               </p>
             )}
@@ -477,7 +478,7 @@ export function ControlPanel() {
             )}
           </div>
         </div>
-        {isMac && (
+        {usesMacDesktopUI && (
           <div className="mt-3">
             <div className="mb-2 text-[11px] uppercase tracking-[0.12em] text-zinc-400 dark:text-zinc-500">模式</div>
             <ModeSwitch
@@ -509,7 +510,7 @@ export function ControlPanel() {
         />
       ) : null}
 
-      {!isMac && (
+      {!usesMacDesktopUI && (
         <Section label="模式">
           <ModeSwitch
             mode={mode}
@@ -668,7 +669,6 @@ export function ControlPanel() {
         onSetPromptPrefix={(value) => setField("promptPrefix", value)}
         onSetPrompt={(value) => setField("prompt", value)}
         onSetOptimizationGuidance={(value) => setField("optimizationGuidance", value)}
-        onSelectReversePromptImage={selectReversePromptImage}
         onImportReversePromptImageFile={importReversePromptImageFile}
         onClearReversePromptImage={clearReversePromptImage}
         onOptimizePromptBase={() => optimizePrompt({ useGuidance: false })}
@@ -678,7 +678,7 @@ export function ControlPanel() {
       />
 
       {/* 高级参数(可折叠)*/}
-      {isMac ? (
+      {usesMacDesktopUI ? (
         <MacAdvancedPanel
           advancedOpen={advancedOpen}
           advancedSummary={advancedSummary}

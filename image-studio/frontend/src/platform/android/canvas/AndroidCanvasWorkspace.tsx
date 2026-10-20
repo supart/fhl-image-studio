@@ -29,7 +29,8 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { ANNOTATION_COLORS, type AnnotationKind, type HistoryItem, type SourceImage } from "../../../types/domain";
+import { ANNOTATION_COLORS, type HistoryItem, type SourceImage } from "../../../types/domain";
+import type { AnnotationTool } from "../../../features/annotation/annotationTypes";
 import { useStudioStore } from "../../../state/studioStore";
 import { base64ToBlob, useBlobURL } from "../../../lib/images";
 import { qualityLabel, sizeLabel } from "../../../components/history/historyLabels";
@@ -527,9 +528,9 @@ function AndroidAnnotationControls({
   onSetColor,
   onClear,
 }: {
-  annotationKind: AnnotationKind;
+  annotationKind: AnnotationTool;
   annotationColor: string;
-  onSetKind: (value: AnnotationKind) => void;
+  onSetKind: (value: AnnotationTool) => void;
   onSetColor: (value: string) => void;
   onClear: () => void;
 }) {

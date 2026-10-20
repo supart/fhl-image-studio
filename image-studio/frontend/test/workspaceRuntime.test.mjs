@@ -7,6 +7,7 @@ import {
   patchWorkspaceRuntime,
   workspaceRunningCount,
 } from "../src/state/workspaceRuntime.ts";
+import { DEFAULT_AUTO_ASPECT_RESOLUTION } from "../src/lib/generationDefaults.ts";
 
 function makeWorkspace(id, prompt) {
   return {
@@ -107,10 +108,12 @@ test("patchWorkspaceRuntime can reset the active workspace draft without touchin
 });
 
 test("batch process defaults to auto aspect and preserves explicit manual size mode", () => {
-  assert.equal(defaultBatchProcessConfig().autoAspectResolution, "1k");
+  assert.equal(DEFAULT_AUTO_ASPECT_RESOLUTION, "2k");
+  assert.equal(defaultBatchProcessConfig().autoAspectResolution, "2k");
   assert.equal(defaultBatchProcessConfig().batchSourceSlotIndex, 0);
-  assert.equal(normalizeBatchProcessConfig({}).autoAspectResolution, "1k");
+  assert.equal(normalizeBatchProcessConfig({}).autoAspectResolution, "2k");
   assert.equal(normalizeBatchProcessConfig({}).batchSourceSlotIndex, 0);
+  assert.equal(normalizeBatchProcessConfig({ autoAspectResolution: "1k" }).autoAspectResolution, "1k");
   assert.equal(normalizeBatchProcessConfig({ autoAspectResolution: "4k" }).autoAspectResolution, "4k");
   assert.equal(normalizeBatchProcessConfig({ autoAspectResolution: "" }).autoAspectResolution, "");
   assert.equal(normalizeBatchProcessConfig({ batchSourceSlotIndex: 3.8 }).batchSourceSlotIndex, 3);

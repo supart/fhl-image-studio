@@ -9,6 +9,7 @@ import type {
   RequestPolicy,
   SizeValue,
 } from "../../types/domain";
+import { DEFAULT_AUTO_ASPECT_RESOLUTION } from "../../lib/generationDefaults.ts";
 import { QUALITY_TIERS } from "./panelOptions";
 import { Section, Seg, SegItem } from "./panelChrome";
 import { AspectRatioPicker } from "./AspectRatioPicker";
@@ -167,7 +168,7 @@ export function DesktopComposeSections({
                   active={batchProcess.autoAspectResolution !== ""}
                   onClick={() => setBatchProcess({
                     ...batchProcess,
-                    autoAspectResolution: batchProcess.autoAspectResolution || "1k",
+                    autoAspectResolution: batchProcess.autoAspectResolution || DEFAULT_AUTO_ASPECT_RESOLUTION,
                   })}
                 >
                   {"\u81ea\u52a8\u9002\u914d"}
@@ -256,7 +257,7 @@ export function DesktopComposeSections({
                     active={batchProcess.autoAspectResolution !== ""}
                     onClick={() => setBatchProcess({
                       ...batchProcess,
-                      autoAspectResolution: batchProcess.autoAspectResolution || "1k",
+                      autoAspectResolution: batchProcess.autoAspectResolution || DEFAULT_AUTO_ASPECT_RESOLUTION,
                     })}
                   >
                     按源图比例自动适配

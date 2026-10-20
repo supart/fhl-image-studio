@@ -3,8 +3,8 @@
 package backend
 
 /*
-#cgo CFLAGS: -x objective-c -fobjc-arc -mmacosx-version-min=10.13
-#cgo LDFLAGS: -framework Foundation -framework CoreImage -framework CoreGraphics -framework ImageIO -framework Metal -mmacosx-version-min=10.13
+#cgo CFLAGS: -x objective-c -fobjc-arc -mmacosx-version-min=13.0
+#cgo LDFLAGS: -framework Foundation -framework CoreImage -framework CoreGraphics -framework ImageIO -framework Metal -mmacosx-version-min=13.0
 
 #import <Foundation/Foundation.h>
 #import <CoreImage/CoreImage.h>

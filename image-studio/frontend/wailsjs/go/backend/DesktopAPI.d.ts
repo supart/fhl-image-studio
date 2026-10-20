@@ -60,9 +60,9 @@ export function OpenMaterialSyncDir(arg1:string):Promise<void>;
 
 export function OpenOutputDir():Promise<void>;
 
-export function PasteLocalEdit(arg1:string,arg2:string,arg3:backend.PlanarPastebackOptions):Promise<backend.ImageTransformResult>;
-
 export function OptimizePrompt(arg1:backend.PromptOptimizeOptions):Promise<string>;
+
+export function PasteLocalEdit(arg1:string,arg2:string,arg3:backend.PlanarPastebackOptions):Promise<backend.ImageTransformResult>;
 
 export function ProbeUpstream(arg1:backend.ProbeUpstreamOptions):Promise<backend.ProbeUpstreamResult>;
 

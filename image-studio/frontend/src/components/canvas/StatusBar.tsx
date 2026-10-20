@@ -32,7 +32,7 @@ export function StatusBar() {
     workspaces,
     batchTasksById,
   } = useStudioStore();
-  const { isAndroidPhone, isMac, isWindows, usesFluentUI, usesAppleUI } = usePlatform();
+  const { isAndroidPhone, usesMacDesktopUI, usesWindowsDesktopUI, usesFluentUI, usesAppleUI } = usePlatform();
   const [clockNow, setClockNow] = useState(() => Date.now());
   const [progressAnchor, setProgressAnchor] = useState(() => ({ elapsed: 0, at: Date.now() }));
   const zoomLabel = currentImage ? `${Math.round(viewZoom * 100)}%` : "";
@@ -87,11 +87,11 @@ export function StatusBar() {
 
   if (isRunning) {
     return (
-      <div className={`${isWindows ? "statusbar" : ""} relative flex min-w-0 flex-nowrap items-center gap-3 overflow-hidden whitespace-nowrap border-t border-[var(--border)] bg-[var(--toolbar)] px-3 py-2 text-[11px] text-zinc-700 backdrop-blur-2xl dark:text-zinc-300 ${usesAppleUI ? "liquid-glass-bar" : ""} ${usesFluentUI ? "min-h-[34px]" : ""} ${isAndroidPhone ? "min-h-[30px]" : ""} ${isMac ? "min-h-[28px]" : ""}`}>
+      <div className={`${usesWindowsDesktopUI ? "statusbar" : ""} relative flex min-w-0 flex-nowrap items-center gap-3 overflow-hidden whitespace-nowrap border-t border-[var(--border)] bg-[var(--toolbar)] px-3 py-2 text-[11px] text-zinc-700 backdrop-blur-2xl dark:text-zinc-300 ${usesAppleUI ? "liquid-glass-bar" : ""} ${usesFluentUI ? "min-h-[34px]" : ""} ${isAndroidPhone ? "min-h-[30px]" : ""} ${usesMacDesktopUI ? "min-h-[28px]" : ""}`}>
         <Loader2 className="h-3 w-3 shrink-0 animate-spin text-[var(--accent)]" />
         <span className="font-medium">
           {progress
-            ? isMac
+            ? usesMacDesktopUI
               ? `${runningStage} · ${formatElapsed(liveElapsedSeconds)}`
               : `${runningStage} · ${formatElapsed(liveElapsedSeconds)} · ${fmtBytes(progress.bytes)}`
             : "正在请求..."}
@@ -110,7 +110,7 @@ export function StatusBar() {
         {streamPreview ? <StreamPreviewBadge compact /> : null}
         {eta !== null && <span className="text-zinc-500">≈ 剩余 {eta}s</span>}
         <div className="absolute bottom-0 left-0 right-0 h-px animate-pulse bg-[color:var(--accent)]/35" />
-        {!isAndroidPhone && !isMac && trailingLogLine && (
+        {!isAndroidPhone && !usesMacDesktopUI && trailingLogLine && (
           <span className="text-zinc-500 truncate max-w-[30%] ml-auto" title={trailingLogLine}>
             {trailingLogLine}
           </span>
@@ -122,17 +122,17 @@ export function StatusBar() {
     const headline = currentImage.mode === "edit" ? "编辑结果" : "生成结果";
     const metaBadges = [sizeLabel(currentImage.size), qualityLabel(currentImage.quality)];
     if (currentImage.elapsedSec) metaBadges.push(`${currentImage.elapsedSec}s`);
-    if (!isMac && currentImage.seed) metaBadges.push(`seed ${currentImage.seed}`);
-    if (!isMac && currentImage.styleTag) metaBadges.push(`#${currentImage.styleTag}`);
+    if (!usesMacDesktopUI && currentImage.seed) metaBadges.push(`seed ${currentImage.seed}`);
+    if (!usesMacDesktopUI && currentImage.styleTag) metaBadges.push(`#${currentImage.styleTag}`);
     return (
-      <div className={`${isWindows ? "statusbar" : ""} flex min-w-0 flex-nowrap items-center gap-3 overflow-hidden whitespace-nowrap border-t border-[var(--border)] bg-[var(--toolbar)] px-3 py-2 text-[11px] text-zinc-600 backdrop-blur-2xl dark:text-zinc-400 ${usesAppleUI ? "liquid-glass-bar" : ""} ${usesFluentUI ? "min-h-[34px]" : ""} ${isAndroidPhone ? "min-h-[30px]" : ""} ${isMac ? "min-h-[28px]" : ""}`}>
+      <div className={`${usesWindowsDesktopUI ? "statusbar" : ""} flex min-w-0 flex-nowrap items-center gap-3 overflow-hidden whitespace-nowrap border-t border-[var(--border)] bg-[var(--toolbar)] px-3 py-2 text-[11px] text-zinc-600 backdrop-blur-2xl dark:text-zinc-400 ${usesAppleUI ? "liquid-glass-bar" : ""} ${usesFluentUI ? "min-h-[34px]" : ""} ${isAndroidPhone ? "min-h-[30px]" : ""} ${usesMacDesktopUI ? "min-h-[28px]" : ""}`}>
         <span className="inline-flex shrink-0 items-center gap-1.5 text-[var(--accent)]">
           <CheckCircle2 className="w-3 h-3" />
           <span className="font-medium">{headline}</span>
         </span>
         <HistoryMetaBadges items={metaBadges} compact className="opacity-90" />
-        {!isAndroidPhone && !isMac && <span className="text-zinc-500 font-mono-token">{new Date(currentImage.createdAt).toLocaleTimeString()}</span>}
-        {!isAndroidPhone && !isMac && currentImage.revisedPrompt && (
+        {!isAndroidPhone && !usesMacDesktopUI && <span className="text-zinc-500 font-mono-token">{new Date(currentImage.createdAt).toLocaleTimeString()}</span>}
+        {!isAndroidPhone && !usesMacDesktopUI && currentImage.revisedPrompt && (
           <span className="text-zinc-500 truncate flex-1 italic" title={currentImage.revisedPrompt}>
             ✨ {currentImage.revisedPrompt}
           </span>
@@ -141,9 +141,9 @@ export function StatusBar() {
       </div>
     );
   }
-  if (isMac) return null;
+  if (usesMacDesktopUI) return null;
   return (
-    <div className={`${isWindows ? "statusbar" : ""} overflow-hidden whitespace-nowrap border-t border-[var(--border)] bg-[var(--toolbar)] px-3 py-2 text-[11px] text-zinc-500 backdrop-blur-2xl ${usesAppleUI ? "liquid-glass-bar" : ""} ${usesFluentUI ? "min-h-[34px]" : ""} ${isAndroidPhone ? "min-h-[30px]" : ""}`}>
+    <div className={`${usesWindowsDesktopUI ? "statusbar" : ""} overflow-hidden whitespace-nowrap border-t border-[var(--border)] bg-[var(--toolbar)] px-3 py-2 text-[11px] text-zinc-500 backdrop-blur-2xl ${usesAppleUI ? "liquid-glass-bar" : ""} ${usesFluentUI ? "min-h-[34px]" : ""} ${isAndroidPhone ? "min-h-[30px]" : ""}`}>
       准备就绪
     </div>
   );

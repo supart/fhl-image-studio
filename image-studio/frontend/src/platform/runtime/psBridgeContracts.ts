@@ -18,6 +18,49 @@ import type {
 
 const PS_BRIDGE_RETRY_HOSTS = new Set(["wails.localhost", "localhost", "127.0.0.1", "::1"]);
 
+export const PS_BRIDGE_PROTOCOL_MAJOR = 1;
+export const PS_BRIDGE_CONTRACT_REVISION = "2026-08-24";
+export const PS_BRIDGE_SERVICE_NAME = "fhl-studio-ps-bridge";
+export const PS_BRIDGE_CAPABILITIES = [
+  "profile",
+  "jobs",
+  "prompt-optimization",
+  "prompt-reverse",
+  "images",
+] as const;
+
+export type PSBridgeHandshakeMetadata = {
+  service: string;
+  protocolMajor: number;
+  contractRevision: string;
+  instanceId: string;
+  minClientMajor: number;
+  maxClientMajor: number;
+  capabilities: string[];
+};
+
+export type PSBridgeHandshakeCheck =
+  | { compatible: true }
+  | { compatible: false; reason: "missing" | "service" | "protocol" | "client-range" };
+
+/** Validate only the stable handshake contract; feature use is capability-gated separately. */
+export function checkPSBridgeHandshake(
+  input: Partial<PSBridgeHandshakeMetadata> | null | undefined,
+): PSBridgeHandshakeCheck {
+  if (!input) return { compatible: false, reason: "missing" };
+  if (input.service !== PS_BRIDGE_SERVICE_NAME) return { compatible: false, reason: "service" };
+  if (input.protocolMajor !== PS_BRIDGE_PROTOCOL_MAJOR) return { compatible: false, reason: "protocol" };
+  const minClientMajor = Number(input.minClientMajor);
+  const maxClientMajor = Number(input.maxClientMajor);
+  if (!Number.isInteger(minClientMajor) || !Number.isInteger(maxClientMajor)) {
+    return { compatible: false, reason: "client-range" };
+  }
+  if (PS_BRIDGE_PROTOCOL_MAJOR < minClientMajor || PS_BRIDGE_PROTOCOL_MAJOR > maxClientMajor) {
+    return { compatible: false, reason: "client-range" };
+  }
+  return { compatible: true };
+}
+
 export function isPSBridgeRetryHost(hostname: string): boolean {
   return PS_BRIDGE_RETRY_HOSTS.has(String(hostname || "").trim().toLowerCase());
 }
@@ -60,6 +103,7 @@ export type PSBridgeProfilePublic = {
   maxImages: number;
   ready: boolean;
   promptOptimizationReady: boolean;
+  capabilities?: string[];
   promptProviderLabel?: string;
   imageCapabilities: {
     aspectPresets: string[];
@@ -172,6 +216,7 @@ export type PSBridgeProfileState = {
   proxyURL: string;
   apiKey: string;
   fhlTextAPIConfigured: boolean;
+  fhlTextAPIModelID?: string;
 };
 
 function cleanMode(value: string): APIMode {

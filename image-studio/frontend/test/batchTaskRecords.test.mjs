@@ -80,6 +80,40 @@ test("batch task records preserve API profile metadata", () => {
   assert.equal(updated[original.id].apiProfileName, "APIMart retry");
 });
 
+test("batch task records keep an independent planar roundtrip after source compaction", () => {
+  const roundtrip = {
+    version: 1,
+    kind: "planar",
+    sourceHistoryId: "source-1",
+    sourcePath: "I:/output/source.png",
+    sourceWidth: 2048,
+    sourceHeight: 2048,
+    cropRect: { x: 100, y: 120, width: 640, height: 480 },
+    editWidth: 1280,
+    editHeight: 960,
+  };
+  const record = createBatchTaskRecord({
+    workspaceId: "ws-local",
+    slotIndex: 0,
+    mode: "edit",
+    apiMode: "images",
+    prompt: "local edit",
+    size: "1280x960",
+    quality: "medium",
+    outputFormat: "png",
+    localEditRoundtrip: roundtrip,
+  });
+  roundtrip.cropRect.x = 999;
+
+  assert.equal(record.localEditRoundtrip.cropRect.x, 100);
+  const result = minimalHistoryItemFromBatchTask({
+    ...record,
+    status: "succeeded",
+    savedPath: "I:/output/result.png",
+  });
+  assert.deepEqual(result.localEditRoundtrip, record.localEditRoundtrip);
+});
+
 test("continuous pool task records retain their non-sensitive assignment snapshot", () => {
   const record = createBatchTaskRecord({
     workspaceId: "ws-1",

@@ -1,7 +1,8 @@
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BatchResultGrid, type BatchGridSlot } from "../src/components/canvas/BatchResultGrid";
+import { PlatformProvider } from "../src/platform/context";
 import type { HistoryItem } from "../src/types/domain";
 
 function result(id: string, prompt: string, createdAt: number): HistoryItem {
@@ -164,5 +165,98 @@ describe("BatchResultGrid recent success pin", () => {
     const labels = Array.from(view.container.querySelectorAll<HTMLElement>(".batch-grid-api-source"));
     expect(labels.map((label) => label.textContent)).toEqual(["FHL3", "FHL7"]);
     expect(labels[1].title).toBe("FHL7 · FHL-7 Images | FHL");
+  });
+
+  it.each(["batch", "historyGallery"] as const)("offers planar pasteback actions without selecting the %s card", (variant) => {
+    const localResult = {
+      ...result("local-result", "local result", 9_000),
+      localEditRoundtrip: {
+        version: 1 as const,
+        kind: "planar" as const,
+        sourceHistoryId: "source-1",
+        sourcePath: "I:/output/source.png",
+        sourceWidth: 2048,
+        sourceHeight: 1536,
+        cropRect: { x: 10, y: 20, width: 640, height: 480 },
+        editWidth: 1280,
+        editHeight: 960,
+      },
+    };
+    const onSelect = vi.fn();
+    const onPreview = vi.fn();
+    const onAutoPasteLocalEdit = vi.fn();
+    const onManualPasteLocalEdit = vi.fn();
+    const onImportPasteLocalEdit = vi.fn();
+    render(
+      <PlatformProvider><BatchResultGrid
+        items={[localResult]}
+        currentId={null}
+        onSelect={onSelect}
+        onPreview={onPreview}
+        onClose={vi.fn()}
+        showClose={false}
+        variant={variant}
+        onAutoPasteLocalEdit={onAutoPasteLocalEdit}
+        onManualPasteLocalEdit={onManualPasteLocalEdit}
+        onImportPasteLocalEdit={onImportPasteLocalEdit}
+      /></PlatformProvider>,
+    );
+
+    const pasteback = screen.getByTestId("batch-grid-pasteback-local-result");
+    fireEvent.doubleClick(pasteback);
+    fireEvent.click(pasteback);
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onPreview).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "自动贴回" }));
+    expect(onAutoPasteLocalEdit).toHaveBeenCalledWith(localResult);
+
+    fireEvent.click(pasteback);
+    fireEvent.click(screen.getByRole("button", { name: "手动贴回" }));
+    expect(onManualPasteLocalEdit).toHaveBeenCalledWith(localResult);
+
+    fireEvent.click(pasteback);
+    fireEvent.click(screen.getByRole("button", { name: "导入贴回" }));
+    expect(onImportPasteLocalEdit).toHaveBeenCalledWith(localResult);
+  });
+
+  it("does not show pasteback on previews, normal images, or pasted terminal results", () => {
+    const localResult = {
+      ...result("local-terminal", "(局部贴回)done", 9_000),
+      localEditRoundtrip: {
+        version: 1 as const,
+        kind: "planar" as const,
+        sourceHistoryId: "source-1",
+        sourceWidth: 100,
+        sourceHeight: 100,
+        cropRect: { x: 0, y: 0, width: 50, height: 50 },
+        editWidth: 50,
+        editHeight: 50,
+      },
+      localEditPastebackState: "pasted" as const,
+    };
+    const legacyTerminal = {
+      ...localResult,
+      id: "legacy-local-terminal",
+      prompt: "(局部贴回)legacy done",
+      localEditPastebackState: undefined,
+    };
+    const normal = result("normal", "normal", 10_000);
+    render(
+      <BatchResultGrid
+        items={[localResult, legacyTerminal, normal]}
+        slots={[
+          { type: "result", item: localResult },
+          { type: "result", item: legacyTerminal },
+          { type: "preview", item: { ...localResult, id: "preview", localEditPastebackState: undefined } },
+          { type: "result", item: normal },
+        ]}
+        currentId={null}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        showClose={false}
+        onAutoPasteLocalEdit={vi.fn()}
+      />,
+    );
+    expect(screen.queryByLabelText("打开局部重绘贴回菜单")).not.toBeInTheDocument();
   });
 });

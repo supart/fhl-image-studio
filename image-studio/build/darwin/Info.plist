@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>zh_CN</string>
+  <key>CFBundleDisplayName</key>
+  <string>FHL Studio</string>
+  <key>CFBundleExecutable</key>
+  <string>FHL Studio 方汤圆版 V2.0.4</string>
+  <key>CFBundleGetInfoString</key>
+  <string>Independent FHL image generation/editing GUI built with Wails (Go + React/TS)</string>
+  <key>CFBundleIconFile</key>
+  <string>iconfile.icns</string>
+  <key>CFBundleIdentifier</key>
+  <string>top.fangtangyuan.fhlstudio</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>FHL Studio</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>2.0.4</string>
+  <key>CFBundleVersion</key>
+  <string>2.0.4</string>
+  <key>FHLDesktopUIVariant</key>
+  <string>windows-parity</string>
+  <key>FHLVisualBaseline</key>
+  <string>macos-v2.0.3-windows-parity</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.graphics-design</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSHumanReadableCopyright</key>
+  <string>Copyright (c) 2026</string>
+  <key>NSPrincipalClass</key>
+  <string>NSApplication</string>
+</dict>
+</plist>

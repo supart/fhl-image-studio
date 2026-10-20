@@ -5,10 +5,18 @@ const realWindow = globalThis.window;
 const realDocument = globalThis.document;
 const realNavigator = globalThis.navigator;
 
-function installPlatformEnv({ width, height, userAgent, platform = "Linux armv8l", uaDataPlatform = "Android" }) {
+function installPlatformEnv({
+  width,
+  height,
+  userAgent,
+  platform = "Linux armv8l",
+  uaDataPlatform = "Android",
+  search = "",
+}) {
   globalThis.window = {
     innerWidth: width,
     innerHeight: height,
+    location: { search },
     addEventListener() {},
     removeEventListener() {},
     visualViewport: {
@@ -119,7 +127,7 @@ test("Linux desktop shares the Fluent UI family", async () => {
   });
 });
 
-test("macOS keeps the Apple UI family", async () => {
+test("macOS native presentation keeps the Apple UI family", async () => {
   await withPlatformEnv({
     width: 1440,
     height: 900,
@@ -129,10 +137,78 @@ test("macOS keeps the Apple UI family", async () => {
   }, async () => {
     const platform = await loadPlatformModule();
     const state = platform.readRuntimePlatformState();
+    assert.equal(state.hostPlatform, "macos");
+    assert.equal(state.presentationPlatform, "macos");
+    assert.equal(state.desktopUIVariant, "native");
+    assert.equal(state.isMacHost, true);
+    assert.equal(state.isWindowsHost, false);
+    assert.equal(state.usesMacDesktopUI, true);
+    assert.equal(state.usesWindowsDesktopUI, false);
     assert.equal(state.platform, "macos");
     assert.equal(state.uiFamily, "apple");
     assert.equal(state.usesFluentUI, false);
     assert.equal(state.usesAppleUI, true);
+  });
+});
+
+test("macOS Windows parity keeps Mac host behavior with Fluent presentation", async () => {
+  await withPlatformEnv({
+    width: 1440,
+    height: 900,
+    platform: "MacIntel",
+    uaDataPlatform: "macOS",
+    userAgent: "Mozilla/5.0 (Macintosh; Apple Silicon Mac OS X 13_0) AppleWebKit/605.1.15",
+    search: "?desktop-ui=windows-parity",
+  }, async () => {
+    const platform = await loadPlatformModule();
+    platform.applyPlatformAttributes(globalThis.document.documentElement);
+    const state = platform.readRuntimePlatformState();
+
+    assert.equal(state.hostPlatform, "macos");
+    assert.equal(state.presentationPlatform, "windows");
+    assert.equal(state.desktopUIVariant, "windows-parity");
+    assert.equal(state.platform, "macos");
+    assert.equal(state.isMacHost, true);
+    assert.equal(state.isWindowsHost, false);
+    assert.equal(state.usesMacDesktopUI, false);
+    assert.equal(state.usesWindowsDesktopUI, true);
+    assert.equal(state.uiFamily, "fluent");
+    assert.equal(state.usesFluentUI, true);
+    assert.equal(state.usesAppleUI, false);
+
+    assert.equal(platform.primaryModifierLabel, "⌘");
+    assert.equal(platform.submitShortcutLabel, "⌘Enter");
+    assert.equal(platform.redoShortcutLabel, "⇧⌘Z");
+    assert.equal(platform.platformOutputRootLabel(), "~/Pictures/FHL Studio");
+    assert.equal(platform.platformRuntimeLabel(), "Wails v2 / WKWebView");
+
+    assert.deepEqual(globalThis.document.documentElement.dataset, {
+      platform: "macos",
+      targetPlatform: "macos",
+      presentationPlatform: "windows",
+      desktopUiVariant: "windows-parity",
+      uiFamily: "fluent",
+    });
+  });
+});
+
+test("Windows parity is a macOS desktop presentation override, not an iOS override", async () => {
+  await withPlatformEnv({
+    width: 1024,
+    height: 1366,
+    platform: "iPad",
+    uaDataPlatform: "iOS",
+    userAgent: "Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X)",
+    search: "?desktop-ui=windows-parity",
+  }, async () => {
+    const platform = await loadPlatformModule();
+    const state = platform.readRuntimePlatformState();
+
+    assert.equal(state.hostPlatform, "ios");
+    assert.equal(state.presentationPlatform, "ios");
+    assert.equal(state.usesMacDesktopUI, true);
+    assert.equal(state.usesWindowsDesktopUI, false);
+    assert.equal(state.uiFamily, "apple");
   });
 });
 test("platform-vite enables Node env proxy for local preview upstream proxies", async () => {

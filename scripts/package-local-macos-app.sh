@@ -1,216 +1,242 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 PROJECT_DIR="$ROOT_DIR/image-studio"
+PRODUCT_MANIFEST="$ROOT_DIR/product-version.json"
 WAILS_CONFIG="$PROJECT_DIR/wails.json"
-WAILS_META_FILE="$(mktemp "${TMPDIR:-/tmp}/image-studio.meta.XXXXXX")"
-GO_COMPILER="${GO_COMPILER:-go}"
-
-node -e '
-  const fs = require("fs");
-  const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-  const appName = cfg.info?.productName || cfg.name || "FHL Studio";
-  const output = cfg.outputfilename || "image-studio";
-  const version = cfg.info?.productVersion || "0.0.0";
-  const bundleId = `com.wails.${cfg.name || output}`;
-  const comments = cfg.info?.comments || "";
-  const copyright = cfg.info?.copyright || "";
-  console.log(appName);
-  console.log(output);
-  console.log(version);
-  console.log(bundleId);
-  console.log(comments);
-  console.log(copyright);
-' "$WAILS_CONFIG" >"$WAILS_META_FILE"
-
-APP_NAME="$(sed -n '1p' "$WAILS_META_FILE")"
-OUTPUT_FILENAME="$(sed -n '2p' "$WAILS_META_FILE")"
-APP_VERSION="$(sed -n '3p' "$WAILS_META_FILE")"
-BUNDLE_ID="top.fangtangyuan.fhlstudio"
-APP_COMMENTS="$(sed -n '5p' "$WAILS_META_FILE")"
-APP_COPYRIGHT="$(sed -n '6p' "$WAILS_META_FILE")"
-CLIENT_VERSION_LDFLAG="${CLIENT_VERSION_LDFLAG:--X github.com/yuanhua/image-gptcodex/pkg/client.Version=${VITE_APP_VERSION:-$APP_VERSION}}"
-
-APP_BUNDLE="$PROJECT_DIR/build/bin/${APP_NAME}.app"
-EXECUTABLE_SRC="$PROJECT_DIR/build/bin/${OUTPUT_FILENAME}"
-EXECUTABLE_ARM64="$PROJECT_DIR/build/bin/${OUTPUT_FILENAME}-arm64"
-EXECUTABLE_AMD64="$PROJECT_DIR/build/bin/${OUTPUT_FILENAME}-amd64"
-EXECUTABLE_DST="$APP_BUNDLE/Contents/MacOS/${OUTPUT_FILENAME}"
-RESOURCES_DIR="$APP_BUNDLE/Contents/Resources"
-PLIST_PATH="$APP_BUNDLE/Contents/Info.plist"
+PLIST_TEMPLATE="$PROJECT_DIR/build/darwin/Info.plist"
+ENTITLEMENTS_PATH="$PROJECT_DIR/build/darwin/entitlements.plist"
 ICON_SRC="$PROJECT_DIR/build/appicon.png"
-ICON_ENCODER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/fhl-studio-icns.XXXXXX")"
-ICON_ENCODER="$ICON_ENCODER_DIR/make-icns.go"
+HEADER_PROMOTION_FILE_NAME="顶部推广信息.txt"
+HEADER_PROMOTION_SRC="$ROOT_DIR/$HEADER_PROMOTION_FILE_NAME"
+BUILD_BIN_DIR="$PROJECT_DIR/build/bin"
+EXPECTED_APP_BUNDLE="$BUILD_BIN_DIR/FHL Studio.app"
+BUNDLE_ID="top.fangtangyuan.fhlstudio"
+MIN_SYSTEM_VERSION="13.0"
+DESKTOP_UI_VARIANT="windows-parity"
+VISUAL_BASELINE="macos-v2.0.3-windows-parity"
+GO_COMPILER="${GO_COMPILER:-go}"
+WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/fhl-studio-macos.XXXXXX")"
+META_FILE="$WORK_DIR/metadata"
 
 cleanup() {
-  rm -f "$WAILS_META_FILE"
-  rm -rf "$ICON_ENCODER_DIR"
+  /bin/rm -rf "$WORK_DIR"
 }
 trap cleanup EXIT
 
-ensure_frontend_deps() {
-  if [[ -d "$PROJECT_DIR/frontend/node_modules" ]]; then
-    return
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "missing required command: $1" >&2
+    exit 1
   fi
-  echo "frontend/node_modules missing; running npm ci" >&2
+}
+
+for command_name in node npm "$GO_COMPILER" xcrun; do
+  require_command "$command_name"
+done
+
+for tool_path in \
+  /usr/bin/codesign \
+  /usr/bin/ditto \
+  /usr/bin/iconutil \
+  /usr/bin/lipo \
+  /usr/bin/plutil \
+  /usr/bin/sips \
+  /usr/bin/xattr; do
+  if [[ ! -x "$tool_path" ]]; then
+    echo "missing required macOS tool: $tool_path" >&2
+    exit 1
+  fi
+done
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  echo "macOS packaging must run on Darwin" >&2
+  exit 1
+fi
+
+node - "$PRODUCT_MANIFEST" "$WAILS_CONFIG" >"$META_FILE" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+
+const manifest = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const config = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+const version = String(manifest.version || "").trim();
+const productName = String(config.info?.productName || "").trim();
+const outputFilename = String(config.outputfilename || "").trim();
+const wailsVersion = String(config.info?.productVersion || "").trim();
+const comments = String(config.info?.comments || "").replace(/[\r\n]+/g, " ").trim();
+const copyright = String(config.info?.copyright || "").replace(/[\r\n]+/g, " ").trim();
+
+if (!/^\d+\.\d+\.\d+$/.test(version)) {
+  throw new Error(`invalid product-version.json version: ${version || "<empty>"}`);
+}
+if (!productName || !outputFilename) {
+  throw new Error("wails.json must define info.productName and outputfilename");
+}
+if (path.basename(outputFilename) !== outputFilename) {
+  throw new Error(`unsafe wails.json outputfilename: ${outputFilename}`);
+}
+if (wailsVersion !== version) {
+  throw new Error(`version drift: product-version.json=${version}, wails.json=${wailsVersion || "<empty>"}`);
+}
+
+for (const value of [productName, outputFilename, version, comments, copyright]) {
+  console.log(value);
+}
+NODE
+
+APP_NAME="$(sed -n '1p' "$META_FILE")"
+OUTPUT_FILENAME="$(sed -n '2p' "$META_FILE")"
+APP_VERSION="$(sed -n '3p' "$META_FILE")"
+APP_COMMENTS="$(sed -n '4p' "$META_FILE")"
+APP_COPYRIGHT="$(sed -n '5p' "$META_FILE")"
+APP_BUNDLE="$BUILD_BIN_DIR/${APP_NAME}.app"
+
+if [[ "$APP_BUNDLE" != "$EXPECTED_APP_BUNDLE" ]]; then
+  echo "refusing to replace unexpected app bundle: $APP_BUNDLE" >&2
+  echo "expected: $EXPECTED_APP_BUNDLE" >&2
+  exit 1
+fi
+
+for required_file in "$ICON_SRC" "$PLIST_TEMPLATE" "$ENTITLEMENTS_PATH" "$HEADER_PROMOTION_SRC"; do
+  if [[ ! -f "$required_file" ]]; then
+    echo "missing required packaging input: $required_file" >&2
+    exit 1
+  fi
+done
+
+/usr/bin/plutil -lint "$PLIST_TEMPLATE" >/dev/null
+/usr/bin/plutil -lint "$ENTITLEMENTS_PATH" >/dev/null
+node "$ROOT_DIR/scripts/sync-version-metadata.mjs" --check
+
+mkdir -p "$BUILD_BIN_DIR"
+if [[ -L "$PROJECT_DIR/build" || -L "$BUILD_BIN_DIR" ]]; then
+  echo "refusing to package through a symlinked build directory" >&2
+  exit 1
+fi
+if [[ "$(cd "$BUILD_BIN_DIR" && pwd -P)" != "$BUILD_BIN_DIR" ]]; then
+  echo "refusing to package outside the repository build directory" >&2
+  exit 1
+fi
+
+if [[ ! -d "$PROJECT_DIR/frontend/node_modules" ]]; then
+  echo "[FHL macOS] frontend dependencies missing; running npm ci" >&2
   (
     cd "$PROJECT_DIR/frontend"
     npm ci
   )
-}
-
-if [[ ! -f "$ICON_SRC" ]]; then
-  echo "missing icon source: $ICON_SRC" >&2
-  exit 1
 fi
 
-ensure_frontend_deps
+export GOTOOLCHAIN="local"
+export MACOSX_DEPLOYMENT_TARGET="$MIN_SYSTEM_VERSION"
+export VITE_TARGET_PLATFORM="macos"
+export VITE_DESKTOP_UI_VARIANT="windows-parity"
+export VITE_APP_VERSION="$APP_VERSION"
+export IMAGE_STUDIO_PRODUCT_VERSION="$APP_VERSION"
+export IMAGE_STUDIO_FRONTEND_VERSION="$APP_VERSION"
+export IMAGE_STUDIO_STORAGE_NAMESPACE="fhl-image-studio-desktop"
 
+echo "[FHL macOS] Building frontend for macOS V$APP_VERSION" >&2
 (
   cd "$PROJECT_DIR/frontend"
   npm run build:macos
 )
 
-perl -0pi -e 's/[ \t]+\n/\n/g; s/\n+\z/\n/' "$PROJECT_DIR/frontend/wailsjs/go/models.ts"
+STAGED_APP="$WORK_DIR/${APP_NAME}.app"
+STAGED_CONTENTS="$STAGED_APP/Contents"
+STAGED_EXECUTABLE="$STAGED_CONTENTS/MacOS/$OUTPUT_FILENAME"
+STAGED_RESOURCES="$STAGED_CONTENTS/Resources"
+ARM64_EXECUTABLE="$WORK_DIR/$OUTPUT_FILENAME-arm64"
+AMD64_EXECUTABLE="$WORK_DIR/$OUTPUT_FILENAME-amd64"
+ICONSET_DIR="$WORK_DIR/FHLStudio.iconset"
+mkdir -p "$STAGED_CONTENTS/MacOS" "$STAGED_RESOURCES" "$ICONSET_DIR"
 
-mkdir -p "$PROJECT_DIR/build/bin"
-rm -f "$EXECUTABLE_ARM64" "$EXECUTABLE_AMD64" "$EXECUTABLE_SRC"
+CLANG_BIN="$(xcrun --sdk macosx --find clang)"
+CLANGXX_BIN="$(xcrun --sdk macosx --find clang++)"
+MACOS_SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
 
-(
-  cd "$PROJECT_DIR"
-  GOPATH="$ROOT_DIR/.gopath" \
-  GOMODCACHE="$ROOT_DIR/.gomodcache" \
-  GOCACHE="$ROOT_DIR/.gocache" \
-  GOOS=darwin \
-  GOARCH=arm64 \
-  CGO_ENABLED=1 \
-  CC='clang -arch arm64' \
-  CXX='clang++ -arch arm64' \
-  CGO_CFLAGS="-mmacosx-version-min=10.13" \
-  CGO_CXXFLAGS="-I$PROJECT_DIR/build" \
-  CGO_LDFLAGS="-framework UniformTypeIdentifiers -mmacosx-version-min=10.13" \
-  "$GO_COMPILER" build -buildvcs=false -tags 'desktop,wv2runtime.download,production' -ldflags "-w -s ${CLIENT_VERSION_LDFLAG}" -o "$EXECUTABLE_ARM64" .
-)
+build_slice() {
+  local goarch="$1"
+  local clang_arch="$2"
+  local output_path="$3"
 
-(
-  cd "$PROJECT_DIR"
-  GOPATH="$ROOT_DIR/.gopath" \
-  GOMODCACHE="$ROOT_DIR/.gomodcache" \
-  GOCACHE="$ROOT_DIR/.gocache" \
-  GOOS=darwin \
-  GOARCH=amd64 \
-  CGO_ENABLED=1 \
-  CC='clang -arch x86_64' \
-  CXX='clang++ -arch x86_64' \
-  CGO_CFLAGS="-mmacosx-version-min=10.13" \
-  CGO_CXXFLAGS="-I$PROJECT_DIR/build" \
-  CGO_LDFLAGS="-framework UniformTypeIdentifiers -mmacosx-version-min=10.13" \
-  "$GO_COMPILER" build -buildvcs=false -tags 'desktop,wv2runtime.download,production' -ldflags "-w -s ${CLIENT_VERSION_LDFLAG}" -o "$EXECUTABLE_AMD64" .
-)
-
-/usr/bin/lipo -create -output "$EXECUTABLE_SRC" "$EXECUTABLE_ARM64" "$EXECUTABLE_AMD64"
-rm -f "$EXECUTABLE_ARM64" "$EXECUTABLE_AMD64"
-
-rm -rf "$APP_BUNDLE"
-mkdir -p "$APP_BUNDLE/Contents/MacOS" "$RESOURCES_DIR"
-cp "$EXECUTABLE_SRC" "$EXECUTABLE_DST"
-
-cat >"$ICON_ENCODER" <<'EOF'
-package main
-
-import (
-  "image/png"
-  "os"
-
-  "github.com/jackmordaunt/icns"
-)
-
-func main() {
-  if len(os.Args) != 3 {
-    panic("usage: make-icns <src.png> <dest.icns>")
-  }
-  src, err := os.Open(os.Args[1])
-  if err != nil {
-    panic(err)
-  }
-  defer src.Close()
-
-  img, err := png.Decode(src)
-  if err != nil {
-    panic(err)
-  }
-
-  dest, err := os.Create(os.Args[2])
-  if err != nil {
-    panic(err)
-  }
-  defer dest.Close()
-
-  if err := icns.Encode(dest, img); err != nil {
-    panic(err)
-  }
+  echo "[FHL macOS] Building $goarch desktop slice" >&2
+  (
+    cd "$PROJECT_DIR"
+    GOOS=darwin \
+    GOARCH="$goarch" \
+    CGO_ENABLED=1 \
+    SDKROOT="$MACOS_SDKROOT" \
+    CC="$CLANG_BIN -arch $clang_arch" \
+    CXX="$CLANGXX_BIN -arch $clang_arch" \
+    CGO_CFLAGS="-isysroot $MACOS_SDKROOT -mmacosx-version-min=$MIN_SYSTEM_VERSION" \
+    CGO_CPPFLAGS="-isysroot $MACOS_SDKROOT -mmacosx-version-min=$MIN_SYSTEM_VERSION" \
+    CGO_CXXFLAGS="-isysroot $MACOS_SDKROOT -I$PROJECT_DIR/build -mmacosx-version-min=$MIN_SYSTEM_VERSION" \
+    CGO_LDFLAGS="-isysroot $MACOS_SDKROOT -framework UniformTypeIdentifiers -mmacosx-version-min=$MIN_SYSTEM_VERSION" \
+    "$GO_COMPILER" build \
+      -trimpath \
+      -buildvcs=false \
+      -tags 'desktop,production' \
+      -ldflags "-s -w -X github.com/yuanhua/image-gptcodex/pkg/client.Version=$APP_VERSION" \
+      -o "$output_path" \
+      .
+  )
 }
-EOF
-(
-  cd "$PROJECT_DIR"
-  GOPATH="$ROOT_DIR/.gopath" \
-  GOMODCACHE="$ROOT_DIR/.gomodcache" \
-  GOCACHE="$ROOT_DIR/.gocache" \
-  go run "$ICON_ENCODER" "$ICON_SRC" "$RESOURCES_DIR/iconfile.icns"
-)
 
-cat >"$PLIST_PATH" <<'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-  <dict>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleName</key>
-    <string>__APP_NAME__</string>
-    <key>CFBundleExecutable</key>
-    <string>__OUTPUT_FILENAME__</string>
-    <key>CFBundleIdentifier</key>
-    <string>__BUNDLE_ID__</string>
-    <key>CFBundleVersion</key>
-    <string>__APP_VERSION__</string>
-    <key>CFBundleGetInfoString</key>
-    <string>__APP_COMMENTS__</string>
-    <key>CFBundleShortVersionString</key>
-    <string>__APP_VERSION__</string>
-    <key>CFBundleIconFile</key>
-    <string>iconfile</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>10.13.0</string>
-    <key>NSHighResolutionCapable</key>
-    <string>true</string>
-    <key>NSHumanReadableCopyright</key>
-    <string>__APP_COPYRIGHT__</string>
-  </dict>
-</plist>
-EOF
+build_slice arm64 arm64 "$ARM64_EXECUTABLE"
+build_slice amd64 x86_64 "$AMD64_EXECUTABLE"
+/usr/bin/lipo -create -output "$STAGED_EXECUTABLE" "$ARM64_EXECUTABLE" "$AMD64_EXECUTABLE"
+chmod 755 "$STAGED_EXECUTABLE"
 
-python3 - <<'PY' "$PLIST_PATH" "$APP_NAME" "$OUTPUT_FILENAME" "$BUNDLE_ID" "$APP_VERSION" "$APP_COMMENTS" "$APP_COPYRIGHT"
-from pathlib import Path
-import sys
-
-plist_path, app_name, output_filename, bundle_id, app_version, app_comments, app_copyright = sys.argv[1:]
-content = Path(plist_path).read_text()
-replacements = {
-    "__APP_NAME__": app_name,
-    "__OUTPUT_FILENAME__": output_filename,
-    "__BUNDLE_ID__": bundle_id,
-    "__APP_VERSION__": app_version,
-    "__APP_COMMENTS__": app_comments,
-    "__APP_COPYRIGHT__": app_copyright,
+create_icon() {
+  local size="$1"
+  local output_name="$2"
+  /usr/bin/sips -z "$size" "$size" "$ICON_SRC" --out "$ICONSET_DIR/$output_name" >/dev/null
 }
-for key, value in replacements.items():
-    content = content.replace(key, value)
-Path(plist_path).write_text(content)
-PY
 
-chmod +x "$EXECUTABLE_DST"
-/usr/bin/xattr -rc "$APP_BUNDLE"
-/usr/bin/codesign --force --deep --sign - "$APP_BUNDLE" >/dev/null
+create_icon 16 icon_16x16.png
+create_icon 32 icon_16x16@2x.png
+create_icon 32 icon_32x32.png
+create_icon 64 icon_32x32@2x.png
+create_icon 128 icon_128x128.png
+create_icon 256 icon_128x128@2x.png
+create_icon 256 icon_256x256.png
+create_icon 512 icon_256x256@2x.png
+create_icon 512 icon_512x512.png
+create_icon 1024 icon_512x512@2x.png
+/usr/bin/iconutil -c icns "$ICONSET_DIR" -o "$STAGED_RESOURCES/iconfile.icns"
+/usr/bin/ditto "$HEADER_PROMOTION_SRC" "$STAGED_RESOURCES/$HEADER_PROMOTION_FILE_NAME"
+
+/usr/bin/ditto "$PLIST_TEMPLATE" "$STAGED_CONTENTS/Info.plist"
+/usr/bin/plutil -replace CFBundleDisplayName -string "$APP_NAME" "$STAGED_CONTENTS/Info.plist"
+/usr/bin/plutil -replace CFBundleExecutable -string "$OUTPUT_FILENAME" "$STAGED_CONTENTS/Info.plist"
+/usr/bin/plutil -replace CFBundleIdentifier -string "$BUNDLE_ID" "$STAGED_CONTENTS/Info.plist"
+/usr/bin/plutil -replace CFBundleName -string "$APP_NAME" "$STAGED_CONTENTS/Info.plist"
+/usr/bin/plutil -replace CFBundleShortVersionString -string "$APP_VERSION" "$STAGED_CONTENTS/Info.plist"
+/usr/bin/plutil -replace CFBundleVersion -string "$APP_VERSION" "$STAGED_CONTENTS/Info.plist"
+/usr/bin/plutil -replace CFBundleGetInfoString -string "$APP_COMMENTS" "$STAGED_CONTENTS/Info.plist"
+/usr/bin/plutil -replace LSMinimumSystemVersion -string "$MIN_SYSTEM_VERSION" "$STAGED_CONTENTS/Info.plist"
+/usr/bin/plutil -replace NSHumanReadableCopyright -string "$APP_COPYRIGHT" "$STAGED_CONTENTS/Info.plist"
+/usr/bin/plutil -replace FHLDesktopUIVariant -string "$DESKTOP_UI_VARIANT" "$STAGED_CONTENTS/Info.plist"
+/usr/bin/plutil -replace FHLVisualBaseline -string "$VISUAL_BASELINE" "$STAGED_CONTENTS/Info.plist"
+/usr/bin/plutil -lint "$STAGED_CONTENTS/Info.plist" >/dev/null
+
+/usr/bin/xattr -rc "$STAGED_APP"
+/usr/bin/codesign \
+  --force \
+  --deep \
+  --options runtime \
+  --entitlements "$ENTITLEMENTS_PATH" \
+  --sign - \
+  --timestamp=none \
+  "$STAGED_APP"
+/usr/bin/codesign --verify --deep --strict --verbose=2 "$STAGED_APP"
+
+if [[ -e "$APP_BUNDLE" || -L "$APP_BUNDLE" ]]; then
+  /bin/rm -rf "$APP_BUNDLE"
+fi
+/usr/bin/ditto "$STAGED_APP" "$APP_BUNDLE"
+/usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
+
 echo "$APP_BUNDLE"

@@ -8,4 +8,36 @@ if [ "${FHL_V2_0_4_ALLOW_PUSH:-}" != "1" ]; then
 fi
 
 ROOT=$(git rev-parse --show-toplevel)
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$ROOT/scripts/dev-check.ps1" -Level Batch
+
+if command -v powershell.exe >/dev/null 2>&1; then
+  exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$ROOT/scripts/dev-check.ps1" -Level Batch
+fi
+
+run_in() {
+  directory=$1
+  shift
+  echo "[git hook] $*"
+  (
+    cd "$directory"
+    "$@"
+  )
+}
+
+cd "$ROOT"
+sh "$ROOT/.githooks/pre-commit"
+
+FRONTEND="$ROOT/image-studio/frontend"
+DESKTOP="$ROOT/image-studio"
+CLI="$ROOT/go-cli"
+WORKER="$ROOT/cloudflare-worker"
+
+run_in "$FRONTEND" npm run typecheck
+run_in "$FRONTEND" npm run lint
+run_in "$FRONTEND" npm run test:node
+run_in "$FRONTEND" npm run test:ui
+run_in "$DESKTOP" go test . ./backend
+run_in "$DESKTOP" go vet . ./backend
+run_in "$CLI" go test ./...
+run_in "$CLI" go vet ./...
+run_in "$WORKER" npm test
+run_in "$ROOT" node scripts/local-smoke-check.mjs

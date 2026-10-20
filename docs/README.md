@@ -11,6 +11,7 @@
 | [功能说明](./features.md) | 桌面工作台、画布、历史、工作区和平台能力 |
 | [数据位置与故障排除](./troubleshooting.md) | 数据目录、常见上游错误、恢复和诊断 |
 | [构建与发布](./build.md) | 开发环境、Portable 构建、验证入口和 CI |
+| [macOS 安装与升级](../README_MACOS.md) | Universal DMG、Gatekeeper、数据保留和发布包边界 |
 | [V2.0.4 开发工作流](./development-workflow.md) | 本地 Git、分层检查、批次提交和里程碑归档 |
 | [项目结构](./project-structure.md) | 当前源码目录、模块职责和维护边界 |
 | [现阶段项目整理](./current-stage-2026-07-28.md) | 桌面端、Portable、Photoshop 插件、Codex 开发入口和最终收尾断点 |
@@ -23,6 +24,8 @@
 | [桌面 E2E 测试模式](./desktop-e2e-test-mode.md) | 在隔离端口运行打包桌面 UI 和模拟验收 |
 | [360 工作台与全景贴回](./panorama-360.md) | 全景生成、查看、编辑和贴回流程 |
 | [Photoshop UXP Bridge 实现记录](./changes/2026-07-25-photoshop-uxp-bridge.md) | 桌面端回环接口、安全边界、插件验证与恢复断点 |
+| [FHL PS Bridge 契约化记录](./changes/2026-08-24-fhl-ps-bridge-contract.md) | `/fhl-ps/v1` 握手元数据、协议主版本和中立契约源 |
+| [Portable Photoshop 对接文件](./changes/2026-08-24-windows-v2.0.4-portable-photoshop-integration-file.md) | 固定 JSON 文件格式、根目录启动路径校验和 Wails Bridge 验证 |
 | [原始提示词传递说明](./no-prompt-revision/README.md) | 不改写提示词路径的能力边界 |
 | [内容审核风险改写规则](./content-audit-risk-rules.md) | 上游内容安全错误的分析与提示词处理原则 |
 | [反馈渠道](./feedback.md) | Issue 与用户反馈入口 |
@@ -35,6 +38,7 @@
 | --- | --- |
 | [CHANGELOG](../CHANGELOG.md) | 跨版本、面向发布的功能与修复摘要 |
 | [V2.0.3 发布说明](../RELEASE_NOTES_DESKTOP_V2.0.3.md) | 单一版本的交付内容、产物和已知边界 |
+| [macOS V2.0.4 发布说明](../RELEASE_NOTES_MACOS_V2.0.4.md) | Universal 更新、安装升级、隐私边界和已知限制 |
 | [V2.0.3 验收报告](../V2.0.3_ACCEPTANCE_REPORT.md) | 测试矩阵、Portable 产物校验和残余风险 |
 | [详细变更记录](./changes/) | 每个开发批次、事故调查或性能验证的完整过程 |
 | [当前开发交接](../PROJECT_CONTEXT.md) | 当前状态、精确断点、验证结果和恢复方式 |

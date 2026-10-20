@@ -536,14 +536,10 @@ func buildEditsMultipart(
 	buf := &bytes.Buffer{}
 	w := multipart.NewWriter(buf)
 
-	for i, p := range paths {
-		fieldName := "image"
-		if i > 0 {
-			// Some relays accept multiple `image` fields, others want image[] 闂?
-			// we send both to maximise compatibility. The extra field is cheap.
-			fieldName = "image[]"
-		}
-		if err := writeMultipartFile(w, fieldName, p); err != nil {
+	for _, p := range paths {
+		// Repeat the standard multipart field so every reference keeps its
+		// position and identity. Some relays silently ignore `image[]` parts.
+		if err := writeMultipartFile(w, "image", p); err != nil {
 			return nil, "", fmt.Errorf("attach %s: %w", filepath.Base(p), err)
 		}
 	}

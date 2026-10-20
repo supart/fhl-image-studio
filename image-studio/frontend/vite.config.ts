@@ -120,6 +120,12 @@ async function readRawBody(req: any, maxBytes = 90 * 1024 * 1024): Promise<Buffe
   return Buffer.concat(chunks);
 }
 
+// Natural-pixel annotation composites can be much larger than the legacy
+// base64 JSON payload limit (for example, an 85MP JPEG can encode to a
+// 150MB+ PNG). Keep this higher binary-only ceiling below the compositor's
+// own 768MiB working-memory guard without widening the JSON APIs.
+const ANNOTATION_BINARY_SAVE_MAX_BYTES = 512 * 1024 * 1024;
+
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
   "content-encoding",
@@ -634,6 +640,53 @@ function projectFilesPlugin(): Plugin {
             const fullPath = await uniqueTargetPath(dir, baseName);
             await fs.writeFile(fullPath, data);
             sendJSON(res, 200, { path: fullPath, name: path.basename(fullPath), size: data.length });
+            return;
+          }
+          if (url.pathname === "/save-image-binary") {
+            const kind = url.searchParams.get("kind") === "input" ? "input" : url.searchParams.get("kind") === "output" ? "output" : "";
+            if (!kind) throw new Error("kind must be input or output");
+            const data = await readRawBody(req, ANNOTATION_BINARY_SAVE_MAX_BYTES);
+            if (data.length === 0) throw new Error("image is empty");
+            const dir = await resolveProjectSaveDir(kind, { subdir: url.searchParams.get("subdir") || "" });
+            const suggestedName = url.searchParams.get("suggestedName") || "image.png";
+            const ext = imageExtFrom(data, String(req.headers?.["content-type"] || ""), suggestedName);
+            const preserveName = url.searchParams.get("preserveName") === "1";
+            const baseName = preserveName
+              ? ensureMaterialSyncFileName(suggestedName, `image${ext}`)
+              : (() => {
+                  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "").replace("T", "-");
+                  return `${stamp}-${safeStem(suggestedName)}${ext}`;
+                })();
+            const fullPath = await uniqueTargetPath(dir, baseName);
+            await fs.writeFile(fullPath, data);
+            sendJSON(res, 200, { path: fullPath, name: path.basename(fullPath), size: data.length });
+            return;
+          }
+          if (url.pathname === "/copy-image-to-output") {
+            const body = await readJSONBody(req, 2 * 1024 * 1024);
+            const sourcePath = assertProjectImagePath(String(body?.path || ""));
+            const sourceStat = await fs.stat(sourcePath);
+            if (!sourceStat.isFile() || sourceStat.size <= 0 || sourceStat.size > 90 * 1024 * 1024) {
+              throw new Error("source image size is invalid");
+            }
+            const sourceHandle = await fs.open(sourcePath, "r");
+            const header = Buffer.alloc(32);
+            try {
+              await sourceHandle.read(header, 0, header.length, 0);
+            } finally {
+              await sourceHandle.close();
+            }
+            const detectedExt = imageExtFrom(header, "", path.basename(sourcePath));
+            if (![".png", ".jpg", ".webp"].includes(detectedExt)) {
+              throw new Error("source file is not a supported image");
+            }
+            const outputImagesDir = path.join(outputDir, "images");
+            await fs.mkdir(outputImagesDir, { recursive: true });
+            const fallbackName = `image${detectedExt}`;
+            const fileName = ensureMaterialSyncFileName(body?.suggestedName, fallbackName);
+            const targetPath = await uniqueTargetPath(outputImagesDir, fileName);
+            await fs.copyFile(sourcePath, targetPath);
+            sendJSON(res, 200, { path: targetPath, name: path.basename(targetPath), size: sourceStat.size });
             return;
           }
           if (url.pathname === "/read-image") {

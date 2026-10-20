@@ -2544,3 +2544,47 @@ test("buildImagesRequestBody repairs outgoing Images API sizes", async () => {
   const body = JSON.parse(result.body);
   assert.equal(body.size, "1792x1024");
 });
+
+test("buildImagesRequestBody repeats image field for ordered multi-reference edits", async () => {
+  const payloads = await import(`../src/platform/runtime/remote-kernel/requestPayloads.ts?test=${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const result = await payloads.buildImagesRequestBody(
+    {
+      payload: {
+        apiKey: "key",
+        mode: "edit",
+        prompt: "multi reference",
+        size: "1024x1024",
+        quality: "auto",
+        outputFormat: "png",
+        imagePaths: [],
+        imagePath: "",
+        maskB64: "",
+        seed: 0,
+        negativePrompt: "",
+        baseURL: "https://upstream.example",
+        textModelID: "gpt-5.5",
+        imageModelID: "gpt-image-2",
+        apiMode: "images",
+        requestPolicy: "openai",
+        noPromptRevision: true,
+        partialImages: 0,
+      },
+    },
+    [
+      "data:image/png;base64,YWJj",
+      "data:image/png;base64,ZGVm",
+      "data:image/png;base64,Z2hp",
+    ],
+  );
+  assert.equal(result.url, "https://upstream.example/v1/images/edits");
+  assert.deepEqual(result.body.getAll("image").map((file) => file.name), [
+    "source-1.png",
+    "source-2.png",
+    "source-3.png",
+  ]);
+  assert.equal(result.body.getAll("image[]").length, 0);
+  assert.deepEqual(
+    await Promise.all(result.body.getAll("image").map(async (file) => Buffer.from(await file.arrayBuffer()).toString("utf8"))),
+    ["abc", "def", "ghi"],
+  );
+});

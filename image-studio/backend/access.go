@@ -19,18 +19,15 @@ func (s *Service) addTrustedOutputRoot(path string) {
 	if strings.TrimSpace(path) == "" {
 		return
 	}
-	abs, err := filepath.Abs(path)
+	resolved, err := resolvePathWithExistingAncestor(path)
 	if err != nil {
 		return
-	}
-	if resolved, resolveErr := filepath.EvalSymlinks(abs); resolveErr == nil {
-		abs = resolved
 	}
 	s.mu.Lock()
 	if s.trustedOutputRoots == nil {
 		s.trustedOutputRoots = map[string]struct{}{}
 	}
-	s.trustedOutputRoots[abs] = struct{}{}
+	s.trustedOutputRoots[resolved] = struct{}{}
 	s.mu.Unlock()
 }
 
@@ -65,7 +62,7 @@ func (s *Service) ensureManagedWritableDirectory(path string) (string, error) {
 	if !info.IsDir() {
 		return "", fmt.Errorf("路径不是目录:%s", abs)
 	}
-	resolved, err := filepath.EvalSymlinks(abs)
+	resolved, err := resolvePathWithExistingAncestor(abs)
 	if err != nil {
 		return "", err
 	}
@@ -124,7 +121,7 @@ func (s *Service) ensureManagedReadablePath(path string, kind managedPathKind) (
 	if info.IsDir() {
 		return "", fmt.Errorf("路径不是文件:%s", abs)
 	}
-	resolved, err := filepath.EvalSymlinks(abs)
+	resolved, err := resolvePathWithExistingAncestor(abs)
 	if err != nil {
 		return "", err
 	}
@@ -151,7 +148,7 @@ func (s *Service) ensureManagedReadableDirectory(path string, kind managedPathKi
 	if !info.IsDir() {
 		return "", fmt.Errorf("路径不是目录:%s", abs)
 	}
-	resolved, err := filepath.EvalSymlinks(abs)
+	resolved, err := resolvePathWithExistingAncestor(abs)
 	if err != nil {
 		return "", err
 	}
@@ -210,18 +207,15 @@ func normalizeRoots(roots []string) []string {
 		if strings.TrimSpace(root) == "" {
 			continue
 		}
-		abs, err := filepath.Abs(root)
+		resolved, err := resolvePathWithExistingAncestor(root)
 		if err != nil {
 			continue
 		}
-		if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-			abs = resolved
-		}
-		if _, ok := seen[abs]; ok {
+		if _, ok := seen[resolved]; ok {
 			continue
 		}
-		seen[abs] = struct{}{}
-		out = append(out, abs)
+		seen[resolved] = struct{}{}
+		out = append(out, resolved)
 	}
 	return out
 }
@@ -263,7 +257,15 @@ func resolvePathWithExistingAncestor(path string) (string, error) {
 }
 
 func isWithinRoot(path, root string) bool {
-	rel, err := filepath.Rel(root, path)
+	resolvedPath, err := resolvePathWithExistingAncestor(path)
+	if err != nil {
+		return false
+	}
+	resolvedRoot, err := resolvePathWithExistingAncestor(root)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(resolvedRoot, resolvedPath)
 	if err != nil {
 		return false
 	}
