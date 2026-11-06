@@ -26,6 +26,7 @@ type CLIConfigSyncInput struct {
 	TextModelID        string `json:"textModelID"`
 	ImageModelID       string `json:"imageModelID"`
 	OutputFormat       string `json:"outputFormat"`
+	BackgroundMode     string `json:"backgroundMode"`
 	Quality            string `json:"quality"`
 	Size               string `json:"size"`
 	PartialImages      int    `json:"partialImages"`
@@ -84,8 +85,9 @@ func (s *Service) SyncCLIConfig(input CLIConfigSyncInput) (CLIConfigSyncResult, 
 		RequestPolicy:      cliChoice(input.RequestPolicy, []string{"openai", "compat"}, "openai"),
 		ImagesNewAPICompat: apiMode == "images" && input.ImagesNewAPICompat,
 		TextModelID:        cleanCLIEnvValue(input.TextModelID, "gpt-5.5"),
-		ImageModelID:       cleanCLIEnvValue(input.ImageModelID, "gpt-image-2"),
+		ImageModelID:       cleanCLIEnvValue(input.ImageModelID, ""),
 		OutputFormat:       cliChoice(input.OutputFormat, []string{"png", "jpeg", "webp"}, "png"),
+		BackgroundMode:     cliChoice(input.BackgroundMode, []string{"opaque", "transparent"}, "opaque"),
 		Quality:            cliChoice(input.Quality, []string{"auto", "high", "medium", "low"}, "medium"),
 		Size:               cleanCLIImageSize(input.Size, "1024x1024"),
 		PartialImages:      partialImages,
@@ -169,6 +171,7 @@ func renderCLIEnv(input CLIConfigSyncInput) string {
 		"IMAGE_STUDIO_TEXT_MODEL=" + input.TextModelID,
 		"IMAGE_STUDIO_IMAGE_MODEL=" + input.ImageModelID,
 		"IMAGE_STUDIO_OUTPUT_FORMAT=" + input.OutputFormat,
+		"IMAGE_STUDIO_BACKGROUND_MODE=" + input.BackgroundMode,
 		"IMAGE_STUDIO_QUALITY=" + input.Quality,
 		"IMAGE_STUDIO_SIZE=" + input.Size,
 		"IMAGE_STUDIO_PARTIAL_IMAGES=" + strconv.Itoa(input.PartialImages),

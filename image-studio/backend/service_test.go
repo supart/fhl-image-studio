@@ -49,6 +49,51 @@ func TestGenerateOptionsAPIProfileIDUsesExpectedJSONField(t *testing.T) {
 	}
 }
 
+func TestStartJobRejectsTransparentGPTImage2(t *testing.T) {
+	svc := newFakeRunnerService(jobRunnerFunc(func(context.Context, string, GenerateOptions) error {
+		t.Fatal("runner must not start for an invalid transparent request")
+		return nil
+	}))
+	_, err := svc.Generate(GenerateOptions{
+		APIKey:         "sk-test",
+		Prompt:         "transparent legacy request",
+		APIMode:        "images",
+		ImageModelID:   client.ImageModelLegacy,
+		BackgroundMode: client.BackgroundTransparent,
+	})
+	if err == nil || !strings.Contains(err.Error(), "supported only") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStartJobForcesTransparentOutputToPNG(t *testing.T) {
+	received := make(chan GenerateOptions, 1)
+	svc := newFakeRunnerService(jobRunnerFunc(func(_ context.Context, _ string, opts GenerateOptions) error {
+		received <- opts
+		return nil
+	}))
+	started, err := svc.Generate(GenerateOptions{
+		APIKey:         "sk-test",
+		Prompt:         "transparent flare request",
+		APIMode:        "images",
+		ImageModelID:   client.ImageModelFlare,
+		BackgroundMode: client.BackgroundTransparent,
+		OutputFormat:   "jpeg",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case opts := <-received:
+		if opts.OutputFormat != "png" {
+			t.Fatalf("output format=%q, want png", opts.OutputFormat)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("runner did not receive the job")
+	}
+	waitFor(t, func() bool { _, ok := svc.jobManager.state(started.JobID); return !ok }, "transparent job did not settle")
+}
+
 func TestStartJobRejectsWhenSameProfileConcurrencyLimitReached(t *testing.T) {
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})

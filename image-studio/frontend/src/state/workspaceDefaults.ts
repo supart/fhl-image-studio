@@ -10,7 +10,7 @@ export interface WorkspaceDefaultsOptions {
 export const WORKSPACE_DEFAULT_FIELD_KEYS = [
   "id", "name", "activeProfileId", "fhlTransportMode",
   "promptPrefix", "prompt", "optimizationGuidance", "negativePrompt",
-  "mode", "size", "quality", "outputFormat", "seed", "batchCount",
+  "mode", "size", "quality", "outputFormat", "backgroundMode", "seed", "batchCount",
   "continuousGenerateTest", "editSourceMode", "editAutoAspectUserLocked",
   "batchProcess", "styleTag", "sources", "reversePromptImage",
   "currentImageId", "batchResultIds", "batchTaskIds", "selectedBatchTaskId",
@@ -40,6 +40,7 @@ export function createDefaultWorkspace(
     size: DEFAULT_FHL_SIZE,
     quality: "medium",
     outputFormat,
+    backgroundMode: "opaque",
     seed: 0,
     batchCount: 1,
     continuousGenerateTest: false,

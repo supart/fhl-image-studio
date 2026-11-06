@@ -130,6 +130,7 @@ async function submitSingleAndroidJob(options: GenerateOptionsLike): Promise<Job
     size: options.size as any,
     quality: options.quality as any,
     outputFormat: options.outputFormat as any,
+    backgroundMode: options.backgroundMode === "transparent" ? "transparent" : "opaque",
     batchCount: 1,
     seed: options.seed || 0,
     negativePrompt: options.negativePrompt || "",

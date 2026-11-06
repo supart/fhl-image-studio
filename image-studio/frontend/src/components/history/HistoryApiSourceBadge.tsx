@@ -1,6 +1,6 @@
 import type { HistoryApiSource } from "./historyApiSource";
 import { apiSourceDetailLabel, apiSourceShortLabel } from "./historyApiSource";
-import { FHL_BASE_URL, FHL_IMAGE_MODEL_ID, FHL_PROFILE_ID } from "../../lib/profiles";
+import { FHL_BASE_URL, FHL_PROFILE_ID } from "../../lib/profiles";
 import { useStudioStore } from "../../state/studioStore";
 
 function normalizeBaseURL(value: string): string {
@@ -12,8 +12,7 @@ function isFHLProfile(profile: { id?: string; apiMode?: string; baseURL?: string
   if (profile.id === FHL_PROFILE_ID) return true;
   const apiMode = String(profile.apiMode || "").trim();
   return (apiMode === "images" || apiMode === "responses")
-    && normalizeBaseURL(String(profile.baseURL || "")) === FHL_BASE_URL
-    && String(profile.imageModelID || "").trim() === FHL_IMAGE_MODEL_ID;
+    && normalizeBaseURL(String(profile.baseURL || "")) === FHL_BASE_URL;
 }
 
 export function HistoryApiSourceBadge({

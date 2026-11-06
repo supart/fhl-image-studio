@@ -1,4 +1,13 @@
-# FHL Studio V2.0.4 开发交接
+# FHL Studio V2.0.5 开发交接
+
+## 2026-11-06 macOS V2.0.5 GPT Image 2.5 与透明 PNG（开发收口中）
+
+- 当前分支为 `codex/macos-v2.0.5-development`，基线是 macOS V2.0.4 发布提交 `2fd097099e11055af18fd82e0e4fc9fc38e80770`。本轮不提交、不推送、不打标签、不创建 Release。
+- FHL 配置新增独立生图模型拉取区，使用已保存的 Images 槽 Key 请求 `/v1/models`。只允许 Flare、Sunburst、Image 2 三个精确 ID；10 个槽共享选择，新配置未选模型时阻止生成，旧缺失字段迁移到 Image 2。
+- Flare/Sunburst 支持普通/透明 PNG，Image 2 强制普通模式。透明参数已贯通工作区、历史、批次、浏览器任务、Go backend 和 CLI，并关闭透明/显式 Profile 的跨 API 静默降级。
+- 透明结果新增真实 Alpha 校验；失败不写成功历史、不自动降级，并保留 rawPath。CLI 增加背景、模型选择、Alpha 和脱敏错误字段，以及离线 worker/adaptive/workflow 自检。
+- 版本清单和 macOS 发布 workflow 已升级到 V2.0.5；新增 `RELEASE_NOTES_MACOS_V2.0.5.md`。当前自动验证全为离线测试，未读取或调用真实 API Key、模型列表、文本优化、图片反推或付费生图。
+- 详细实现和最终构建验收记录见 `docs/changes/2026-11-06-macos-v2.0.5-development.md`。
 
 ## 2026-10-20 macOS V2.0.4 正式发布封板
 

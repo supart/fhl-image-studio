@@ -272,7 +272,8 @@ export function buildResponsesImageTool(payload, sourceDataURLs, options = {}) {
     ? "auto"
     : (parsedSize ? (repairedPayload?.size || rawSize) : DEFAULT_SIZE);
   const quality = payload.quality || DEFAULT_QUALITY;
-  const outputFormat = payload.outputFormat || DEFAULT_OUTPUT_FORMAT;
+  const transparent = payload.backgroundMode === "transparent";
+  const outputFormat = transparent ? "png" : (payload.outputFormat || DEFAULT_OUTPUT_FORMAT);
   const negativePrompt = normalizeNegativePrompt(payload.negativePrompt);
   const compatExtensions = shouldSendExtendedImageParameters(payload.requestPolicy);
   const tool = {
@@ -287,6 +288,7 @@ export function buildResponsesImageTool(payload, sourceDataURLs, options = {}) {
       ? 0
       : normalizePartialImages(payload.partialImages),
   };
+  if (transparent) tool.background = "transparent";
   if (compatExtensions && payload.seed) tool.seed = payload.seed;
   if (compatExtensions && negativePrompt) tool.negative_prompt = negativePrompt;
 

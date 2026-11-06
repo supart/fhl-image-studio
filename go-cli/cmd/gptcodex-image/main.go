@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -13,7 +14,7 @@ import (
 	imagedraw "image/draw"
 	_ "image/gif"
 	"image/jpeg"
-	_ "image/png"
+	"image/png"
 	"io"
 	"net/http"
 	"net/url"
@@ -36,13 +37,13 @@ const (
 	defaultAPIMode       = string(client.APIModeResponses)
 	defaultRequestPolicy = string(client.RequestPolicyOpenAI)
 	defaultTextModel     = "gpt-5.5"
-	defaultImageModel    = "gpt-image-2"
+	defaultImageModel    = ""
 	defaultSize          = "1024x1024"
 	defaultQuality       = "medium"
 	defaultOutputFormat  = "png"
 )
 
-var packageVersion = "V2.0.4"
+var packageVersion = "V2.0.5"
 
 type multiFlag []string
 
@@ -65,6 +66,8 @@ func (m *multiFlag) Set(value string) error {
 type commandResult struct {
 	OK                      bool     `json:"ok"`
 	Error                   string   `json:"error,omitempty"`
+	ErrorCode               string   `json:"errorCode,omitempty"`
+	ErrorMessage            string   `json:"errorMessage,omitempty"`
 	ImagePath               string   `json:"imagePath,omitempty"`
 	RawPath                 string   `json:"rawPath,omitempty"`
 	Mode                    string   `json:"mode,omitempty"`
@@ -72,6 +75,9 @@ type commandResult struct {
 	Size                    string   `json:"size,omitempty"`
 	Quality                 string   `json:"quality,omitempty"`
 	OutputFormat            string   `json:"outputFormat,omitempty"`
+	BackgroundMode          string   `json:"backgroundMode,omitempty"`
+	Alpha                   string   `json:"alpha,omitempty"`
+	Model                   string   `json:"model,omitempty"`
 	SourceEvent             string   `json:"sourceEvent,omitempty"`
 	RevisedPrompt           string   `json:"revisedPrompt,omitempty"`
 	ElapsedSec              float64  `json:"elapsedSec,omitempty"`
@@ -93,6 +99,10 @@ type commandResult struct {
 	RunningHubReachable     *bool    `json:"runningHubBridgeReachable,omitempty"`
 	RunningHubKeyConfigured *bool    `json:"runningHubAPIKeyConfigured,omitempty"`
 	RunningHubBridgeError   string   `json:"runningHubBridgeError,omitempty"`
+	ImageModelSelection     string   `json:"imageModelSelectionStatus,omitempty"`
+	Workers                 []string `json:"workers,omitempty"`
+	SelfTest                string   `json:"selfTest,omitempty"`
+	Checks                  []string `json:"checks,omitempty"`
 }
 
 type cliOptions struct {
@@ -103,6 +113,7 @@ type cliOptions struct {
 	size               string
 	quality            string
 	outputFormat       string
+	backgroundMode     string
 	outDir             string
 	rawDir             string
 	inputDir           string
@@ -120,6 +131,9 @@ type cliOptions struct {
 	jsonlEvents        bool
 	interactive        bool
 	statusOnly         bool
+	listWorkersOnly    bool
+	selfTestAdaptive   bool
+	selfTestWorkflow   bool
 	configPath         string
 }
 
@@ -143,7 +157,9 @@ var stableFHLImagesSizeOverrides = map[string]string{
 }
 
 func main() {
-	jsonHint := hasFlag(os.Args[1:], "json") || hasFlag(os.Args[1:], "status")
+	jsonHint := hasFlag(os.Args[1:], "json") || hasFlag(os.Args[1:], "status") ||
+		hasFlag(os.Args[1:], "list-workers") || hasFlag(os.Args[1:], "self-test-adaptive") ||
+		hasFlag(os.Args[1:], "self-test-workflow")
 	result, err := run(os.Args[1:], jsonHint)
 	if jsonHint {
 		if result.Error == "" && err != nil {
@@ -166,6 +182,15 @@ func run(args []string, jsonHint bool) (commandResult, error) {
 	}
 	if opts.statusOnly {
 		return statusResult(opts), nil
+	}
+	if opts.listWorkersOnly {
+		return workersResult(opts), nil
+	}
+	if opts.selfTestAdaptive {
+		return adaptiveSelfTestResult(opts)
+	}
+	if opts.selfTestWorkflow {
+		return workflowSelfTestResult(opts)
 	}
 	return execute(opts)
 }
@@ -196,6 +221,7 @@ func buildOptions(args []string, jsonHint bool) (cliOptions, error) {
 	textModel := fs.String("text-model", "", "Responses API text model")
 	imageModel := fs.String("image-model", "", "image model")
 	outputFormat := fs.String("output-format", "", "png | jpeg | webp")
+	backgroundMode := fs.String("background", "", "opaque | transparent; transparent requires GPT Image 2.5")
 	negativePrompt := fs.String("negative-prompt", "", "negative prompt; sent only in compat policy")
 	seed := fs.Int64("seed", 0, "seed; 0 lets upstream choose")
 	partialImages := fs.Int("partial-images", 0, "stream early image previews; 0 uses the upstream default")
@@ -207,6 +233,9 @@ func buildOptions(args []string, jsonHint bool) (cliOptions, error) {
 	noInput := fs.Bool("no-input", false, "fail instead of prompting for missing values")
 	interactive := fs.Bool("interactive", false, "enable legacy terminal prompts for missing values")
 	statusOnly := fs.Bool("status", false, "print the current package and API profile status as JSON")
+	listWorkersOnly := fs.Bool("list-workers", false, "list the current offline CLI worker contract as JSON")
+	selfTestAdaptive := fs.Bool("self-test-adaptive", false, "run offline model and routing contract checks")
+	selfTestWorkflow := fs.Bool("self-test-workflow", false, "run offline transparent PNG workflow checks")
 
 	if err := fs.Parse(args); err != nil {
 		return opts, err
@@ -215,6 +244,15 @@ func buildOptions(args []string, jsonHint bool) (cliOptions, error) {
 	if *noInput && *interactive {
 		return opts, fmt.Errorf("--no-input and --interactive cannot be used together")
 	}
+	diagnosticCount := 0
+	for _, enabled := range []bool{*statusOnly, *listWorkersOnly, *selfTestAdaptive, *selfTestWorkflow} {
+		if enabled {
+			diagnosticCount++
+		}
+	}
+	if diagnosticCount > 1 {
+		return opts, fmt.Errorf("--status, --list-workers, --self-test-adaptive, and --self-test-workflow are mutually exclusive")
+	}
 
 	resolvedConfigPath := resolveConfigPath(*configPath)
 	cfg, err := loadConfig(resolvedConfigPath)
@@ -222,17 +260,24 @@ func buildOptions(args []string, jsonHint bool) (cliOptions, error) {
 		return opts, err
 	}
 
+	imageModelFallback := defaultImageModel
+	if len(cfg) > 0 {
+		if _, exists := cfg["IMAGE_STUDIO_IMAGE_MODEL"]; !exists {
+			imageModelFallback = client.ImageModelLegacy
+		}
+	}
 	opts = cliOptions{
 		apiKey:             resolveString(*apiKey, []string{"IMAGE_STUDIO_API_KEY", "GPTCODEX_API_KEY"}, cfg, []string{"IMAGE_STUDIO_API_KEY", "GPTCODEX_API_KEY"}, ""),
 		prompt:             strings.TrimSpace(*prompt),
 		size:               resolveString(*size, []string{"IMAGE_STUDIO_SIZE"}, cfg, []string{"IMAGE_STUDIO_SIZE"}, defaultSize),
 		quality:            resolveString(*quality, []string{"IMAGE_STUDIO_QUALITY"}, cfg, []string{"IMAGE_STUDIO_QUALITY"}, defaultQuality),
 		outputFormat:       resolveString(*outputFormat, []string{"IMAGE_STUDIO_OUTPUT_FORMAT"}, cfg, []string{"IMAGE_STUDIO_OUTPUT_FORMAT"}, defaultOutputFormat),
+		backgroundMode:     resolveString(*backgroundMode, []string{"IMAGE_STUDIO_BACKGROUND_MODE"}, cfg, []string{"IMAGE_STUDIO_BACKGROUND_MODE"}, client.BackgroundOpaque),
 		outDir:             resolveString(*outDir, []string{"IMAGE_STUDIO_OUTPUT_DIR"}, cfg, []string{"IMAGE_STUDIO_OUTPUT_DIR"}, defaultOutputDir()),
 		inputDir:           resolveString(*inputDir, []string{"IMAGE_STUDIO_INPUT_DIR"}, cfg, []string{"IMAGE_STUDIO_INPUT_DIR"}, defaultInputDir()),
 		baseURL:            resolveString(*baseURL, []string{"IMAGE_STUDIO_UPSTREAM_BASE_URL"}, cfg, []string{"IMAGE_STUDIO_UPSTREAM_BASE_URL"}, ""),
 		textModelID:        resolveString(*textModel, []string{"IMAGE_STUDIO_TEXT_MODEL"}, cfg, []string{"IMAGE_STUDIO_TEXT_MODEL"}, defaultTextModel),
-		imageModelID:       resolveString(*imageModel, []string{"IMAGE_STUDIO_IMAGE_MODEL"}, cfg, []string{"IMAGE_STUDIO_IMAGE_MODEL"}, defaultImageModel),
+		imageModelID:       resolveString(*imageModel, []string{"IMAGE_STUDIO_IMAGE_MODEL"}, cfg, []string{"IMAGE_STUDIO_IMAGE_MODEL"}, imageModelFallback),
 		negativePrompt:     strings.TrimSpace(*negativePrompt),
 		seed:               *seed,
 		partialImages:      *partialImages,
@@ -241,6 +286,9 @@ func buildOptions(args []string, jsonHint bool) (cliOptions, error) {
 		jsonlEvents:        *jsonlEvents,
 		interactive:        *interactive,
 		statusOnly:         *statusOnly,
+		listWorkersOnly:    *listWorkersOnly,
+		selfTestAdaptive:   *selfTestAdaptive,
+		selfTestWorkflow:   *selfTestWorkflow,
 		configPath:         resolvedConfigPath,
 	}
 	opts.rawDir = resolveString(*rawDir, []string{"IMAGE_STUDIO_RAW_DIR"}, cfg, []string{"IMAGE_STUDIO_RAW_DIR"}, filepath.Join(opts.outDir, "log"))
@@ -286,9 +334,21 @@ func buildOptions(args []string, jsonHint bool) (cliOptions, error) {
 	if err != nil {
 		return opts, err
 	}
+	if err := client.ValidateBackgroundMode(opts.backgroundMode, opts.imageModelID); err != nil {
+		return opts, err
+	}
+	if opts.backgroundMode == client.BackgroundTransparent {
+		opts.outputFormat = "png"
+	}
 
-	if opts.statusOnly {
+	if opts.statusOnly || opts.listWorkersOnly || opts.selfTestAdaptive || opts.selfTestWorkflow {
 		return opts, nil
+	}
+	if isFHLBaseURL(opts.baseURL) && !client.IsSupportedFHLImageModel(opts.imageModelID) {
+		if strings.TrimSpace(opts.imageModelID) == "" {
+			return opts, fmt.Errorf("image model selection is required; choose an FHL image model in the desktop app")
+		}
+		return opts, fmt.Errorf("unsupported FHL image model: %s", opts.imageModelID)
 	}
 
 	if opts.prompt == "" && strings.TrimSpace(*promptFile) != "" {
@@ -387,6 +447,10 @@ func normalizeBaseURLForFHLComparison(raw string) string {
 	return strings.ToLower(cleaned)
 }
 
+func isFHLBaseURL(raw string) bool {
+	return normalizeBaseURLForFHLComparison(raw) == strings.ToLower(defaultBaseURL)
+}
+
 func isExactSizeString(raw string) bool {
 	parts := strings.Split(strings.ToLower(strings.TrimSpace(raw)), "x")
 	if len(parts) != 2 {
@@ -412,6 +476,9 @@ func isGPTImage2Model(modelID string) bool {
 }
 
 func shouldPreferResponsesForExactFHLSize(opts cliOptions) bool {
+	if opts.backgroundMode == client.BackgroundTransparent {
+		return false
+	}
 	if opts.apiMode != client.APIModeImages {
 		return false
 	}
@@ -482,6 +549,7 @@ func execute(opts cliOptions) (commandResult, error) {
 		Size:               effectiveSize,
 		Quality:            opts.quality,
 		OutputFormat:       opts.outputFormat,
+		BackgroundMode:     opts.backgroundMode,
 		ImagePaths:         opts.imagePaths,
 		APIMode:            effectiveAPIMode,
 		RequestPolicy:      opts.requestPolicy,
@@ -553,7 +621,7 @@ func execute(opts cliOptions) (commandResult, error) {
 	fallbackMode := ""
 	fallbackInputPath := ""
 	fallbackReason := ""
-	if err != nil && shouldFallbackResponsesToImages(opts, err, rawPath) {
+	if err != nil && opts.backgroundMode != client.BackgroundTransparent && shouldFallbackResponsesToImages(opts, err, rawPath) {
 		attemptSummary = append(attemptSummary, "responses_to_images")
 		if !opts.jsonMode {
 			fmt.Fprintln(log, "Responses returned text-only/no image tool; retrying once with Images API...")
@@ -577,7 +645,7 @@ func execute(opts cliOptions) (commandResult, error) {
 			actualAPIMode = client.APIModeImages
 		}
 	}
-	if err != nil && shouldFallbackEditToContactSheet(opts, err, rawPath) {
+	if err != nil && opts.backgroundMode != client.BackgroundTransparent && shouldFallbackEditToContactSheet(opts, err, rawPath) {
 		fallbackMode = "contact_sheet"
 		fallbackReason = fallbackReasonForEditFailure(err, rawPath)
 		attemptSummary = append(attemptSummary, "contact_sheet_fallback")
@@ -623,6 +691,19 @@ func execute(opts cliOptions) (commandResult, error) {
 		return out, err
 	}
 
+	alphaStatus := client.AlphaStatusNone
+	if opts.backgroundMode == client.BackgroundTransparent {
+		alphaStatus, err = client.ValidateTransparentPNGBase64(result.ImageB64)
+		if err != nil {
+			out := baseResult(opts)
+			out.RawPath = rawPath
+			out.Alpha = string(client.AlphaStatusInvalid)
+			out.ErrorCode = "transparent_alpha_invalid"
+			out.ErrorMessage = err.Error()
+			out.Error = err.Error()
+			return out, err
+		}
+	}
 	imageName := fsio.BuildImageName(opts.mode, opts.prompt, timestamp, opts.outputFormat)
 	imageDir := imageOutputDirForSourceEvent(opts.outDir, result.SourceEvent)
 	if err := fsio.EnsureDir(imageDir); err != nil {
@@ -659,6 +740,8 @@ func execute(opts cliOptions) (commandResult, error) {
 	out.FallbackInputPath = fallbackInputPath
 	out.FallbackReason = fallbackReason
 	out.AttemptSummary = attemptSummary
+	out.Alpha = string(alphaStatus)
+	out.Model = opts.imageModelID
 	if !opts.jsonMode {
 		fmt.Fprintf(log, "image saved: %s\n", imagePath)
 		fmt.Fprintf(log, "raw response saved: %s\n", rawPath)
@@ -902,18 +985,43 @@ func failResult(opts cliOptions, err error) (commandResult, error) {
 	out := baseResult(opts)
 	if err != nil {
 		out.Error = err.Error()
+		out.ErrorCode = errorCodeFor(err)
+		out.ErrorMessage = err.Error()
 	}
 	return out, err
 }
 
+func errorCodeFor(err error) string {
+	if err == nil {
+		return ""
+	}
+	switch {
+	case errors.Is(err, client.ErrEmptyAPIKey):
+		return "missing_api_key"
+	case errors.Is(err, client.ErrEmptyPrompt):
+		return "missing_prompt"
+	}
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "transparent") || strings.Contains(message, "alpha"):
+		return "invalid_transparency"
+	case strings.Contains(message, "image model") || strings.Contains(message, "model selection"):
+		return "invalid_image_model"
+	default:
+		return "request_failed"
+	}
+}
+
 func baseResult(opts cliOptions) commandResult {
 	return commandResult{
-		OK:           false,
-		Mode:         string(opts.mode),
-		APIMode:      string(opts.apiMode),
-		Size:         opts.size,
-		Quality:      opts.quality,
-		OutputFormat: opts.outputFormat,
+		OK:             false,
+		Mode:           string(opts.mode),
+		APIMode:        string(opts.apiMode),
+		Size:           opts.size,
+		Quality:        opts.quality,
+		OutputFormat:   opts.outputFormat,
+		BackgroundMode: opts.backgroundMode,
+		Model:          opts.imageModelID,
 	}
 }
 
@@ -936,6 +1044,7 @@ func statusResult(opts cliOptions) commandResult {
 	out.RequestPolicy = string(opts.requestPolicy)
 	out.TextModelID = opts.textModelID
 	out.ImageModelID = opts.imageModelID
+	out.ImageModelSelection = imageModelSelectionStatus(opts.imageModelID)
 	out.InputDir = absPathForStatus(opts.inputDir)
 	out.OutputDir = absPathForStatus(opts.outDir)
 	out.RawDir = absPathForStatus(opts.rawDir)
@@ -956,6 +1065,102 @@ func statusResult(opts cliOptions) commandResult {
 
 	out.APIKeyConfigured = boolPtr(apiKeyConfigured)
 	return out
+}
+
+func imageModelSelectionStatus(modelID string) string {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return "required"
+	}
+	if client.IsSupportedFHLImageModel(modelID) {
+		return "selected"
+	}
+	return "legacy"
+}
+
+func workersResult(opts cliOptions) commandResult {
+	out := statusResult(opts)
+	out.Workers = []string{fmt.Sprintf("default:%s:%s", opts.apiMode, fallbackLabel(opts.imageModelID, "unselected"))}
+	return out
+}
+
+func fallbackLabel(value, fallback string) string {
+	if clean := strings.TrimSpace(value); clean != "" {
+		return clean
+	}
+	return fallback
+}
+
+func adaptiveSelfTestResult(opts cliOptions) (commandResult, error) {
+	checks := []string{}
+	if err := client.ValidateBackgroundMode(client.BackgroundTransparent, client.ImageModelFlare); err != nil {
+		return selfTestFailure(opts, "adaptive", checks, err)
+	}
+	checks = append(checks, "flare_transparency_supported")
+	if err := client.ValidateBackgroundMode(client.BackgroundTransparent, client.ImageModelLegacy); err == nil {
+		return selfTestFailure(opts, "adaptive", checks, errors.New("gpt-image-2 transparency must be rejected"))
+	}
+	checks = append(checks, "legacy_transparency_rejected")
+	raw, err := client.BuildPayload(client.Options{
+		Prompt:         "offline transparent contract",
+		ImageModelID:   client.ImageModelSunburst,
+		OutputFormat:   "jpeg",
+		BackgroundMode: client.BackgroundTransparent,
+	})
+	if err != nil {
+		return selfTestFailure(opts, "adaptive", checks, err)
+	}
+	if !bytes.Contains(raw, []byte(`"background":"transparent"`)) || !bytes.Contains(raw, []byte(`"output_format":"png"`)) {
+		return selfTestFailure(opts, "adaptive", checks, errors.New("transparent Responses payload contract failed"))
+	}
+	checks = append(checks, "responses_transparent_payload")
+	out := baseResult(opts)
+	out.OK = true
+	out.SelfTest = "adaptive"
+	out.Checks = checks
+	return out, nil
+}
+
+func workflowSelfTestResult(opts cliOptions) (commandResult, error) {
+	checks := []string{}
+	img := image.NewNRGBA(image.Rect(0, 0, 2, 1))
+	img.SetNRGBA(0, 0, color.NRGBA{R: 255, A: 255})
+	img.SetNRGBA(1, 0, color.NRGBA{A: 0})
+	var pngBytes bytes.Buffer
+	if err := png.Encode(&pngBytes, img); err != nil {
+		return selfTestFailure(opts, "workflow", checks, err)
+	}
+	status, err := client.ValidateTransparentPNGBase64(base64.StdEncoding.EncodeToString(pngBytes.Bytes()))
+	if err != nil || status != client.AlphaStatusNative {
+		if err == nil {
+			err = fmt.Errorf("unexpected alpha status: %s", status)
+		}
+		return selfTestFailure(opts, "workflow", checks, err)
+	}
+	checks = append(checks, "native_alpha_accepted")
+	opaque := image.NewNRGBA(image.Rect(0, 0, 1, 1))
+	opaque.SetNRGBA(0, 0, color.NRGBA{R: 255, A: 255})
+	pngBytes.Reset()
+	if err := png.Encode(&pngBytes, opaque); err != nil {
+		return selfTestFailure(opts, "workflow", checks, err)
+	}
+	if _, err := client.ValidateTransparentPNGBase64(base64.StdEncoding.EncodeToString(pngBytes.Bytes())); err == nil {
+		return selfTestFailure(opts, "workflow", checks, errors.New("opaque PNG must fail Alpha validation"))
+	}
+	checks = append(checks, "opaque_png_rejected")
+	out := baseResult(opts)
+	out.OK = true
+	out.SelfTest = "workflow"
+	out.Checks = checks
+	out.Alpha = string(client.AlphaStatusNative)
+	return out, nil
+}
+
+func selfTestFailure(opts cliOptions, name string, checks []string, err error) (commandResult, error) {
+	out, returnedErr := failResult(opts, err)
+	out.SelfTest = name
+	out.Checks = checks
+	return out, returnedErr
 }
 
 func boolPtr(v bool) *bool {

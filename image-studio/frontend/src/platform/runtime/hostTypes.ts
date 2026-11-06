@@ -6,6 +6,7 @@ export type GenerationRequest = {
   size: string;
   quality: string;
   outputFormat: string;
+  backgroundMode?: "opaque" | "transparent";
   imagePaths: string[];
   imagePath: string;
   maskB64: string;
@@ -69,6 +70,8 @@ export type ProbeUpstreamOptionsLike = {
   baseURL: string;
   proxyMode?: string;
   proxyURL?: string;
+  apiMode?: string;
+  probeKind?: "text" | "images";
 };
 
 export type ProbeUpstreamResultLike = {

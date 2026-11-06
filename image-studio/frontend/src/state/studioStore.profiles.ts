@@ -9,7 +9,6 @@ import {
   DEFAULT_CONCURRENCY_LIMIT,
   duplicateProfile as cloneProfile,
   FHL_BASE_URL,
-  FHL_IMAGE_MODEL_ID,
   FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT,
   FHL_TEXT_MODEL_ID,
   genProfileId,
@@ -27,7 +26,7 @@ import {
 } from "../lib/profiles";
 import { normalizeAPIKeyInput } from "../lib/apiKey";
 import { syncCLIConfigQuietly, type CLIConfigSyncInput } from "../lib/cliConfigSync";
-import { isOfficialFHLProfile, ProviderPolicy } from "../lib/providerPolicy";
+import { isOfficialFHLProfile } from "../lib/providerPolicy";
 import { cleanBaseURL } from "../lib/security";
 import { normalizeConcurrencyLimit, patchWorkspaceRuntime } from "./workspaceRuntime";
 import { persistActiveProfileId, persistProfiles } from "./studioStore.shared";
@@ -42,9 +41,8 @@ function cleanProfileBaseURL(apiMode: APIMode, value: string): string {
   return apiMode === "apimart" ? normalizeAPIMartBaseURL(cleaned) : cleaned;
 }
 
-function isFHLProfileConfig(profile: Pick<UpstreamProfile, "baseURL" | "imageModelID">): boolean {
-  return isOfficialFHLProfile({ apiMode: "images", baseURL: profile.baseURL })
-    && profile.imageModelID.trim() === ProviderPolicy.fhl.imageModelID;
+function isFHLProfileConfig(profile: Pick<UpstreamProfile, "baseURL">): boolean {
+  return isOfficialFHLProfile({ apiMode: "images", baseURL: profile.baseURL });
 }
 
 function isOfficialFHLRuntimeProfile(
@@ -81,7 +79,7 @@ export function activeProfileRuntimePatch(
     requestPolicy: "openai",
     baseURL: FHL_BASE_URL,
     textModelID: apiMode === "responses" ? FHL_TEXT_MODEL_ID : profile.textModelID,
-    imageModelID: FHL_IMAGE_MODEL_ID,
+    imageModelID: profile.imageModelID,
     imagesNewAPICompat: apiMode === "images" && profile.imagesNewAPICompat === true,
   };
 }
@@ -99,6 +97,7 @@ function cliConfigFromProfileState(
     imagesNewAPICompat: profile.apiMode === "images" && (profile.imagesNewAPICompat ?? false) === true,
     textModelID: profile.textModelID,
     imageModelID: profile.imageModelID,
+    backgroundMode: state.backgroundMode,
     outputFormat: state.outputFormat,
     quality: state.quality,
     size: state.size,
@@ -144,6 +143,7 @@ export function createProfileActions(store: StateAdapter) {
         baseURL,
         textModelID: (input.textModelID ?? "").trim(),
         imageModelID: (input.imageModelID ?? "").trim(),
+        imageModelSelectionStatus: (input.imageModelID ?? "").trim() ? "legacy" : "required",
         concurrencyLimit: fhlImagesPoolSlot !== undefined
           ? FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT
           : normalizeConcurrencyLimit(input.concurrencyLimit ?? DEFAULT_CONCURRENCY_LIMIT),
@@ -207,6 +207,9 @@ export function createProfileActions(store: StateAdapter) {
         baseURL: nextBaseURL,
         textModelID: patch.textModelID !== undefined ? patch.textModelID.trim() : current.textModelID,
         imageModelID: patch.imageModelID !== undefined ? patch.imageModelID.trim() : current.imageModelID,
+        imageModelSelectionStatus: patch.imageModelSelectionStatus
+          ?? (patch.imageModelID !== undefined ? (patch.imageModelID.trim() ? "selected" : "required") : current.imageModelSelectionStatus),
+        imageModelValidatedAt: patch.imageModelValidatedAt ?? current.imageModelValidatedAt,
         concurrencyLimit: nextFHLImagesPoolSlot !== undefined
           ? FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT
           : patch.concurrencyLimit !== undefined

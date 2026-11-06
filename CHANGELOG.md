@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## 桌面版 V2.0.5（macOS GPT Image 2.5 与透明 PNG）
+
+- FHL 专用配置新增 Images Key 模型拉取和全局手动选择。完整模型列表可见，但只允许 `gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`、`gpt-image-2`；10 个 Images 槽共享选择结果。
+- 生图模型拉取结果改为与文本 API 一致的紧凑下拉框，按上游顺序展示并禁用不支持的模型。
+- 新配置保持未选择状态并阻止生成；旧 V2.0.4 FHL profile 缺失模型字段时迁移到 `gpt-image-2`。未知旧模型保留为 legacy 并明确报错，不静默覆盖。
+- Flare/Sunburst 新增普通图像与透明 PNG 选择，Image 2 不显示透明选项。切换到不支持透明的模型会恢复 `opaque`，透明模式固定 PNG。
+- 普通图像 / 透明 PNG 的选中态统一为蓝色边框、浅蓝底和内描边，与文生图 / 图生图控件保持一致。
+- Images 请求使用 `background=transparent`、`output_format=png`、`response_format=b64_json`；Responses 只在 `image_generation` 工具中加入背景与格式。透明及显式 Profile 请求不做跨 API 静默降级。
+- 新增真实 PNG Alpha 校验，要求同时存在透明像素和可见主体像素；全不透明、全透明空图、非 PNG 或解码失败结果不进入成功历史，保留 raw 路径用于脱敏诊断。
+- 工作区、历史、批次任务、浏览器任务、CLI 和桌面后端同步记录 `backgroundMode` 与 Alpha 状态。CLI 新增 `--background`、状态字段及三个离线自检入口。
+- 产品版本、macOS workflow、bundle verifier、README、使用说明和独立发布说明同步到 V2.0.5。自动测试只使用离线 Mock，不读取或写入用户 Key，不执行真实或付费 API 请求。
+
 ## 桌面版 V2.0.4（macOS 正式发布；Windows 继续独立开发）
 
 - macOS V2.0.4 以独立 `codex/macos-v2.0.4-release` 分支和注解标签 `v2.0.4` 封板，不合并或改写 `main`，也不改动 Windows/Android 的分支、标签、资产和 Latest 状态。正式 Release 固定提供 Universal DMG、对应源码 ZIP 与 `SHA256SUMS.txt` 三项资产，并由同一标签提交重新构建和校验。

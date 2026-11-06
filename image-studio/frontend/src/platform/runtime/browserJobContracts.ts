@@ -3,6 +3,7 @@ import type {
   JobSlotSnapshot,
   Mode,
   OutputFormatValue,
+  BackgroundMode,
   QualityValue,
   RequestPolicy,
   SizeValue,
@@ -26,6 +27,7 @@ export interface BrowserJobSubmitPayload {
   size: SizeValue;
   quality: QualityValue;
   outputFormat: OutputFormatValue;
+  backgroundMode: BackgroundMode;
   batchCount: number;
   seed: number;
   negativePrompt: string;
@@ -76,6 +78,7 @@ export interface BrowserJobSubmitManyTask {
   size: SizeValue;
   quality: QualityValue;
   outputFormat: OutputFormatValue;
+  backgroundMode: BackgroundMode;
   seed: number;
   negativePrompt: string;
   styleTag?: string;

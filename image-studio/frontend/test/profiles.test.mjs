@@ -181,7 +181,8 @@ test("FHL Responses companion profile remains available", () => {
   assert.equal(profile.name, "FHL-1 Responses");
   assert.equal(profile.apiMode, "responses");
   assert.equal(profile.baseURL, profiles.FHL_BASE_URL);
-  assert.equal(profile.imageModelID, profiles.FHL_IMAGE_MODEL_ID);
+  assert.equal(profile.imageModelID, "");
+  assert.equal(profile.imageModelSelectionStatus, "required");
   assert.equal(profile.imagesNewAPICompat, false);
 });
 
@@ -190,8 +191,40 @@ test("FHL images companion profile uses the official images mode", () => {
   assert.equal(profile.name, "FHL-1 Images");
   assert.equal(profile.apiMode, "images");
   assert.equal(profile.baseURL, profiles.FHL_BASE_URL);
-  assert.equal(profile.imageModelID, profiles.FHL_IMAGE_MODEL_ID);
+  assert.equal(profile.imageModelID, "");
+  assert.equal(profile.imageModelSelectionStatus, "required");
   assert.equal(profile.imagesNewAPICompat, true);
+});
+
+test("legacy FHL profiles without imageModelID migrate to gpt-image-2", () => {
+  const parsed = profiles.tryParseProfile({
+    id: "legacy-fhl",
+    name: "Legacy FHL",
+    apiMode: "images",
+    requestPolicy: "openai",
+    baseURL: profiles.FHL_BASE_URL,
+    textModelID: "",
+    concurrencyLimit: 5,
+    createdAt: 1,
+  });
+  assert.equal(parsed?.imageModelID, profiles.FHL_IMAGE_MODEL_ID);
+  assert.equal(parsed?.imageModelSelectionStatus, "legacy");
+});
+
+test("unknown saved FHL models remain visible as legacy instead of being overwritten", () => {
+  const parsed = profiles.tryParseProfile({
+    id: "unknown-fhl",
+    name: "Unknown FHL",
+    apiMode: "images",
+    requestPolicy: "openai",
+    baseURL: profiles.FHL_BASE_URL,
+    textModelID: "",
+    imageModelID: "retired-image-model",
+    concurrencyLimit: 5,
+    createdAt: 1,
+  });
+  assert.equal(parsed?.imageModelID, "retired-image-model");
+  assert.equal(parsed?.imageModelSelectionStatus, "legacy");
 });
 
 test("FHL Images pool slots parse only official Images profiles with an integer 1..10 slot", () => {
@@ -352,7 +385,7 @@ test("profile create and update preserve FHL-like API mode", () => {
   const profilesSource = fs.readFileSync(path.join(stateDir, "studioStore.profiles.ts"), "utf8");
   assert.ok(profilesSource.includes("function isFHLProfileConfig"));
   assert.ok(profilesSource.includes('isOfficialFHLProfile({ apiMode: "images", baseURL: profile.baseURL })'));
-  assert.ok(profilesSource.includes("imageModelID.trim() === ProviderPolicy.fhl.imageModelID"));
+  assert.ok(!profilesSource.includes("imageModelID.trim() === ProviderPolicy.fhl.imageModelID"));
   assert.doesNotMatch(profilesSource, /apiMode:\s*"images",\s*requestPolicy:\s*"openai"/);
   assert.ok(profilesSource.includes('imagesNewAPICompat: rawProfile.apiMode === "images"'));
   assert.ok(profilesSource.includes('imagesNewAPICompat: rawNext.apiMode === "images"'));

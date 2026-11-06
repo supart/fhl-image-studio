@@ -3,6 +3,7 @@ import type { PanoramaPastebackMaskInput } from "../panorama/core";
 import type {
   Annotation,
   APIMode,
+  BackgroundMode,
   BatchProcessConfig,
   BatchTaskRecord,
   EditSourceMode,
@@ -153,6 +154,7 @@ export interface StudioState {
   size: SizeValue;
   quality: QualityValue;
   outputFormat: OutputFormatValue;
+  backgroundMode: BackgroundMode;
   seed: number;
   kernelRuntimeMode: KernelRuntimeMode;
   baseURL: string;
@@ -400,6 +402,7 @@ export interface StudioState {
   setFHLTextAPIModelID: (modelID: string) => void;
   saveAndTestFHLTextAPI: (apiKeyInput?: string, modelID?: string) => Promise<boolean>;
   deleteFHLTextAPIConfig: () => Promise<void>;
+  setFHLImageModelID: (modelID: string) => Promise<void>;
   isTestingKey: boolean;
   isResettingApplication: boolean;
   isOptimizingPrompt: boolean;

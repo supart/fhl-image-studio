@@ -537,6 +537,7 @@ export class BrowserJobManager {
       size: effectivePayload.size,
       quality: effectivePayload.quality,
       outputFormat: effectivePayload.outputFormat,
+      backgroundMode: effectivePayload.backgroundMode,
       negativePrompt: effectivePayload.negativePrompt,
       styleTag: effectivePayload.styleTag || "",
       seed: effectivePayload.seed || 0,
@@ -870,8 +871,15 @@ export class BrowserJobManager {
       };
       const nextSlots = [...group.slots];
       nextSlots[slotIndex] = nextSlot;
+      const alphaStatuses = nextSlots.map((slot) => slot.alphaStatus).filter(Boolean);
+      const alphaStatus = alphaStatuses.includes("invalid")
+        ? "invalid"
+        : alphaStatuses.length > 0 && alphaStatuses.every((status) => status === "native")
+          ? "native"
+          : group.alphaStatus;
       this.registry.groups[groupIndex] = {
         ...group,
+        alphaStatus,
         slots: nextSlots,
         slotIds: nextSlots.map((slot) => slot.jobId),
         statusSummary: summarizeJobStatuses(nextSlots),
@@ -1011,6 +1019,7 @@ export class BrowserJobManager {
       "--size", payload.size,
       "--quality", payload.quality,
       "--output-format", payload.outputFormat,
+      "--background", payload.backgroundMode,
       "--out-dir", this.outputDir,
       "--raw-dir", path.join(this.outputDir, "log"),
       "--input-dir", this.inputDir,
@@ -1191,6 +1200,9 @@ export class BrowserJobManager {
         errorMessage: friendlyJobError(rawError, fallbackMode),
         revisedPrompt: typeof rawResult?.revisedPrompt === "string" ? rawResult.revisedPrompt : "",
         sourceEvent: typeof rawResult?.sourceEvent === "string" ? rawResult.sourceEvent : "",
+        alphaStatus: rawResult?.alpha === "native" || rawResult?.alpha === "invalid" || rawResult?.alpha === "none"
+          ? rawResult.alpha
+          : undefined,
         fallbackMode,
         fallbackInputPath,
         fallbackReason,

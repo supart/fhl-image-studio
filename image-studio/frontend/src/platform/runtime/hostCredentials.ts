@@ -324,7 +324,14 @@ export async function probeCurrentUpstream(
     await probeRunningHubFromBrowser(baseURL, signal);
     return { modelCount: 0, models: [] };
   }
-  const options: ProbeUpstreamOptionsLike = { baseURL, apiKey, proxyMode, proxyURL };
+  const options: ProbeUpstreamOptionsLike = {
+    baseURL,
+    apiKey,
+    proxyMode,
+    proxyURL,
+    apiMode,
+    probeKind: apiMode === "images" ? "images" : "text",
+  };
   if (hasServiceMethod("ProbeUpstream")) {
     return normalizeProbeResult(await invokeService<ProbeUpstreamResultLike>(unsupportedMessage, "ProbeUpstream", options));
   }

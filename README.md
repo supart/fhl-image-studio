@@ -1,4 +1,4 @@
-# FHL Image Studio 方汤圆修改版 V2.0.4
+# FHL Image Studio 方汤圆修改版 V2.0.5
 
 > 开源致谢：Image-Studio 原作者 RoseKhlifa
 >
@@ -6,7 +6,7 @@
 >
 > 方汤圆修改版项目地址：https://github.com/supart/fhl-image-studio
 
-FHL Image Studio 方汤圆修改版是基于 Image-Studio 的独立修改发行版，面向桌面端图片生成、图生图、编辑和提示词工作流。本仓库当前开发版本为桌面版 `V2.0.4`，采用 AGPLv3 发布，不内置任何 API Key、测试图片或个人本机配置。
+FHL Image Studio 方汤圆修改版是基于 Image-Studio 的独立修改发行版，面向桌面端图片生成、图生图、编辑和提示词工作流。本仓库当前开发版本为桌面版 `V2.0.5`，采用 AGPLv3 发布，不内置任何 API Key、测试图片或个人本机配置。
 
 本项目与上游原项目无隶属、背书或维护关系。请在二次分发、公开部署或网络服务使用时遵守 AGPLv3 的源码提供义务。
 
@@ -17,6 +17,8 @@ FHL Image Studio 方汤圆修改版是基于 Image-Studio 的独立修改发行�
 - 反推提示词：导入图片后上传给支持视觉输入的文本模型，返回中文文生图 prompt。
 - FHL 文本与生图凭据彻底分离：独立 Responses 文本 API（新安装默认 `gpt-5.6-sol`，兼容 `gpt-5.5` 和自定义模型）服务于 AI 优化和图片反推，Images Key 不参与文本请求。
 - FHL Images 连续池：固定 10 个独立 Key 槽，按每 API `1–5` 并发计算总容量，批量任务保留独立任务、API 来源、取消和结果。
+- FHL 生图模型：使用 Images Key 手动拉取模型并全局选择 `gpt-image-2.5-flare`、`gpt-image-2.5-sunburst` 或 `gpt-image-2`；10 个槽共享选择结果。
+- 透明 PNG：仅 Flare/Sunburst 显示普通/透明选择，透明结果必须通过真实 Alpha 像素校验；Image 2 保持普通图像模式。
 - 工作区：多标签工作区分别保存 prompt、参数、源图、当前结果和运行状态。
 - 历史记录：本地 IndexedDB 保存，支持搜索、筛选、复用参数、设置源图和导入导出。
 - 大批量预览：结果网格、历史相册和批量输入队列使用虚拟滚动；列表加载 AVIF 缩略图，打开大图时才读取原图。
@@ -58,15 +60,16 @@ Photoshop UXP 插件是与桌面版、安卓版并列的独立销售项目。它
 - [功能说明](./docs/features.md)
 - [数据位置与故障排除](./docs/troubleshooting.md)
 - [构建与发布](./docs/build.md)
-- [V2.0.4 开发工作流](./docs/development-workflow.md)
+- [V2.0.5 开发工作流](./docs/development-workflow.md)
 - [项目结构](./docs/project-structure.md)
 - [V2.0.4 开发发布说明](./RELEASE_NOTES_DESKTOP_V2.0.4.md)
+- [macOS V2.0.5 发布说明](./RELEASE_NOTES_MACOS_V2.0.5.md)
 - [V2.0.3 历史发布说明](./RELEASE_NOTES_DESKTOP_V2.0.3.md)
 - [V2.0.3 历史验收报告](./V2.0.3_ACCEPTANCE_REPORT.md)
 
 单批实现和排错过程记录在 [`docs/changes/`](./docs/changes/)；`PROJECT_CONTEXT.md` 只用于当前开发断点和接手恢复，不作为长期产品说明。
 
-V2.0.4 的本地 Git、分层检查、批次记录和里程碑归档遵循 [V2.0.4 开发工作流](./docs/development-workflow.md)。历史版本目录保持只读。
+V2.0.5 的本地 Git、分层检查、批次记录和里程碑归档遵循 [开发工作流](./docs/development-workflow.md)。历史版本目录保持只读。
 
 ## 运行源码版
 
@@ -99,7 +102,7 @@ scripts\start-desktop-e2e.cmd
 只启动浏览器镜像、不打开桌面窗口：
 
 ```cmd
-"image-studio\build\bin\FHL Studio 方汤圆版 V2.0.4.exe" --e2e-only --e2e-port 9230
+"image-studio\build\bin\FHL Studio 方汤圆版 V2.0.5.exe" --e2e-only --e2e-port 9230
 ```
 
 启动后打开：
@@ -116,7 +119,7 @@ Windows Portable 免安装包（唯一预编译 Windows 发行形态）：
 powershell -ExecutionPolicy Bypass -File .\scripts\package-windows-portable.ps1
 ```
 
-生成后的用户包使用带当前版本号的 `一键启动FHL Studio V2.0.4.cmd` 启动，不依赖 Node、Vite 或 5173 预览服务。生成内容默认保存在便携包内的 `output/`，导入图在 `input/`，中间文件在 `intermediate/`，日志在 `output/log/`。
+生成后的用户包使用带当前版本号的 `一键启动FHL Studio V2.0.5.cmd` 启动，不依赖 Node、Vite 或 5173 预览服务。生成内容默认保存在便携包内的 `output/`，导入图在 `input/`，中间文件在 `intermediate/`，日志在 `output/log/`。
 
 发布源码暂存：
 
@@ -136,7 +139,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\prepare-release-source.ps1
 
 `--status --json` 只读返回当前包版本、活动 API、模型、尺寸与目录状态；API Key 只显示是否已配置，不会打印明文。
 
-旧版 `fhl-image-studio-*` Codex Skill 已弃用，V2.0.4 源码包和 Portable 均不再提供或安装该 Skill。桌面端、Photoshop 插件和手动 CLI 不受影响。
+旧版 `fhl-image-studio-*` Codex Skill 已弃用，V2.0.5 源码包和 Portable 均不再提供或安装该 Skill。桌面端、Photoshop 插件和手动 CLI 不受影响。
 
 前端检查：
 
@@ -160,14 +163,14 @@ wails build
 powershell -ExecutionPolicy Bypass -File .\scripts\check-compliance-package.ps1 -Root .
 ```
 
-CI 会在 GitHub Actions 中分别执行版本一致性、Go、前端和发布安全检查。Windows Portable 的正式发布只接受清单指定的 `windows-v2.0.4-release` 标签；macOS 使用独立 `codex/macos-v2.0.4-release` 候选分支和精确注解标签 `v2.0.4`，生成 Universal DMG、对应源码 ZIP 与 `SHA256SUMS.txt`。两个流程互不覆盖，macOS 发布也不会修改其他平台的 Latest 状态。Mac 安装与 Gatekeeper 说明见 [README_MACOS.md](./README_MACOS.md)。
+CI 会在 GitHub Actions 中分别执行版本一致性、Go、前端和发布安全检查。Windows Portable 的正式发布只接受清单指定的 `windows-v2.0.5-release` 标签；macOS 使用独立 `codex/macos-v2.0.5-release` 候选分支和精确注解标签 `v2.0.5`，生成 Universal DMG、对应源码 ZIP 与 `SHA256SUMS.txt`。两个流程互不覆盖，macOS 发布也不会修改其他平台的 Latest 状态。Mac 安装与 Gatekeeper 说明见 [README_MACOS.md](./README_MACOS.md)。
 
 ## API 配置
 
 本仓库不包含任何可用 API Key。桌面端 FHL 配置分为两个互不复用的区域：
 
 - `FHL 文本 API`：使用 Responses，只服务 AI 优化和图片反推；新安装默认 `gpt-5.6-sol`，可切换 `gpt-5.5` 或自定义模型。
-- `FHL Images 连续池`：固定 10 个独立生图 Key 槽，只服务文生图、图生图和批量任务。
+- `FHL Images 连续池`：固定 10 个独立生图 Key 槽，只服务文生图、图生图和批量任务；先用任一已保存的 Images Key 拉取模型，再全局选择生图模型。
 
 普通 Profile、APIMart 或其他兼容上游按需要填写：
 

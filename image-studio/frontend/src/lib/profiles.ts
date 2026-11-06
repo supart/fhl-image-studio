@@ -220,7 +220,8 @@ export function makeFHLResponsesProfile(): UpstreamProfile {
     requestPolicy: "openai",
     baseURL: FHL_BASE_URL,
     textModelID: FHL_TEXT_MODEL_ID,
-    imageModelID: FHL_IMAGE_MODEL_ID,
+    imageModelID: "",
+    imageModelSelectionStatus: "required",
     concurrencyLimit: DEFAULT_CONCURRENCY_LIMIT,
     continuousPoolEnabled: false,
     imagesNewAPICompat: false,
@@ -237,7 +238,8 @@ export function makeFHLImagesProfile(): UpstreamProfile {
     requestPolicy: "openai",
     baseURL: FHL_BASE_URL,
     textModelID: "",
-    imageModelID: FHL_IMAGE_MODEL_ID,
+    imageModelID: "",
+    imageModelSelectionStatus: "required",
     concurrencyLimit: DEFAULT_CONCURRENCY_LIMIT,
     continuousPoolEnabled: true,
     imagesNewAPICompat: true,
@@ -292,7 +294,15 @@ export function tryParseProfile(raw: unknown): UpstreamProfile | null {
   const rawBaseURL = typeof o.baseURL === "string" ? o.baseURL : "";
   const baseURL = apiMode === "apimart" ? normalizeAPIMartBaseURL(rawBaseURL) : rawBaseURL;
   const textModelID = typeof o.textModelID === "string" ? o.textModelID : "";
-  const imageModelID = typeof o.imageModelID === "string" ? o.imageModelID : "";
+  const missingLegacyImageModel = !("imageModelID" in o)
+    && isOfficialFHLProfile({ apiMode, baseURL });
+  const imageModelID = typeof o.imageModelID === "string"
+    ? o.imageModelID
+    : missingLegacyImageModel ? FHL_IMAGE_MODEL_ID : "";
+  const imageModelSelectionStatus = o.imageModelSelectionStatus === "selected" || o.imageModelSelectionStatus === "legacy"
+    ? o.imageModelSelectionStatus
+    : imageModelID ? "legacy" : "required";
+  const imageModelValidatedAt = typeof o.imageModelValidatedAt === "number" ? o.imageModelValidatedAt : undefined;
   const rawConcurrencyLimit = typeof o.concurrencyLimit === "number" && o.concurrencyLimit >= 0
     ? Math.floor(o.concurrencyLimit) : 0;
   const continuousPoolEnabled = apiMode === "images" && o.continuousPoolEnabled !== false;
@@ -309,7 +319,7 @@ export function tryParseProfile(raw: unknown): UpstreamProfile | null {
     ? FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT
     : rawConcurrencyLimit;
   if (!id || !name) return null;
-  return { id, name, apiMode, requestPolicy, baseURL, textModelID, imageModelID, concurrencyLimit, continuousPoolEnabled, fhlImagesPoolSlot, fhlImagesPoolKeyHint, imagesNewAPICompat, createdAt, lastUsedAt };
+  return { id, name, apiMode, requestPolicy, baseURL, textModelID, imageModelID, imageModelSelectionStatus, imageModelValidatedAt, concurrencyLimit, continuousPoolEnabled, fhlImagesPoolSlot, fhlImagesPoolKeyHint, imagesNewAPICompat, createdAt, lastUsedAt };
 }
 
 // 列表里挑当前 active —— activeProfileId 命中时用它,否则用最近使用过的,

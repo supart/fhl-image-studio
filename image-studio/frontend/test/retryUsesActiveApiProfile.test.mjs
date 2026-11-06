@@ -19,7 +19,7 @@ test("manual retry rebuilds the request from the currently active API profile", 
   assert.match(storeSource, /apiProfileSnapshot: apiProfileSnapshotForSubmit\(activeProfile, state\.activeProfileId\)/);
 
   const retryFailedJob = blockFor("retryFailedJob");
-  assert.match(retryFailedJob, /const retryContext = retrySubmitContextFromState\(s, group\.mode\)/);
+  assert.match(retryFailedJob, /const retryContext = retrySubmitContextFromState\(s\)/);
   assert.match(retryFailedJob, /size: retrySize/);
   assert.match(retryFailedJob, /apiMode: retryContext\.apiMode/);
   assert.match(retryFailedJob, /\.\.\.retryContext\.apiProfileSnapshot/);
@@ -28,7 +28,7 @@ test("manual retry rebuilds the request from the currently active API profile", 
 
   const retryBatchTask = blockFor("retryBatchTask");
   assert.match(retryBatchTask, /const useTaskProfile = options\?\.useTaskProfile === true \|\| task\.continuousPoolTask === true/);
-  assert.match(retryBatchTask, /const retryContext = useTaskProfile \? retryContextFromOriginalTask\(s, task\) : retrySubmitContextFromState\(s, task\.mode\)/);
+  assert.match(retryBatchTask, /const retryContext = useTaskProfile \? retryContextFromOriginalTask\(s, task\) : retrySubmitContextFromState\(s\)/);
   assert.match(retryBatchTask, /const retryAPIKey = useTaskProfile \? await apiKeyForProfileOrState\(s, task\.apiProfileId\) : s\.apiKey/);
   assert.match(retryBatchTask, /const independentRetry = options\?\.independent === true/);
   assert.match(retryBatchTask, /const batchSharedTask = !independentRetry && !!task\.batchOutputMode/);

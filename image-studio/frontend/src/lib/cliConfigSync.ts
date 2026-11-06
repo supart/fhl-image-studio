@@ -1,7 +1,6 @@
-﻿import type { APIMode, OutputFormatValue, QualityValue, RequestPolicy, SizeValue } from "../types/domain";
+﻿import type { APIMode, BackgroundMode, OutputFormatValue, QualityValue, RequestPolicy, SizeValue } from "../types/domain";
 import {
   FHL_BASE_URL,
-  FHL_IMAGE_MODEL_ID,
   FHL_TEXT_MODEL_ID,
 } from "./profiles.ts";
 import { ProviderPolicy } from "./providerPolicy.ts";
@@ -21,6 +20,7 @@ export type CLIConfigSyncInput = {
   textModelID?: string;
   imageModelID?: string;
   outputFormat?: OutputFormatValue;
+  backgroundMode?: BackgroundMode;
   quality?: QualityValue | string;
   size?: SizeValue | string;
   partialImages?: number;
@@ -43,8 +43,9 @@ export async function syncCLIConfig(input: CLIConfigSyncInput = {}): Promise<boo
     requestPolicy: input.requestPolicy || "openai",
     imagesNewAPICompat: apiMode === "images" && input.imagesNewAPICompat !== false,
     textModelID: input.textModelID || FHL_TEXT_MODEL_ID,
-    imageModelID: input.imageModelID || FHL_IMAGE_MODEL_ID,
+    imageModelID: input.imageModelID ?? "",
     outputFormat: input.outputFormat || "png",
+    backgroundMode: input.backgroundMode || "opaque",
     quality: input.quality || "medium",
     size: input.size || "1024x1024",
     partialImages: input.partialImages ?? 1,

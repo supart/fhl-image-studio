@@ -122,7 +122,7 @@ test("desktop FHL setup uses ten independent Images slots while Android retains 
     assert.match(rail, /请选择当前 API/);
   }
 
-  const targetedTest = store.match(/testProfileConnection: async \(profileId\) => \{[\s\S]+?\n  \},\n\n  testAPIKey:/)?.[0] ?? "";
+  const targetedTest = store.match(/testProfileConnection: async \(profileId\) => \{[\s\S]+?\n  \},\n\n  refreshFHLTextAPIConfig:/)?.[0] ?? "";
   assert.match(targetedTest, /apiKeyForProfileOrState\(s, profile\.id\)/);
   assert.match(targetedTest, /probeCurrentUpstream\(cleanedBaseURL, cleanedAPIKey/);
   assert.doesNotMatch(targetedTest, /setActiveProfile/);
@@ -169,7 +169,7 @@ test("desktop FHL setup uses ten independent Images slots while Android retains 
   assert.match(saveTextAction, /fhlTextAPITestStatus: "error"/);
   assert.match(saveTextAction, /已保存，文本测试失败/);
   assert.doesNotMatch(saveTextAction, /deleteFHLTextAPIKey/);
-  const deleteTextAction = store.slice(deleteTextActionStart, store.indexOf("testAPIKey: async", deleteTextActionStart));
+  const deleteTextAction = store.slice(deleteTextActionStart, store.indexOf("setFHLImageModelID: async", deleteTextActionStart));
   assert.match(deleteTextAction, /await deleteFHLTextAPIKey\(\)/);
   assert.doesNotMatch(deleteTextAction, /deleteProfile|updateProfile|persistProfiles/);
 

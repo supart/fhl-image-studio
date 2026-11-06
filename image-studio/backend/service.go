@@ -516,6 +516,15 @@ func (s *Service) startJob(opts GenerateOptions) (JobStarted, error) {
 	if strings.TrimSpace(opts.Prompt) == "" {
 		return JobStarted{}, errors.New("提示词/修改要求不能为空")
 	}
+	if strings.TrimSpace(opts.BackgroundMode) == "" {
+		opts.BackgroundMode = client.BackgroundOpaque
+	}
+	if err := client.ValidateBackgroundMode(opts.BackgroundMode, opts.ImageModelID); err != nil {
+		return JobStarted{}, err
+	}
+	if opts.BackgroundMode == client.BackgroundTransparent {
+		opts.OutputFormat = "png"
+	}
 	apiMode := normaliseAPIMode(opts.APIMode)
 	concurrencyKey := concurrencyBucketKey(apiMode, opts.APIProfileID)
 	limit := normaliseConcurrencyLimit(opts.ConcurrencyLimit)
@@ -634,6 +643,7 @@ func (s *Service) executeJob(ctx context.Context, jobID string, opts GenerateOpt
 		Size:               opts.Size,
 		Quality:            opts.Quality,
 		OutputFormat:       opts.OutputFormat,
+		BackgroundMode:     opts.BackgroundMode,
 		MaskB64:            opts.MaskB64,
 		Seed:               opts.Seed,
 		NegativePrompt:     opts.NegativePrompt,
@@ -765,7 +775,7 @@ func (s *Service) executeJob(ctx context.Context, jobID string, opts GenerateOpt
 	result, rawPath, err := client.RequestAndExtractWithRetriesAndPartial(
 		ctx, transport, clientOpts, logDir, timestamp, logFn, progressFn, previewFn,
 	)
-	if err != nil && shouldFallbackResponsesToImagesInService(apiMode, mode, err, rawPath, opts.APIProfileID) {
+	if err != nil && opts.BackgroundMode != client.BackgroundTransparent && shouldFallbackResponsesToImagesInService(apiMode, mode, err, rawPath, opts.APIProfileID) {
 		logFn("Responses returned no final image; retrying once with Images API...")
 		fallbackOpts := clientOpts
 		fallbackOpts.APIMode = client.APIModeImages
@@ -783,8 +793,19 @@ func (s *Service) executeJob(ctx context.Context, jobID string, opts GenerateOpt
 	if result.SourceEvent == "partial" {
 		return executionErrorWithRaw(errors.New(finalImageRequiredMessage), rawPath)
 	}
+	alphaStatus := client.AlphaStatusNone
+	if opts.BackgroundMode == client.BackgroundTransparent {
+		alphaStatus, err = client.ValidateTransparentPNGBase64(result.ImageB64)
+		if err != nil {
+			return executionErrorWithRaw(fmt.Errorf("透明 PNG Alpha 校验失败:%w", err), rawPath)
+		}
+	}
 
-	imageName := buildImageName(mode, opts.Prompt, timestamp, opts.OutputFormat)
+	effectiveOutputFormat := opts.OutputFormat
+	if opts.BackgroundMode == client.BackgroundTransparent {
+		effectiveOutputFormat = "png"
+	}
+	imageName := buildImageName(mode, opts.Prompt, timestamp, effectiveOutputFormat)
 	savedPath := filepath.Join(imagesDir, imageName)
 	absSaved, werr := writeBase64Image(result.ImageB64, savedPath)
 	if werr != nil {
@@ -809,20 +830,22 @@ func (s *Service) executeJob(ctx context.Context, jobID string, opts GenerateOpt
 	absRaw, _ := filepath.Abs(rawPath)
 
 	s.emitJobEventUnlessCancelled(jobID, "result:"+jobID, ResultPayload{
-		RevisedPrompt: result.RevisedPrompt,
-		SourceEvent:   result.SourceEvent,
-		ImageID:       asset.ID,
-		SavedPath:     savedPath,
-		ThumbPath:     asset.ThumbPath,
-		PreviewURL:    asset.PreviewURL,
-		FullURL:       asset.FullURL,
-		Width:         asset.Width,
-		Height:        asset.Height,
-		PreviewWidth:  asset.PreviewWidth,
-		PreviewHeight: asset.PreviewHeight,
-		RawPath:       absRaw,
-		Mode:          string(mode),
-		Prompt:        opts.Prompt,
+		RevisedPrompt:  result.RevisedPrompt,
+		SourceEvent:    result.SourceEvent,
+		ImageID:        asset.ID,
+		SavedPath:      savedPath,
+		ThumbPath:      asset.ThumbPath,
+		PreviewURL:     asset.PreviewURL,
+		FullURL:        asset.FullURL,
+		Width:          asset.Width,
+		Height:         asset.Height,
+		PreviewWidth:   asset.PreviewWidth,
+		PreviewHeight:  asset.PreviewHeight,
+		RawPath:        absRaw,
+		Mode:           string(mode),
+		Prompt:         opts.Prompt,
+		BackgroundMode: opts.BackgroundMode,
+		AlphaStatus:    string(alphaStatus),
 	})
 	return nil
 }

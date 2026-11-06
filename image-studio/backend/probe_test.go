@@ -12,20 +12,24 @@ import (
 func TestProbeUpstreamRequestsModelsFromBackend(t *testing.T) {
 	var gotAuth string
 	var gotUserAgent string
+	var gotProbeKind string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
 			t.Fatalf("unexpected path %s", r.URL.Path)
 		}
 		gotAuth = r.Header.Get("Authorization")
 		gotUserAgent = r.Header.Get("User-Agent")
+		gotProbeKind = r.Header.Get("X-FHL-Probe-Kind")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-5.5"},{"id":" gpt-image-2 "},{"id":"gpt-5.5"},{"id":""},{"id":"bad\u0000model"},{"id":"` + strings.Repeat("x", 129) + `"}]}`))
 	}))
 	defer srv.Close()
 
 	got, err := probeUpstream(context.Background(), ProbeUpstreamOptions{
-		APIKey:  " sk-test ",
-		BaseURL: srv.URL + "/",
+		APIKey:    " sk-test ",
+		BaseURL:   srv.URL + "/",
+		APIMode:   "images",
+		ProbeKind: "images",
 	})
 	if err != nil {
 		t.Fatalf("ProbeUpstream returned error: %v", err)
@@ -41,6 +45,20 @@ func TestProbeUpstreamRequestsModelsFromBackend(t *testing.T) {
 	}
 	if !strings.HasPrefix(gotUserAgent, "image-studio/") {
 		t.Fatalf("unexpected User-Agent %q", gotUserAgent)
+	}
+	if gotProbeKind != "images" {
+		t.Fatalf("X-FHL-Probe-Kind = %q, want images", gotProbeKind)
+	}
+}
+
+func TestProbeUpstreamRejectsInvalidProbeKind(t *testing.T) {
+	_, err := probeUpstream(context.Background(), ProbeUpstreamOptions{
+		APIKey:    "sk-test",
+		BaseURL:   "https://example.invalid",
+		ProbeKind: "video",
+	})
+	if err == nil || !strings.Contains(err.Error(), "text 或 images") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

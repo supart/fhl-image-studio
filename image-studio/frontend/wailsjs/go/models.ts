@@ -99,6 +99,7 @@ export namespace backend {
 	    textModelID: string;
 	    imageModelID: string;
 	    outputFormat: string;
+	    backgroundMode: string;
 	    quality: string;
 	    size: string;
 	    partialImages: number;
@@ -118,6 +119,7 @@ export namespace backend {
 	        this.textModelID = source["textModelID"];
 	        this.imageModelID = source["imageModelID"];
 	        this.outputFormat = source["outputFormat"];
+	        this.backgroundMode = source["backgroundMode"];
 	        this.quality = source["quality"];
 	        this.size = source["size"];
 	        this.partialImages = source["partialImages"];
@@ -145,6 +147,7 @@ export namespace backend {
 	    size: string;
 	    quality: string;
 	    outputFormat: string;
+	    backgroundMode: string;
 	    imagePaths: string[];
 	    imagePath: string;
 	    maskB64: string;
@@ -176,6 +179,7 @@ export namespace backend {
 	        this.size = source["size"];
 	        this.quality = source["quality"];
 	        this.outputFormat = source["outputFormat"];
+	        this.backgroundMode = source["backgroundMode"];
 	        this.imagePaths = source["imagePaths"];
 	        this.imagePath = source["imagePath"];
 	        this.maskB64 = source["maskB64"];
@@ -705,6 +709,8 @@ export namespace backend {
 	    baseURL: string;
 	    proxyMode: string;
 	    proxyURL: string;
+	    apiMode: string;
+	    probeKind: string;
 
 	    static createFrom(source: any = {}) {
 	        return new ProbeUpstreamOptions(source);
@@ -716,6 +722,8 @@ export namespace backend {
 	        this.baseURL = source["baseURL"];
 	        this.proxyMode = source["proxyMode"];
 	        this.proxyURL = source["proxyURL"];
+	        this.apiMode = source["apiMode"];
+	        this.probeKind = source["probeKind"];
 	    }
 	}
 	export class ProbeUpstreamResult {

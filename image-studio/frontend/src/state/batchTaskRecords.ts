@@ -1,5 +1,6 @@
 import type {
   APIMode,
+  BackgroundMode,
   BatchProcessAutoAspectResolution,
   BatchProcessOutputMode,
   BatchTaskRecord,
@@ -36,6 +37,7 @@ export type BatchTaskCreateInput = {
   autoAspectResolution?: BatchProcessAutoAspectResolution;
   quality: QualityValue;
   outputFormat: OutputFormatValue;
+  backgroundMode: BackgroundMode;
   requestPolicy?: RequestPolicy;
   imagesNewAPICompat?: boolean;
   textModelID?: string;
@@ -107,6 +109,7 @@ export function createBatchTaskRecord(input: BatchTaskCreateInput): BatchTaskRec
     autoAspectResolution: normalizeTaskAutoAspectResolution(input.autoAspectResolution),
     quality: input.quality,
     outputFormat: input.outputFormat,
+    backgroundMode: input.backgroundMode,
     requestPolicy: input.requestPolicy,
     imagesNewAPICompat: input.imagesNewAPICompat,
     textModelID: input.textModelID,
@@ -415,6 +418,8 @@ export function updateTasksFromJobGroup(
       groupId: group.groupId,
       jobId: slot.jobId,
       savedPath: slot.savedPath || task.savedPath,
+      backgroundMode: group.backgroundMode || task.backgroundMode,
+      alphaStatus: slot.alphaStatus || group.alphaStatus || task.alphaStatus,
       rawPath: slot.rawPath || task.rawPath,
       apimartTaskId: slot.apimartTaskId || task.apimartTaskId,
       batchSourcePath: group.batchSourcePath || task.batchSourcePath,

@@ -846,8 +846,9 @@ function localConfigPlugin(): Plugin {
               requestPolicy: oneOf(body?.requestPolicy, ["openai", "compat"], "openai"),
               imagesNewAPICompat: nextAPIMode === "images" && body?.imagesNewAPICompat === true,
               textModelID: cleanEnvValue(body?.textModelID, "gpt-5.5"),
-              imageModelID: cleanEnvValue(body?.imageModelID, "gpt-image-2"),
+              imageModelID: cleanEnvValue(body?.imageModelID, ""),
               outputFormat: oneOf(body?.outputFormat, ["png", "jpeg", "webp"], "png"),
+              backgroundMode: oneOf(body?.backgroundMode, ["opaque", "transparent"], "opaque"),
               quality: oneOf(body?.quality, ["auto", "high", "medium", "low"], "medium"),
               size: cleanCLIImageSize(body?.size, "1024x1024"),
               partialImages: cleanPartialImages(body?.partialImages, 1),
@@ -1023,6 +1024,7 @@ function renderCLIEnv(input: {
   textModelID: string;
   imageModelID: string;
   outputFormat: string;
+  backgroundMode: string;
   quality: string;
   size: string;
   partialImages: number;
@@ -1039,6 +1041,7 @@ function renderCLIEnv(input: {
     `IMAGE_STUDIO_TEXT_MODEL=${input.textModelID}`,
     `IMAGE_STUDIO_IMAGE_MODEL=${input.imageModelID}`,
     `IMAGE_STUDIO_OUTPUT_FORMAT=${input.outputFormat}`,
+    `IMAGE_STUDIO_BACKGROUND_MODE=${input.backgroundMode}`,
     `IMAGE_STUDIO_QUALITY=${input.quality}`,
     `IMAGE_STUDIO_SIZE=${input.size}`,
     `IMAGE_STUDIO_PARTIAL_IMAGES=${input.partialImages}`,

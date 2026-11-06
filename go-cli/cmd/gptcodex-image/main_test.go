@@ -317,6 +317,64 @@ func TestStatusDoesNotRequirePromptAndMasksAPIKey(t *testing.T) {
 	}
 }
 
+func TestFreshStatusRequiresImageModelSelection(t *testing.T) {
+	result, err := run([]string{
+		"--status",
+		"--config", filepath.Join(t.TempDir(), "missing.env"),
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ImageModelID != "" || result.ImageModelSelection != "required" {
+		t.Fatalf("fresh model status = id:%q status:%q", result.ImageModelID, result.ImageModelSelection)
+	}
+}
+
+func TestLegacyConfigWithoutImageModelMigratesToGPTImage2(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "cli.env.local")
+	if err := os.WriteFile(cfg, []byte("IMAGE_STUDIO_API_MODE=images\nIMAGE_STUDIO_UPSTREAM_BASE_URL=https://www.fhl.mom\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := run([]string{"--status", "--config", cfg}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ImageModelID != client.ImageModelLegacy || result.ImageModelSelection != "selected" {
+		t.Fatalf("legacy model status = id:%q status:%q", result.ImageModelID, result.ImageModelSelection)
+	}
+}
+
+func TestOfflineSelfTestsAndWorkerListing(t *testing.T) {
+	config := filepath.Join(t.TempDir(), "missing.env")
+	for _, args := range [][]string{
+		{"--list-workers", "--config", config},
+		{"--self-test-adaptive", "--config", config},
+		{"--self-test-workflow", "--config", config},
+	} {
+		result, err := run(args, false)
+		if err != nil {
+			t.Fatalf("run(%v): %v", args, err)
+		}
+		if !result.OK {
+			t.Fatalf("run(%v) result=%#v", args, result)
+		}
+	}
+}
+
+func TestFHLGenerationRejectsMissingAndUnknownModels(t *testing.T) {
+	config := filepath.Join(t.TempDir(), "missing.env")
+	for _, args := range [][]string{
+		{"--prompt", "test", "--api-key", "sk-test", "--image-model", "", "--config", config},
+		{"--prompt", "test", "--api-key", "sk-test", "--image-model", "unknown-image-model", "--config", config},
+	} {
+		_, err := run(args, true)
+		if err == nil {
+			t.Fatalf("run(%v) should reject invalid FHL image model", args)
+		}
+	}
+}
+
 func TestStatusRunningHubUsesBridgeKeySource(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/config" {

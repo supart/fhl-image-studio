@@ -6,7 +6,7 @@ on:
       tag:
         description: 要创建的 Windows Release 标签
         required: true
-        default: windows-v2.0.4-release
+        default: windows-v2.0.5-release
 
 permissions:
   contents: write

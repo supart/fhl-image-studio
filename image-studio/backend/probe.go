@@ -38,6 +38,10 @@ func (s *Service) ProbeUpstream(opts ProbeUpstreamOptions) (ProbeUpstreamResult,
 }
 
 func probeUpstream(parent context.Context, opts ProbeUpstreamOptions) (ProbeUpstreamResult, error) {
+	probeKind := strings.TrimSpace(opts.ProbeKind)
+	if probeKind != "" && probeKind != "text" && probeKind != "images" {
+		return ProbeUpstreamResult{}, fmt.Errorf("probeKind 必须是 text 或 images")
+	}
 	apiKey := strings.TrimSpace(opts.APIKey)
 	if apiKey == "" {
 		return ProbeUpstreamResult{}, fmt.Errorf("API Key 不能为空")
@@ -56,6 +60,9 @@ func probeUpstream(parent context.Context, opts ProbeUpstreamOptions) (ProbeUpst
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", client.UserAgent())
+	if probeKind != "" {
+		req.Header.Set("X-FHL-Probe-Kind", probeKind)
+	}
 
 	transport, err := client.NewHTTPTransport(client.ProxyConfig{Mode: opts.ProxyMode, URL: opts.ProxyURL})
 	if err != nil {

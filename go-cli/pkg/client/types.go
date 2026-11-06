@@ -1,6 +1,10 @@
 package client
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
 
 const (
 	BaseURL              = "" // 不再内置默认上游;调用方必须显式提供 Options.BaseURL
@@ -14,12 +18,20 @@ const (
 	MaxAttempts          = 3
 )
 
+const (
+	ImageModelFlare       = "gpt-image-2.5-flare"
+	ImageModelSunburst    = "gpt-image-2.5-sunburst"
+	ImageModelLegacy      = "gpt-image-2"
+	BackgroundOpaque      = "opaque"
+	BackgroundTransparent = "transparent"
+)
+
 // Tunable knobs (exposed as vars so tests can shrink them).
 var (
 	RetryBackoffSeconds  = 15
 	StatusIntervalSecond = 10
 	// Version 在构建时通过 ldflags 注入;本地未注入时回退到开发标识。
-	Version = "2.0.4"
+	Version = "2.0.5"
 )
 
 // UserAgent 返回所有上游请求统一使用的客户端标识。
@@ -132,6 +144,10 @@ type Options struct {
 	// Images API 同名字段(JSON 与 multipart 都支持)。落盘时按此值选扩展名。
 	OutputFormat string
 
+	// BackgroundMode is "opaque" (default) or "transparent". Transparent
+	// output is intentionally limited to the exact GPT Image 2.5 models.
+	BackgroundMode string
+
 	// ImageDataURLs holds one or more data: URLs for edit / multi-reference
 	// requests. When non-empty the request switches to "edit" action and each
 	// URL becomes its own input_image content block (in order).
@@ -190,6 +206,30 @@ type Options struct {
 
 	// ImagesNewAPICompat forces Images API requests into non-streaming b64_json mode.
 	ImagesNewAPICompat bool
+}
+
+func SupportsTransparentBackground(modelID string) bool {
+	modelID = strings.TrimSpace(modelID)
+	return modelID == ImageModelFlare || modelID == ImageModelSunburst
+}
+
+func IsSupportedFHLImageModel(modelID string) bool {
+	modelID = strings.TrimSpace(modelID)
+	return modelID == ImageModelFlare || modelID == ImageModelSunburst || modelID == ImageModelLegacy
+}
+
+func ValidateBackgroundMode(backgroundMode, modelID string) error {
+	mode := strings.TrimSpace(backgroundMode)
+	if mode == "" || mode == BackgroundOpaque {
+		return nil
+	}
+	if mode != BackgroundTransparent {
+		return fmt.Errorf("background must be opaque or transparent")
+	}
+	if !SupportsTransparentBackground(modelID) {
+		return fmt.Errorf("transparent PNG is supported only by %s and %s", ImageModelFlare, ImageModelSunburst)
+	}
+	return nil
 }
 
 // EffectiveImageDataURLs returns the merged list, deduplicating empty entries.

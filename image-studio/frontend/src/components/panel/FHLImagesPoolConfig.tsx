@@ -11,7 +11,6 @@ import {
 } from "../../lib/fhlPoolSavePlan";
 import {
   FHL_BASE_URL,
-  FHL_IMAGE_MODEL_ID,
   FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT,
   FHL_IMAGES_POOL_SLOT_COUNT,
   apiModeRequiresDirectAPIKey,
@@ -101,6 +100,7 @@ export function FHLImagesPoolConfig({
     isTestingKey,
     activeProfileId,
     fhlTransportMode,
+    imageModelID,
     pushToast,
   } = useStudioStore();
   const transportLabel = fhlTransportMode === "responses" ? "FHL Responses" : "FHL Images";
@@ -357,7 +357,7 @@ export function FHLImagesPoolConfig({
               requestPolicy: "openai" as const,
               baseURL: FHL_BASE_URL,
               textModelID: "",
-              imageModelID: FHL_IMAGE_MODEL_ID,
+              imageModelID,
               concurrencyLimit: FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT,
               continuousPoolEnabled: drafts[index].continuousPoolEnabled,
               imagesNewAPICompat: true,
@@ -684,7 +684,7 @@ export function FHLImagesPoolConfig({
       </label>
 
       <div className="flex items-start gap-2 text-[11px] leading-5 text-zinc-500 dark:text-zinc-400">
-        <span>共享设置：{FHL_BASE_URL} · {FHL_IMAGE_MODEL_ID} · OpenAI 标准兼容。</span>
+        <span>共享设置：{FHL_BASE_URL} · {imageModelID || "未选择生图模型"} · OpenAI 标准兼容。</span>
       </div>
 
       {errorMessage ? (

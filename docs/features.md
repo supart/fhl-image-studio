@@ -7,6 +7,8 @@
 - 文生图与图生图，支持多张参考图。
 - 输入图源:文件对话框、拖拽窗口、剪贴板粘贴、历史复用、双击历史项设为源图。
 - 参数:Auto 与固定尺寸、Auto / high / medium / low 质量、PNG / JPEG / WebP 输出格式、seed、negative prompt、风格 chip。
+- GPT Image 2.5：FHL Images Key 可拉取完整模型列表，手动选择 Flare、Sunburst 或兼容 Image 2，所有 10 个槽共享全局模型。
+- 透明 PNG：仅 Flare/Sunburst 可选；透明模式强制 PNG，并验证真实 Alpha、透明像素和可见主体像素。
 - 双 API 形态:
   - Responses API:POST `/v1/responses`，使用 `image_generation` 工具，SSE 流式接收事件。
   - Images API:POST `/v1/images/generations` 与 `/v1/images/edits`。
@@ -73,7 +75,7 @@
 
 ## 设置
 
-- 上游配置:API 形态、BASE_URL、API Key、文本模型 ID、图像模型 ID、连接测试。
+- 上游配置:API 形态、BASE_URL、API Key、文本模型 ID、FHL 生图模型拉取与全局选择、连接测试。
 - FHL 专用配置：独立文本 API、10 槽 Images 连续池、每 API 并发和两套互不触发的保存测试按钮。
 - API 凭据库：集中展示脱敏凭据状态，支持单项删除和一键真实清空。
 - 一键配置:FHL / APIMart / RH 均提供 API 状态选择入口；RH 默认桥接地址为 `http://127.0.0.1:8117`。

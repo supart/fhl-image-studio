@@ -448,6 +448,68 @@ func TestBuildEditsMultipartUsesRepeatedImageFieldForThreeSources(t *testing.T) 
 	}
 }
 
+func TestImagesGenerationTransparentBackgroundContract(t *testing.T) {
+	payload := buildImagesGenerationPayload(Options{
+		Prompt:         "transparent icon",
+		ImageModelID:   ImageModelSunburst,
+		OutputFormat:   "webp",
+		BackgroundMode: BackgroundTransparent,
+	})
+	if payload["background"] != "transparent" {
+		t.Fatalf("background=%v, want transparent", payload["background"])
+	}
+	if payload["output_format"] != "png" {
+		t.Fatalf("output_format=%v, want png", payload["output_format"])
+	}
+	if payload["response_format"] != "b64_json" {
+		t.Fatalf("response_format=%v, want b64_json", payload["response_format"])
+	}
+}
+
+func TestImagesEditTransparentBackgroundContract(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.png")
+	if err := os.WriteFile(source, fakePNG, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	buf, contentType, err := buildEditsMultipartWithBackground(
+		[]string{source}, "", "remove background", ImageModelFlare, "1024x1024", "high", "jpeg", "", 0,
+		RequestPolicyOpenAI, DefaultPartialImages, true, BackgroundTransparent,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, params, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := multipart.NewReader(buf, params["boundary"])
+	fields := map[string][]string{}
+	for {
+		part, nextErr := reader.NextPart()
+		if nextErr == io.EOF {
+			break
+		}
+		if nextErr != nil {
+			t.Fatal(nextErr)
+		}
+		value, readErr := io.ReadAll(part)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		fields[part.FormName()] = append(fields[part.FormName()], string(value))
+	}
+	for name, want := range map[string]string{
+		"background":      "transparent",
+		"output_format":   "png",
+		"response_format": "b64_json",
+	} {
+		if got := fields[name]; len(got) != 1 || got[0] != want {
+			t.Fatalf("%s=%#v, want %q once", name, got, want)
+		}
+	}
+}
+
 func TestParseImagesAPIResponseBytesFormats429Error(t *testing.T) {
 	_, err := parseImagesAPIResponseBytes([]byte(`{"error":{"message":"Upstream rate limit exceeded, please retry later","type":"rate_limit_error"}}`), 429)
 	if err == nil {

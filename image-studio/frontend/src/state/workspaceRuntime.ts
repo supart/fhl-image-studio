@@ -182,6 +182,7 @@ export function patchWorkspaceRuntime(workspaces: Workspace[], workspaceId: stri
     if (patch.size !== undefined) next.size = patch.size;
     if (patch.quality !== undefined) next.quality = patch.quality;
     if (patch.outputFormat !== undefined) next.outputFormat = patch.outputFormat;
+    if (patch.backgroundMode !== undefined) next.backgroundMode = patch.backgroundMode;
     if (patch.seed !== undefined) next.seed = patch.seed;
     if (patch.batchCount !== undefined) next.batchCount = patch.batchCount;
     if (patch.continuousGenerateTest !== undefined) next.continuousGenerateTest = patch.continuousGenerateTest;

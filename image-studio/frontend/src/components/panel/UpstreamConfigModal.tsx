@@ -428,7 +428,7 @@ export function UpstreamConfigModal({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="text-[13px] font-semibold tracking-[0]">FHL Images 连续池</div>
-                <div className="mt-0.5 text-[11px] leading-5 opacity-85">最多 10 个独立 Images API · gpt-image-2</div>
+                <div className="mt-0.5 text-[11px] leading-5 opacity-85">最多 10 个独立 Images API · 全局手动选择 GPT Image 2.5 / Image 2</div>
                 <div className="mt-0.5 text-[11px] leading-5 font-semibold text-red-600 dark:text-red-300">每个非空槽独立保存，不会自动创建 Responses 配置。</div>
               </div>
               <button

@@ -86,6 +86,7 @@ export function workspaceSelectionPatch(
     size: target.size,
     quality: target.quality,
     outputFormat: target.outputFormat ?? state.outputFormat,
+    backgroundMode: target.backgroundMode === "transparent" ? "transparent" : "opaque",
     seed: target.seed,
     batchCount: target.batchCount,
     continuousGenerateTest: target.continuousGenerateTest === true,

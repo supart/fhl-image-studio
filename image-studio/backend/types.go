@@ -36,7 +36,8 @@ type GenerateOptions struct {
 	Size           string `json:"size"`
 	Quality        string `json:"quality"`
 	// OutputFormat:"png" | "jpeg" | "webp"。空时回退到 client.OutputFormat 默认("png")。
-	OutputFormat string `json:"outputFormat"`
+	OutputFormat   string `json:"outputFormat"`
+	BackgroundMode string `json:"backgroundMode"`
 
 	// Multi-reference: zero or more source images for edit mode. Each is a
 	// path on disk (frontend writes imports / generated PNGs to disk so we
@@ -107,6 +108,8 @@ type ProbeUpstreamOptions struct {
 	BaseURL   string `json:"baseURL"`
 	ProxyMode string `json:"proxyMode"`
 	ProxyURL  string `json:"proxyURL"`
+	APIMode   string `json:"apiMode"`
+	ProbeKind string `json:"probeKind"`
 }
 
 type ProbeUpstreamResult struct {
@@ -154,21 +157,23 @@ type ProgressPayload struct {
 
 // ResultPayload is emitted as `result:<jobId>`.
 type ResultPayload struct {
-	ImageB64      string `json:"imageB64,omitempty"`
-	RevisedPrompt string `json:"revisedPrompt"`
-	SourceEvent   string `json:"sourceEvent"`
-	ImageID       string `json:"imageId,omitempty"`
-	SavedPath     string `json:"savedPath"` // absolute path in user config dir
-	ThumbPath     string `json:"thumbPath,omitempty"`
-	PreviewURL    string `json:"previewUrl,omitempty"`
-	FullURL       string `json:"fullUrl,omitempty"`
-	Width         int    `json:"width,omitempty"`
-	Height        int    `json:"height,omitempty"`
-	PreviewWidth  int    `json:"previewWidth,omitempty"`
-	PreviewHeight int    `json:"previewHeight,omitempty"`
-	RawPath       string `json:"rawPath"` // raw SSE dump location
-	Mode          string `json:"mode"`
-	Prompt        string `json:"prompt"`
+	ImageB64       string `json:"imageB64,omitempty"`
+	RevisedPrompt  string `json:"revisedPrompt"`
+	SourceEvent    string `json:"sourceEvent"`
+	ImageID        string `json:"imageId,omitempty"`
+	SavedPath      string `json:"savedPath"` // absolute path in user config dir
+	ThumbPath      string `json:"thumbPath,omitempty"`
+	PreviewURL     string `json:"previewUrl,omitempty"`
+	FullURL        string `json:"fullUrl,omitempty"`
+	Width          int    `json:"width,omitempty"`
+	Height         int    `json:"height,omitempty"`
+	PreviewWidth   int    `json:"previewWidth,omitempty"`
+	PreviewHeight  int    `json:"previewHeight,omitempty"`
+	RawPath        string `json:"rawPath"` // raw SSE dump location
+	Mode           string `json:"mode"`
+	Prompt         string `json:"prompt"`
+	BackgroundMode string `json:"backgroundMode"`
+	AlphaStatus    string `json:"alphaStatus"`
 }
 
 // PreviewPayload is emitted as `preview:<jobId>` while Responses API streams

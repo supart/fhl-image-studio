@@ -227,7 +227,7 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="text-[13px] font-semibold tracking-[0]">FHL 推荐配置</div>
-                <div className="mt-0.5 text-[11px] leading-5 opacity-85">Images API standard generations / edits - gpt-image-2</div>
+                <div className="mt-0.5 text-[11px] leading-5 opacity-85">Images API generations / edits - manually selected GPT Image 2.5 / Image 2</div>
                 <div className="mt-0.5 text-[11px] leading-5 font-semibold text-red-600 dark:text-red-300">不包含 API Key，用户需要粘贴自己的 FHL API Key。</div>
               </div>
               <button

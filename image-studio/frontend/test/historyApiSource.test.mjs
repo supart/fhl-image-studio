@@ -96,7 +96,7 @@ test("generated image surfaces show a short API source badge directly on the ima
   assert.match(apiSourceBadgeSource, /export function HistoryApiSourceBadge/);
   assert.match(apiSourceBadgeSource, /useStudioStore\(\(state\) => state\.profiles\)/);
   assert.match(apiSourceBadgeSource, /FHL_BASE_URL/);
-  assert.match(apiSourceBadgeSource, /FHL_IMAGE_MODEL_ID/);
+  assert.match(apiSourceBadgeSource, /FHL_PROFILE_ID/);
   assert.match(apiSourceBadgeSource, /function isFHLProfile/);
   assert.match(apiSourceBadgeSource, /const matchedProfile = profiles\.find/);
   assert.match(apiSourceBadgeSource, /sourceLooksLikeFHL/);

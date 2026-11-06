@@ -22,6 +22,8 @@ export interface UpstreamProfile {
   baseURL: string;
   textModelID: string;
   imageModelID: string;
+  imageModelSelectionStatus?: "required" | "selected" | "legacy";
+  imageModelValidatedAt?: number;
   // 0 = 不限。同一 profile 跨所有 workspace 共享并发计数。
   concurrencyLimit: number;
   // 仅 Images profile 可加入桌面连续生成的自动分配池。
@@ -48,6 +50,9 @@ export type KernelRuntimeMode = "auto" | "local" | "remote";
 export type ProxyMode = "none" | "system" | "custom";
 // 让上游做编码;落盘扩展名 jpeg → .jpg,其他原样。
 export type OutputFormatValue = "png" | "jpeg" | "webp";
+export type BackgroundMode = "opaque" | "transparent";
+export type AlphaStatus = "native" | "none" | "invalid";
+export type ImageModelSelectionStatus = "required" | "selected" | "legacy";
 export type ThemeMode = "system" | "light" | "dark";
 export type HistoryGallerySort = "newest" | "oldest";
 export type EditSourceMode = "manual" | "batch";
@@ -346,6 +351,8 @@ export interface HistoryItem {
   size: SizeValue;
   quality: QualityValue;
   outputFormat?: OutputFormatValue;
+  backgroundMode?: BackgroundMode;
+  alphaStatus?: AlphaStatus;
   parentId?: string;       // id of the source image (when mode === "edit")
   createdAt: number;       // unix ms
 
@@ -424,6 +431,7 @@ export interface JobSlotSnapshot {
   errorMessage?: string;
   revisedPrompt?: string;
   sourceEvent?: string;
+  alphaStatus?: AlphaStatus;
   apimartTaskId?: string;
   fallbackMode?: string;
   fallbackInputPath?: string;
@@ -447,6 +455,8 @@ export interface JobGroupSnapshot {
   size: SizeValue;
   quality: QualityValue;
   outputFormat: OutputFormatValue;
+  backgroundMode: BackgroundMode;
+  alphaStatus?: AlphaStatus;
   negativePrompt?: string;
   styleTag?: string;
   seed?: number;
@@ -481,6 +491,8 @@ export interface BatchTaskRecord {
   size: SizeValue;
   quality: QualityValue;
   outputFormat: OutputFormatValue;
+  backgroundMode: BackgroundMode;
+  alphaStatus?: AlphaStatus;
   requestPolicy?: RequestPolicy;
   imagesNewAPICompat?: boolean;
   textModelID?: string;
@@ -550,6 +562,7 @@ export interface Workspace {
   size: SizeValue;
   quality: QualityValue;
   outputFormat: OutputFormatValue;
+  backgroundMode: BackgroundMode;
   seed: number;
   batchCount: number;
   continuousGenerateTest: boolean;

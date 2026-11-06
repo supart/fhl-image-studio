@@ -90,6 +90,55 @@ func TestBuildPayloadPreservesAutoSize(t *testing.T) {
 	}
 }
 
+func TestBuildPayloadTransparentBackgroundContract(t *testing.T) {
+	raw, err := BuildPayload(Options{
+		Prompt:         "transparent product cutout",
+		ImageModelID:   ImageModelFlare,
+		OutputFormat:   "jpeg",
+		BackgroundMode: BackgroundTransparent,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := mustDecodePayload(t, raw)
+	tool := payload["tools"].([]any)[0].(map[string]any)
+	if tool["background"] != "transparent" {
+		t.Fatalf("background=%v, want transparent", tool["background"])
+	}
+	if tool["output_format"] != "png" {
+		t.Fatalf("output_format=%v, want png", tool["output_format"])
+	}
+	if _, exists := payload["background"]; exists {
+		t.Fatal("background must stay inside the image_generation tool")
+	}
+}
+
+func TestBuildPayloadOpaqueOmitsBackground(t *testing.T) {
+	raw, err := BuildPayload(Options{
+		Prompt:         "opaque poster",
+		ImageModelID:   ImageModelFlare,
+		BackgroundMode: BackgroundOpaque,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := mustDecodePayload(t, raw)["tools"].([]any)[0].(map[string]any)
+	if _, exists := tool["background"]; exists {
+		t.Fatalf("opaque request unexpectedly contains background: %#v", tool)
+	}
+}
+
+func TestBuildPayloadRejectsTransparentLegacyModel(t *testing.T) {
+	_, err := BuildPayload(Options{
+		Prompt:         "transparent legacy request",
+		ImageModelID:   ImageModelLegacy,
+		BackgroundMode: BackgroundTransparent,
+	})
+	if err == nil {
+		t.Fatal("expected transparent gpt-image-2 request to be rejected")
+	}
+}
+
 func TestBuildPayloadNormalizesPartialImages(t *testing.T) {
 	tests := []struct {
 		name string

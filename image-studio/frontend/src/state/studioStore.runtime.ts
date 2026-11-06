@@ -1,4 +1,3 @@
-import type { backend } from "../../wailsjs/go/models";
 import {
   ImportImageFromB64,
   ImportImagePath,
@@ -250,6 +249,7 @@ export function saveActiveWorkspaceSnapshot(s: StudioState): Workspace[] {
       size: s.size,
       quality: s.quality,
       outputFormat: s.outputFormat,
+      backgroundMode: s.backgroundMode,
       seed: s.seed,
       batchCount: s.batchCount,
       continuousGenerateTest: s.continuousGenerateTest,

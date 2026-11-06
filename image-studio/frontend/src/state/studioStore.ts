@@ -55,6 +55,7 @@ import {
 import type { backend } from "../../wailsjs/go/models";
 import {
   APIMode,
+  BackgroundMode,
   BatchProcessSourceImage,
   BatchProcessAutoAspectResolution,
   BatchTaskRecord,
@@ -113,7 +114,6 @@ import {
   DEFAULT_CONCURRENCY_LIMIT,
   duplicateProfile as cloneProfile,
   FHL_BASE_URL,
-  FHL_IMAGE_MODEL_ID,
   FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT,
   FHL_PROFILE_ID,
   FHL_TEXT_MODEL_ID,
@@ -129,7 +129,7 @@ import {
   pickActiveProfile,
   resolveFHLPoolPerAPIConcurrencyLimit,
 } from "../lib/profiles";
-import { effectiveProviderMode, isOfficialFHLProfile, ProviderPolicy } from "../lib/providerPolicy";
+import { effectiveProviderMode, isOfficialFHLProfile } from "../lib/providerPolicy";
 import { resolvePromptTextSelection } from "../lib/promptTextProfiles";
 import {
   deleteFHLTextAPIKey,
@@ -144,6 +144,11 @@ import {
   testFHLTextAPIKey,
   validateFHLTextAPIKey,
 } from "../lib/fhlTextAPI";
+import {
+  normalizeBackgroundMode,
+  supportsTransparentBackground,
+  validateFHLImageModelForGeneration,
+} from "../lib/fhlImageModels.ts";
 import { loadLocalFHLConfig } from "../lib/localFHLConfig";
 import { readRuntimePlatformState, usesWindowsDesktopUI } from "../platform";
 import { dispatchFullscreenResize, setNativeFullscreen } from "../platform/nativeFullscreen";
@@ -346,7 +351,8 @@ import {
   type StreamPreviewPayload,
 } from "./studioStore.streamPreview";
 
-type RuntimeGenerateOptions = backend.GenerateOptions & {
+type RuntimeGenerateOptions = Omit<backend.GenerateOptions, "backgroundMode"> & {
+  backgroundMode: BackgroundMode;
   sourceImages?: SourceImage[];
 };
 
@@ -1480,7 +1486,7 @@ async function apiKeyForProfileOrState(state: StudioState, apiProfileId?: string
   return cleanProfileId === String(state.activeProfileId || "").trim() ? state.apiKey : "";
 }
 
-function retrySubmitContextFromState(state: StudioState, mode: Mode) {
+function retrySubmitContextFromState(state: StudioState) {
   const activeProfile = state.profiles.find((profile) => profile.id === state.activeProfileId);
   const apiMode = effectiveAPIModeForSubmit(state, activeProfile, activeProfile?.apiMode ?? state.apiMode);
   const activeProfileUsesFHLTransport = isOfficialFHLTransportProfile(
@@ -1501,6 +1507,10 @@ function retrySubmitContextFromState(state: StudioState, mode: Mode) {
     requestPolicy,
     textModelID,
     imageModelID,
+    backgroundMode: supportsTransparentBackground(imageModelID) ? state.backgroundMode : "opaque",
+    outputFormat: state.backgroundMode === "transparent" && supportsTransparentBackground(imageModelID)
+      ? "png"
+      : state.outputFormat,
     imagesNewAPICompat: apiMode === "images" && (activeProfile?.imagesNewAPICompat ?? state.imagesNewAPICompat) === true,
     concurrencyLimit: effectiveConcurrencyLimitForProfile(state, apiMode, activeProfile?.id || state.activeProfileId),
   };
@@ -1988,6 +1998,7 @@ function cliConfigFromState(state: StudioState, overrides: Partial<CLIConfigSync
     textModelID: state.textModelID,
     imageModelID: state.imageModelID,
     outputFormat: state.outputFormat,
+    backgroundMode: state.backgroundMode,
     quality: state.quality,
     size: state.size,
     partialImages: 1,
@@ -2535,6 +2546,7 @@ async function submitContinuousPoolWave(wave: ReservedContinuousPoolWave) {
       size: task.size,
       quality: task.quality,
       outputFormat: task.outputFormat,
+      backgroundMode: task.backgroundMode,
       seed: Number.isFinite(Number(task.seed)) ? Number(task.seed) : 0,
       negativePrompt: task.negativePrompt || "",
       styleTag: task.styleTag || "",
@@ -3027,6 +3039,7 @@ async function startContinuousQueuedTask(taskId: string): Promise<boolean> {
       size: task.size,
       quality: task.quality,
       outputFormat: task.outputFormat,
+      backgroundMode: task.backgroundMode,
       imagePaths: task.sourceImagePaths ?? [],
       imagePath: "",
       maskB64: task.maskB64 || "",
@@ -3058,6 +3071,7 @@ async function startContinuousQueuedTask(taskId: string): Promise<boolean> {
         size: task.size,
         quality: task.quality,
         outputFormat: task.outputFormat,
+        backgroundMode: task.backgroundMode,
         sources,
         currentImage: null,
         styleTag: task.styleTag || "",
@@ -3121,6 +3135,7 @@ async function startContinuousQueuedTask(taskId: string): Promise<boolean> {
       size: task.size,
       quality: task.quality,
       outputFormat: task.outputFormat,
+      backgroundMode: task.backgroundMode,
       batchCount: 1,
       seed: Number.isFinite(Number(task.seed)) ? Number(task.seed) : 0,
       negativePrompt: task.negativePrompt || "",
@@ -3236,6 +3251,30 @@ async function submitCurrentRequest(
     s.baseURL,
     activeProfile?.apiMode ?? s.apiMode,
   );
+  if (activeProfileUsesFHLTransport) {
+    const modelError = validateFHLImageModelForGeneration(s.imageModelID);
+    if (modelError) {
+      set({ errorMessage: modelError, errorRawPath: null });
+      s.pushToast(modelError, "warn", 4200);
+      return;
+    }
+  }
+  const effectiveBackgroundMode: BackgroundMode = supportsTransparentBackground(s.imageModelID)
+    ? s.backgroundMode
+    : "opaque";
+  const effectiveOutputFormat: OutputFormatValue = effectiveBackgroundMode === "transparent"
+    ? "png"
+    : s.outputFormat;
+  if (effectiveBackgroundMode !== s.backgroundMode || effectiveOutputFormat !== s.outputFormat) {
+    set({
+      backgroundMode: effectiveBackgroundMode,
+      outputFormat: effectiveOutputFormat,
+      workspaces: patchWorkspaceRuntime(s.workspaces, s.activeWorkspaceId, {
+        backgroundMode: effectiveBackgroundMode,
+        outputFormat: effectiveOutputFormat,
+      }),
+    });
+  }
   const enabledFHLPool = enabledFHLPoolProfiles(s);
   const hasEnabledFHLPool = enabledFHLPool.length > 0;
   const batchUsesFHLPool = batchProcessMode && activeProfileUsesFHLTransport && hasEnabledFHLPool;
@@ -3583,14 +3622,15 @@ async function submitCurrentRequest(
     augmentedPrompt = `${augmentedPrompt}, ${styleSuffix}`;
   }
 
-  const basePayload: backend.GenerateOptions = {
+  const basePayload: RuntimeGenerateOptions = {
     apiKey: cleanedAPIKey,
     mode: s.mode,
     requestedJobId: "",
     prompt: augmentedPrompt,
     size: resolvedSize,
     quality: s.quality,
-    outputFormat: s.outputFormat,
+    outputFormat: effectiveOutputFormat,
+    backgroundMode: effectiveBackgroundMode,
     imagePaths: editSourcePaths,
     imagePath: "",
     maskB64: maskB64,
@@ -3651,7 +3691,8 @@ async function submitCurrentRequest(
           size: batchAutoSizes[index] ?? resolvedSize,
           autoAspectResolution: editAutoAspectEnabled ? batchProcess.autoAspectResolution || undefined : undefined,
           quality: s.quality,
-          outputFormat: s.outputFormat,
+          outputFormat: effectiveOutputFormat,
+          backgroundMode: effectiveBackgroundMode,
           requestPolicy: batchUsesFHLPool ? undefined : s.requestPolicy,
           imagesNewAPICompat: batchUsesFHLPool ? undefined : effectiveImagesNewAPICompat,
           textModelID: batchUsesFHLPool ? undefined : effectiveTextModelID,
@@ -3686,7 +3727,8 @@ async function submitCurrentRequest(
           size: resolvedSize,
           autoAspectResolution: editAutoAspectEnabled ? batchProcess.autoAspectResolution : undefined,
           quality: s.quality,
-          outputFormat: s.outputFormat,
+          outputFormat: effectiveOutputFormat,
+          backgroundMode: effectiveBackgroundMode,
           requestPolicy: fhlPoolSubmit ? undefined : s.requestPolicy,
           imagesNewAPICompat: fhlPoolSubmit ? undefined : effectiveImagesNewAPICompat,
           textModelID: fhlPoolSubmit ? undefined : effectiveTextModelID,
@@ -3774,7 +3816,8 @@ async function submitCurrentRequest(
         prompt: augmentedPrompt,
         size: resolvedSize,
         quality: s.quality,
-        outputFormat: s.outputFormat,
+        outputFormat: effectiveOutputFormat,
+        backgroundMode: effectiveBackgroundMode,
         batchCount,
         seed: s.seed,
         negativePrompt: s.negativePrompt,
@@ -3864,9 +3907,10 @@ async function submitCurrentRequest(
       apiMode: effectiveAPIMode,
       ...apiProfileSnapshot,
       batchIndex: batchSlotStart + i,
-      size: s.size,
+      size: resolvedSize,
       quality: s.quality,
-      outputFormat: s.outputFormat,
+      outputFormat: effectiveOutputFormat,
+      backgroundMode: effectiveBackgroundMode,
       sources: preparedSources,
       currentImage: s.currentImage,
       styleTag: s.styleTag,
@@ -4517,6 +4561,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   size: DEFAULT_FHL_SIZE,
   quality: "medium",
   ...APPLICATION_SETTINGS_DEFAULTS,
+  backgroundMode: "opaque",
   seed: 0,
   baseURL: "",
   textModelID: "",
@@ -4874,13 +4919,17 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const stateBefore = get();
     const workspaceId = stateBefore.activeWorkspaceId;
     const previousWorkspace = stateBefore.workspaces.find((workspace) => workspace.id === workspaceId);
-    const normalizedValue = key === "batchCount"
+    const normalizedValue = key === "outputFormat" && stateBefore.backgroundMode === "transparent"
+      ? "png"
+      : key === "batchCount"
       ? normalizeBatchCount(value)
       : key === "editSourceMode"
         ? normalizeEditSourceMode(value)
         : key === "batchProcess"
           ? normalizeBatchProcessConfig(value)
-          : value;
+          : key === "backgroundMode"
+            ? normalizeBackgroundMode(value, stateBefore.imageModelID)
+            : value;
     set({ [key]: normalizedValue } as any);
     if (key === "currentImage") {
       const item = normalizedValue as HistoryItem | null;
@@ -4920,6 +4969,13 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       }));
     } else if (key === "continuousGenerateTest") {
       set({ workspaces: patchWorkspaceRuntime(get().workspaces, get().activeWorkspaceId, { continuousGenerateTest: normalizedValue as boolean }) });
+    } else if (key === "backgroundMode") {
+      const backgroundMode = normalizedValue as BackgroundMode;
+      const outputFormat = backgroundMode === "transparent" ? "png" : get().outputFormat;
+      set({
+        outputFormat,
+        workspaces: patchWorkspaceRuntime(get().workspaces, get().activeWorkspaceId, { backgroundMode, outputFormat }),
+      });
     } else if (key === "editSourceMode") {
       set({ workspaces: patchWorkspaceRuntime(get().workspaces, get().activeWorkspaceId, { editSourceMode: normalizedValue as EditSourceMode }) });
       if ((normalizedValue as EditSourceMode) === "manual" || (normalizedValue as EditSourceMode) === "batch") {
@@ -5446,6 +5502,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       size: state.size || "auto",
       quality: state.quality || "auto",
       outputFormat: state.outputFormat || "png",
+      backgroundMode: state.backgroundMode,
       requestPolicy: profile?.requestPolicy ?? state.requestPolicy,
       imagesNewAPICompat: profile?.imagesNewAPICompat ?? state.imagesNewAPICompat,
       textModelID: profile?.textModelID || state.textModelID,
@@ -6349,13 +6406,12 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const localFHLAPIMode: APIMode = localFHLConfig?.apiMode || "images";
     const localFHLRequestPolicy: RequestPolicy = localFHLConfig?.requestPolicy || "openai";
     const localFHLTextModelID = (localFHLConfig?.textModelID || FHL_TEXT_MODEL_ID).trim();
-    const localFHLImageModelID = (localFHLConfig?.imageModelID || FHL_IMAGE_MODEL_ID).trim();
+    const localFHLImageModelID = (localFHLConfig?.imageModelID || "").trim();
     let profilesChangedForFHL = false;
     let fhlProfileId = profiles.find((profile) => (
       profile.id === FHL_PROFILE_ID
       || (
         isOfficialFHLProfile(profile)
-        && profile.imageModelID === ProviderPolicy.fhl.imageModelID
       )
     ))?.id;
 
@@ -7149,6 +7205,41 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     });
     get().pushToast("FHL 文本 API 已删除。", "success", 3200);
   },
+  setFHLImageModelID: async (modelID) => {
+    const normalized = modelID.trim();
+    const modelError = validateFHLImageModelForGeneration(normalized);
+    if (modelError) throw new Error(modelError);
+    const now = Date.now();
+    const nextProfiles = get().profiles.map((profile) => (
+      isOfficialFHLProfile(profile)
+        ? {
+            ...profile,
+            imageModelID: normalized,
+            imageModelSelectionStatus: "selected" as const,
+            imageModelValidatedAt: now,
+          }
+        : profile
+    ));
+    persistProfiles(nextProfiles);
+    const backgroundMode: BackgroundMode = supportsTransparentBackground(normalized)
+      ? get().backgroundMode
+      : "opaque";
+    const outputFormat: OutputFormatValue = backgroundMode === "transparent" ? "png" : get().outputFormat;
+    set((state) => ({
+      profiles: nextProfiles,
+      imageModelID: normalized,
+      backgroundMode,
+      outputFormat,
+      workspaces: state.workspaces.map((workspace) => ({
+        ...workspace,
+        backgroundMode: supportsTransparentBackground(normalized) ? workspace.backgroundMode : "opaque",
+        outputFormat: workspace.backgroundMode === "transparent" && supportsTransparentBackground(normalized)
+          ? "png"
+          : workspace.outputFormat,
+      })),
+    }));
+    syncCLIConfigQuietly(cliConfigFromState(get()));
+  },
 
   testAPIKey: async () => {
     const s = get();
@@ -7423,7 +7514,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       get().pushToast("This slot is already queued or running", "warn", 3000);
       return;
     }
-    const retryContext = retrySubmitContextFromState(s, group.mode);
+    const retryContext = retrySubmitContextFromState(s);
     if (!currentProviderHasRequiredKey(s)) {
       set({ errorMessage: "请填写 API Key", errorRawPath: null });
       return;
@@ -7523,6 +7614,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           size: retrySize,
           quality: group.quality,
           outputFormat: group.outputFormat,
+          backgroundMode: group.backgroundMode,
           imagePaths: group.sourceImagePaths ?? [],
           imagePath: "",
           maskB64: "",
@@ -7551,6 +7643,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           size: retrySize,
           quality: group.quality,
           outputFormat: group.outputFormat,
+          backgroundMode: group.backgroundMode,
           sources: sourceImages,
           currentImage: null,
           styleTag: group.styleTag || "",
@@ -7568,6 +7661,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         size: retrySize,
         quality: group.quality,
         outputFormat: group.outputFormat,
+        backgroundMode: group.backgroundMode,
         batchCount: 1,
         seed: seedBase,
         negativePrompt: group.negativePrompt || "",
@@ -7632,7 +7726,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       get().pushToast("This queued task is no longer eligible to start", "warn", 3000);
       return;
     }
-    const retryContext = useTaskProfile ? retryContextFromOriginalTask(s, task) : retrySubmitContextFromState(s, task.mode);
+    const retryContext = useTaskProfile ? retryContextFromOriginalTask(s, task) : retrySubmitContextFromState(s);
     if (useTaskProfile && task.apiProfileId && !retryContext.activeProfile) {
       get().pushToast("Missing API profile for the queued task", "warn", 4200);
       return;
@@ -7854,6 +7948,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           size: queuedTask.size,
           quality: queuedTask.quality,
           outputFormat: queuedTask.outputFormat,
+          backgroundMode: queuedTask.backgroundMode,
           imagePaths: queuedTask.sourceImagePaths ?? [],
           imagePath: "",
           maskB64: queuedTask.maskB64 || "",
@@ -7884,6 +7979,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           size: queuedTask.size,
           quality: queuedTask.quality,
           outputFormat: queuedTask.outputFormat,
+          backgroundMode: queuedTask.backgroundMode,
           sources: sourceImages,
           currentImage: null,
           styleTag: queuedTask.styleTag || "",
@@ -7902,6 +7998,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         size: queuedTask.size,
         quality: queuedTask.quality,
         outputFormat: queuedTask.outputFormat,
+        backgroundMode: queuedTask.backgroundMode,
         batchCount: 1,
         seed: Number.isFinite(Number(queuedTask.seed)) ? Number(queuedTask.seed) : 0,
         negativePrompt: queuedTask.negativePrompt || "",
@@ -8020,6 +8117,7 @@ async function launchOneJob(
     size: SizeValue;
     quality: QualityValue;
     outputFormat: OutputFormatValue;
+    backgroundMode: BackgroundMode;
     sources: SourceImage[];
     currentImage: HistoryItem | null;
     styleTag: string;
@@ -8073,6 +8171,7 @@ async function launchOneJob(
           size: snapshot.size,
           quality: snapshot.quality,
           outputFormat: snapshot.outputFormat,
+          backgroundMode: snapshot.backgroundMode,
           jobId,
           queuedReason: undefined,
           queuePriority: undefined,
@@ -8218,6 +8317,10 @@ async function launchOneJob(
             size: snapshot.size,
             quality: snapshot.quality,
             outputFormat: snapshot.outputFormat,
+            backgroundMode: snapshot.backgroundMode,
+            alphaStatus: r.alphaStatus === "native" || r.alphaStatus === "invalid" || r.alphaStatus === "none"
+              ? r.alphaStatus
+              : snapshot.backgroundMode === "transparent" ? "invalid" : "none",
             parentId,
             createdAt: Date.now(),
             seed: payload.seed || undefined,
@@ -8459,8 +8562,8 @@ async function launchOneJob(
       return false;
     }
     const started = mode === "edit"
-      ? await wailsEdit({ ...payload, requestedJobId: jobId } as backend.GenerateOptions)
-      : await wailsGenerate({ ...payload, requestedJobId: jobId } as backend.GenerateOptions);
+      ? await wailsEdit({ ...payload, requestedJobId: jobId })
+      : await wailsGenerate({ ...payload, requestedJobId: jobId });
     if (started.jobId && started.jobId !== jobId) {
       desktopJobLifecycleRegistry.detach(jobId);
       throw new Error(`job id 不一致: expected ${jobId}, got ${started.jobId}`);

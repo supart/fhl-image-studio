@@ -34,3 +34,12 @@ test("local FHL config fallback rejects missing keys and non-FHL CLI modes", () 
     IMAGE_STUDIO_API_MODE: "runninghub",
   }), null);
 });
+
+test("local FHL config preserves an explicitly unselected image model", () => {
+  const config = localFHLConfigFromCLIEnv({
+    IMAGE_STUDIO_API_KEY: "runtime-secret",
+    IMAGE_STUDIO_API_MODE: "images",
+    IMAGE_STUDIO_IMAGE_MODEL: "",
+  });
+  assert.equal(config?.imageModelID, "");
+});

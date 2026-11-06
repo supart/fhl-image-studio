@@ -16,6 +16,7 @@ export type SharedImageRequestPayload = {
   size?: string;
   quality?: string;
   outputFormat?: string;
+  backgroundMode?: "opaque" | "transparent";
   prompt?: string;
   imageModelID?: string;
   textModelID?: string;

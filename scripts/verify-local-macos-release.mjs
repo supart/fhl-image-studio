@@ -27,7 +27,7 @@ const productVersionPath = path.join(repositoryRoot, "product-version.json");
 const wailsConfigPath = path.join(repositoryRoot, "image-studio", "wails.json");
 
 const expectedBundleIdentifier = "top.fangtangyuan.fhlstudio";
-const expectedReleaseVersion = "2.0.4";
+const expectedReleaseVersion = "2.0.5";
 const expectedMinimumSystemVersion = "13.0";
 const expectedApplicationCategory = "public.app-category.graphics-design";
 const expectedDesktopUIVariant = "windows-parity";

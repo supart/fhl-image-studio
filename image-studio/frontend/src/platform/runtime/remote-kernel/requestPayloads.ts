@@ -29,14 +29,19 @@ export function buildImagesGenerationPayload(
   const imageModel = normalizeImageModel(payload.imageModelID);
   const rawSize = payload.size || "1024x1024";
   const repairedPayload = repairSizeForOpenAI({ size: rawSize });
+  const transparent = payload.backgroundMode === "transparent";
   const body: Record<string, unknown> = {
     model: imageModel,
     prompt: payload.prompt,
     n: 1,
     size: repairedPayload?.size || rawSize,
     quality: payload.quality || "auto",
-    output_format: payload.outputFormat || "png",
+    output_format: transparent ? "png" : (payload.outputFormat || "png"),
   };
+  if (transparent) {
+    body.background = "transparent";
+    body.response_format = "b64_json";
+  }
   const useNewAPICompat = shouldUseImagesNewAPICompat(payload);
   if (useNewAPICompat || supportsImagesResponseFormat(imageModel, "generate")) {
     body.response_format = "b64_json";
@@ -63,7 +68,8 @@ export async function buildImagesRequestBody(
   const repairedPayload = repairSizeForOpenAI({ size: rawSize });
   const size = repairedPayload?.size || rawSize;
   const quality = request.payload.quality || "auto";
-  const outputFormat = request.payload.outputFormat || "png";
+  const transparent = request.payload.backgroundMode === "transparent";
+  const outputFormat = transparent ? "png" : (request.payload.outputFormat || "png");
   const includeExtended = shouldSendExtendedImageParameters(request.payload.requestPolicy);
   const useNewAPICompat = shouldUseImagesNewAPICompat(request.payload);
   const partialImages = normalizePartialImages(request.payload.partialImages);
@@ -91,7 +97,11 @@ export async function buildImagesRequestBody(
     form.append("size", size);
     form.append("quality", quality);
     form.append("output_format", outputFormat);
-    if (useNewAPICompat || supportsImagesResponseFormat(imageModel, mode)) {
+    if (transparent) {
+      form.append("background", "transparent");
+      form.append("response_format", "b64_json");
+    }
+    if (!transparent && (useNewAPICompat || supportsImagesResponseFormat(imageModel, mode))) {
       form.append("response_format", "b64_json");
     }
     if (!useNewAPICompat) {

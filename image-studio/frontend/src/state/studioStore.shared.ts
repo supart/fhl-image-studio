@@ -603,6 +603,7 @@ function normalizeWorkspace(
     size: normalizeWorkspaceSize(raw.size),
     quality: normalizeWorkspaceQuality(raw.quality),
     outputFormat: normalizeWorkspaceOutputFormat(raw.outputFormat, fallbackOutputFormat),
+    backgroundMode: raw.backgroundMode === "transparent" ? "transparent" : "opaque",
     seed: normalizeWorkspaceSeed(raw.seed),
     batchCount: normalizeWorkspaceBatchCount(raw.batchCount),
     continuousGenerateTest: raw.continuousGenerateTest === true,
@@ -693,6 +694,10 @@ export function normalizeBatchTasks(value: unknown): Record<string, BatchTaskRec
       autoAspectResolution: normalizeBatchTaskAutoAspectResolution(raw.autoAspectResolution),
       quality: normalizeWorkspaceQuality(raw.quality),
       outputFormat: normalizeWorkspaceOutputFormat(raw.outputFormat, "png"),
+      backgroundMode: raw.backgroundMode === "transparent" ? "transparent" : "opaque",
+      alphaStatus: raw.alphaStatus === "native" || raw.alphaStatus === "invalid" || raw.alphaStatus === "none"
+        ? raw.alphaStatus
+        : undefined,
       requestPolicy: raw.requestPolicy === "compat" ? "compat" : raw.requestPolicy === "openai" ? "openai" : undefined,
       imagesNewAPICompat: raw.imagesNewAPICompat === true,
       textModelID: typeof raw.textModelID === "string" ? raw.textModelID : undefined,

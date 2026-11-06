@@ -1,5 +1,6 @@
 import { APICredentialLibrary } from "./APICredentialLibrary";
 import { FHLImagesPoolConfig } from "./FHLImagesPoolConfig";
+import { FHLImageModelConfig } from "./FHLImageModelConfig";
 import { FHLTextAPIConfig } from "./FHLTextAPIConfig";
 
 export function FHLDesktopAPIConfig({
@@ -20,6 +21,8 @@ export function FHLDesktopAPIConfig({
       <APICredentialLibrary />
       <div className="border-t border-black/[0.08] dark:border-white/[0.08]" />
       <FHLTextAPIConfig active={active} />
+      <div className="border-t border-black/[0.08] dark:border-white/[0.08]" />
+      <FHLImageModelConfig active={active} />
       <div className="border-t border-black/[0.08] dark:border-white/[0.08]" />
       <FHLImagesPoolConfig
         active={active}

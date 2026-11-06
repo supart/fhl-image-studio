@@ -1463,7 +1463,14 @@ test("runtimeHost probes upstream through Wails backend", async () => {
     const runtimeHost = await loadRuntimeHost();
     const result = await runtimeHost.probeCurrentUpstream("https://relay.example.com", "sk-test");
     assert.deepEqual(globalThis.__probeCalls, [
-      { baseURL: "https://relay.example.com", apiKey: "sk-test", proxyMode: "system", proxyURL: "" },
+      {
+        baseURL: "https://relay.example.com",
+        apiKey: "sk-test",
+        proxyMode: "system",
+        proxyURL: "",
+        apiMode: "responses",
+        probeKind: "text",
+      },
     ]);
     assert.deepEqual(result, { modelCount: 2, models: ["gpt-5.7", "gpt-5.6-sol"] });
   });
@@ -1494,7 +1501,14 @@ test("runtimeHost probes upstream through Android backend", async () => {
     assert.deepEqual(globalThis.__probeCalls, [
       {
         method: "ProbeUpstream",
-        args: [{ baseURL: "https://relay.example.com", apiKey: "sk-android", proxyMode: "system", proxyURL: "" }],
+        args: [{
+          baseURL: "https://relay.example.com",
+          apiKey: "sk-android",
+          proxyMode: "system",
+          proxyURL: "",
+          apiMode: "responses",
+          probeKind: "text",
+        }],
       },
     ]);
     assert.deepEqual(result, { modelCount: 2, models: ["gpt-5.7", "gpt-5.6-sol"] });

@@ -66,6 +66,62 @@
   border-radius: 9px;
 }
 
+.background-mode-switch-button {
+  min-height: 32px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.background-mode-switch-button[aria-pressed="true"],
+.background-mode-switch-button-active {
+  border-color: #005fb8;
+  background: rgb(0 95 184 / 0.12);
+  color: #005fb8;
+  box-shadow:
+    inset 0 0 0 1px rgb(0 95 184 / 0.28),
+    0 1px 2px rgb(0 0 0 / 0.06);
+}
+
+html.dark .background-mode-switch-button[aria-pressed="true"],
+html.dark .background-mode-switch-button-active {
+  border-color: #60cdff;
+  background: rgb(96 205 255 / 0.16);
+  color: #60cdff;
+  box-shadow:
+    inset 0 0 0 1px rgb(96 205 255 / 0.28),
+    0 1px 2px rgb(0 0 0 / 0.16);
+}
+
+.background-mode-switch-button:not([aria-pressed="true"]) {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.background-mode-switch-button:not([aria-pressed="true"]):hover {
+  background: color-mix(in srgb, var(--accent-soft) 45%, transparent);
+}
+
+html[data-presentation-platform="windows"][data-ui-family="fluent"] .background-mode-switch-button.background-mode-switch-button-active {
+  border-color: #005fb8;
+  background: rgb(0 95 184 / 0.12);
+  color: #005fb8;
+  box-shadow:
+    inset 0 0 0 1px rgb(0 95 184 / 0.28),
+    0 1px 2px rgb(0 0 0 / 0.06);
+}
+
+html.dark[data-presentation-platform="windows"][data-ui-family="fluent"] .background-mode-switch-button.background-mode-switch-button-active {
+  border-color: #60cdff;
+  background: rgb(96 205 255 / 0.16);
+  color: #60cdff;
+  box-shadow:
+    inset 0 0 0 1px rgb(96 205 255 / 0.28),
+    0 1px 2px rgb(0 0 0 / 0.16);
+}
+
 .panorama-studio-entry-button {
   border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
   background: var(--surface);

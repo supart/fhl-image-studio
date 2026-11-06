@@ -174,6 +174,7 @@ function buildWorkspace(
     size: "2880x2880",
     quality: "high",
     outputFormat: "png",
+    backgroundMode: "opaque",
     seed: 3200,
     batchCount: 1,
     continuousGenerateTest: false,

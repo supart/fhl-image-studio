@@ -67,6 +67,9 @@ func buildImagesGenerationPayload(opts Options) map[string]any {
 		quality = DefaultQuality
 	}
 	outputFormat := opts.OutputFormat
+	if opts.BackgroundMode == BackgroundTransparent {
+		outputFormat = "png"
+	}
 	if outputFormat == "" {
 		outputFormat = OutputFormat
 	}
@@ -77,6 +80,10 @@ func buildImagesGenerationPayload(opts Options) map[string]any {
 		"size":          size,
 		"quality":       quality,
 		"output_format": outputFormat,
+	}
+	if opts.BackgroundMode == BackgroundTransparent {
+		payload["background"] = "transparent"
+		payload["response_format"] = "b64_json"
 	}
 	if opts.ImagesNewAPICompat || supportsImagesResponseFormat(model, ModeGenerate) {
 		payload["response_format"] = "b64_json"
@@ -213,6 +220,9 @@ func RequestImagesAPIWithPartial(
 	if strings.TrimSpace(opts.Prompt) == "" {
 		return ImageResult{}, ErrEmptyPrompt
 	}
+	if err := ValidateBackgroundMode(opts.BackgroundMode, opts.ImageModelID); err != nil {
+		return ImageResult{}, err
+	}
 
 	baseURL := strings.TrimSpace(opts.BaseURL)
 	if baseURL == "" {
@@ -241,6 +251,9 @@ func RequestImagesAPIWithPartial(
 		quality = DefaultQuality
 	}
 	outputFormat := opts.OutputFormat
+	if opts.BackgroundMode == BackgroundTransparent {
+		outputFormat = "png"
+	}
 	if outputFormat == "" {
 		outputFormat = OutputFormat
 	}
@@ -257,7 +270,7 @@ func RequestImagesAPIWithPartial(
 		if len(paths) == 0 {
 			return ImageResult{}, errors.New("\u7f16\u8f91\u6a21\u5f0f\u81f3\u5c11\u9700\u8981\u4e00\u5f20 --image")
 		}
-		multipartBuf, mpType, err := buildEditsMultipart(paths, opts.MaskB64, opts.Prompt, model, size, quality, outputFormat, opts.NegativePrompt, opts.Seed, opts.RequestPolicy, normalizePartialImages(opts.PartialImages), useNewAPICompat)
+		multipartBuf, mpType, err := buildEditsMultipartWithBackground(paths, opts.MaskB64, opts.Prompt, model, size, quality, outputFormat, opts.NegativePrompt, opts.Seed, opts.RequestPolicy, normalizePartialImages(opts.PartialImages), useNewAPICompat, opts.BackgroundMode)
 		if err != nil {
 			return ImageResult{}, err
 		}
@@ -533,6 +546,12 @@ func writeDataURLToTemp(dataURL string) (string, error) {
 func buildEditsMultipart(
 	paths []string, maskB64, prompt, model, size, quality, outputFormat, negativePrompt string, seed int64, requestPolicy RequestPolicy, partialImages int, useNewAPICompat bool,
 ) (*bytes.Buffer, string, error) {
+	return buildEditsMultipartWithBackground(paths, maskB64, prompt, model, size, quality, outputFormat, negativePrompt, seed, requestPolicy, partialImages, useNewAPICompat, BackgroundOpaque)
+}
+
+func buildEditsMultipartWithBackground(
+	paths []string, maskB64, prompt, model, size, quality, outputFormat, negativePrompt string, seed int64, requestPolicy RequestPolicy, partialImages int, useNewAPICompat bool, backgroundMode string,
+) (*bytes.Buffer, string, error) {
 	buf := &bytes.Buffer{}
 	w := multipart.NewWriter(buf)
 
@@ -565,10 +584,17 @@ func buildEditsMultipart(
 	_ = w.WriteField("n", "1")
 	_ = w.WriteField("size", size)
 	_ = w.WriteField("quality", quality)
+	if backgroundMode == BackgroundTransparent {
+		outputFormat = "png"
+	}
 	if strings.TrimSpace(outputFormat) != "" {
 		_ = w.WriteField("output_format", outputFormat)
 	}
-	if useNewAPICompat || supportsImagesResponseFormat(model, ModeEdit) {
+	if backgroundMode == BackgroundTransparent {
+		_ = w.WriteField("background", "transparent")
+		_ = w.WriteField("response_format", "b64_json")
+	}
+	if backgroundMode != BackgroundTransparent && (useNewAPICompat || supportsImagesResponseFormat(model, ModeEdit)) {
 		_ = w.WriteField("response_format", "b64_json")
 	}
 	if !useNewAPICompat {

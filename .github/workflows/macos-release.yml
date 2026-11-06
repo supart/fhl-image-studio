@@ -1,11 +1,11 @@
-name: macOS V2.0.4 Release
+name: macOS V2.0.5 Release
 
 on:
   push:
     branches:
-      - codex/macos-v2.0.4-release
+      - codex/macos-v2.0.5-release
     tags:
-      - v2.0.4
+      - v2.0.5
   workflow_dispatch:
 
 permissions:
@@ -50,19 +50,19 @@ jobs:
           display_version="$(node -p 'require("./product-version.json").displayVersion')"
           macos_tag="$(node -p 'require("./product-version.json").macosTag')"
 
-          test "$product_version" = "2.0.4"
-          test "$display_version" = "V2.0.4"
-          test "$macos_tag" = "v2.0.4"
+          test "$product_version" = "2.0.5"
+          test "$display_version" = "V2.0.5"
+          test "$macos_tag" = "v2.0.5"
 
           case "$GITHUB_REF_TYPE" in
             branch)
-              test "$GITHUB_REF_NAME" = "codex/macos-v2.0.4-release"
+              test "$GITHUB_REF_NAME" = "codex/macos-v2.0.5-release"
               ;;
             tag)
               test "$GITHUB_REF_NAME" = "$macos_tag"
               test "$(git cat-file -t "refs/tags/$macos_tag")" = "tag"
               test "$(git rev-parse "refs/tags/$macos_tag^{commit}")" = "$(git rev-parse HEAD)"
-              test "$(git rev-parse origin/codex/macos-v2.0.4-release)" = "$(git rev-parse HEAD)"
+              test "$(git rev-parse origin/codex/macos-v2.0.5-release)" = "$(git rev-parse HEAD)"
               ;;
             *)
               echo "Unsupported release ref type: $GITHUB_REF_TYPE" >&2
@@ -93,7 +93,7 @@ jobs:
         working-directory: image-studio/frontend
         env:
           VITE_TARGET_PLATFORM: windows
-          VITE_APP_VERSION: "2.0.4"
+          VITE_APP_VERSION: "2.0.5"
           IMAGE_STUDIO_STORAGE_NAMESPACE: fhl-image-studio-desktop
         run: npm run build:windows
 
@@ -102,7 +102,7 @@ jobs:
         env:
           VITE_TARGET_PLATFORM: macos
           VITE_DESKTOP_UI_VARIANT: windows-parity
-          VITE_APP_VERSION: "2.0.4"
+          VITE_APP_VERSION: "2.0.5"
           IMAGE_STUDIO_STORAGE_NAMESPACE: fhl-image-studio-desktop
         run: npm run build:macos
 
@@ -129,7 +129,7 @@ jobs:
         env:
           VITE_TARGET_PLATFORM: macos
           VITE_DESKTOP_UI_VARIANT: windows-parity
-          VITE_APP_VERSION: "2.0.4"
+          VITE_APP_VERSION: "2.0.5"
           IMAGE_STUDIO_STORAGE_NAMESPACE: fhl-image-studio-desktop
         run: ./script/build_and_run.sh --verify
 
@@ -161,17 +161,17 @@ jobs:
       - name: Upload verified release candidate
         uses: actions/upload-artifact@v4
         with:
-          name: macos-v2.0.4-release-assets
+          name: macos-v2.0.5-release-assets
           if-no-files-found: error
           retention-days: 14
           path: |
-            ${{ runner.temp }}/release-assets/FHL-Image-Studio-Desktop-V2.0.4-macOS-Universal.dmg
-            ${{ runner.temp }}/release-assets/FHL-Image-Studio-Desktop-V2.0.4-Source.zip
+            ${{ runner.temp }}/release-assets/FHL-Image-Studio-Desktop-V2.0.5-macOS-Universal.dmg
+            ${{ runner.temp }}/release-assets/FHL-Image-Studio-Desktop-V2.0.5-Source.zip
             ${{ runner.temp }}/release-assets/SHA256SUMS.txt
 
   publish:
     name: Publish explicit macOS tag
-    if: github.event_name == 'push' && github.ref == 'refs/tags/v2.0.4'
+    if: github.event_name == 'push' && github.ref == 'refs/tags/v2.0.5'
     needs: build-and-verify
     runs-on: ubuntu-latest
     permissions:
@@ -192,17 +192,17 @@ jobs:
           node scripts/sync-version-metadata.mjs --check
           macos_tag="$(node -p 'require("./product-version.json").macosTag')"
           test "$GITHUB_REPOSITORY" = "supart/fhl-image-studio"
-          test "$macos_tag" = "v2.0.4"
+          test "$macos_tag" = "v2.0.5"
           test "$GITHUB_REF_NAME" = "$macos_tag"
           test "$(git cat-file -t "refs/tags/$macos_tag")" = "tag"
           test "$(git rev-parse "refs/tags/$macos_tag^{commit}")" = "$(git rev-parse HEAD)"
-          test "$(git rev-parse origin/codex/macos-v2.0.4-release)" = "$(git rev-parse HEAD)"
+          test "$(git rev-parse origin/codex/macos-v2.0.5-release)" = "$(git rev-parse HEAD)"
           remote_tag_object="$(git ls-remote --exit-code --tags origin "refs/tags/$macos_tag" | awk '{print $1}')"
           test "$remote_tag_object" = "$(git rev-parse "refs/tags/$macos_tag")"
 
       - uses: actions/download-artifact@v4
         with:
-          name: macos-v2.0.4-release-assets
+          name: macos-v2.0.5-release-assets
           path: release-assets
 
       - name: Verify downloaded checksums
@@ -223,9 +223,9 @@ jobs:
           gh release create "$macos_tag" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
-            --title "FHL Image Studio macOS V2.0.4" \
-            --notes-file RELEASE_NOTES_MACOS_V2.0.4.md \
+            --title "FHL Image Studio macOS V2.0.5" \
+            --notes-file RELEASE_NOTES_MACOS_V2.0.5.md \
             --latest=false \
-            release-assets/FHL-Image-Studio-Desktop-V2.0.4-macOS-Universal.dmg \
-            release-assets/FHL-Image-Studio-Desktop-V2.0.4-Source.zip \
+            release-assets/FHL-Image-Studio-Desktop-V2.0.5-macOS-Universal.dmg \
+            release-assets/FHL-Image-Studio-Desktop-V2.0.5-Source.zip \
             release-assets/SHA256SUMS.txt

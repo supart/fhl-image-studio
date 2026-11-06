@@ -6,7 +6,6 @@ import { isOfficialFHLProfile, ProviderPolicy } from "./providerPolicy";
 import {
   DEFAULT_CONCURRENCY_LIMIT,
   FHL_BASE_URL,
-  FHL_IMAGE_MODEL_ID,
   FHL_IMAGES_PROFILE_ID,
   FHL_PROFILE_ID,
   FHL_TEXT_MODEL_ID,
@@ -122,6 +121,7 @@ export async function ensureFHLProfiles(store: FHLProfileActions): Promise<FHLPa
   const responsesKey = responsesProfile ? await loadStoredProfileAPIKey(responsesProfile.id) : "";
   const imagesKey = imagesProfile ? await loadStoredProfileAPIKey(imagesProfile.id) : "";
   const sharedKey = responsesKey || imagesKey;
+  const selectedImageModelID = imagesProfile?.imageModelID || responsesProfile?.imageModelID || "";
   let responsesId = responsesProfile?.id || "";
   let imagesId = imagesProfile?.id || "";
 
@@ -132,7 +132,7 @@ export async function ensureFHLProfiles(store: FHLProfileActions): Promise<FHLPa
       requestPolicy: "openai",
       baseURL: FHL_BASE_URL,
       textModelID: FHL_TEXT_MODEL_ID,
-      imageModelID: FHL_IMAGE_MODEL_ID,
+      imageModelID: selectedImageModelID,
       concurrencyLimit: DEFAULT_CONCURRENCY_LIMIT,
       continuousPoolEnabled: false,
       imagesNewAPICompat: false,
@@ -148,7 +148,7 @@ export async function ensureFHLProfiles(store: FHLProfileActions): Promise<FHLPa
       requestPolicy: "openai",
       baseURL: FHL_BASE_URL,
       textModelID: FHL_TEXT_MODEL_ID,
-      imageModelID: FHL_IMAGE_MODEL_ID,
+      imageModelID: selectedImageModelID,
       concurrencyLimit: responsesProfile.concurrencyLimit ?? DEFAULT_CONCURRENCY_LIMIT,
       continuousPoolEnabled: false,
       imagesNewAPICompat: false,
@@ -165,7 +165,7 @@ export async function ensureFHLProfiles(store: FHLProfileActions): Promise<FHLPa
       requestPolicy: "openai",
       baseURL: FHL_BASE_URL,
       textModelID: "",
-      imageModelID: FHL_IMAGE_MODEL_ID,
+      imageModelID: selectedImageModelID,
       concurrencyLimit: DEFAULT_CONCURRENCY_LIMIT,
       continuousPoolEnabled: true,
       imagesNewAPICompat: true,
@@ -181,7 +181,7 @@ export async function ensureFHLProfiles(store: FHLProfileActions): Promise<FHLPa
       requestPolicy: "openai",
       baseURL: FHL_BASE_URL,
       textModelID: "",
-      imageModelID: FHL_IMAGE_MODEL_ID,
+      imageModelID: selectedImageModelID,
       concurrencyLimit: imagesProfile.concurrencyLimit ?? DEFAULT_CONCURRENCY_LIMIT,
       continuousPoolEnabled: imagesProfile.continuousPoolEnabled ?? true,
       imagesNewAPICompat: true,

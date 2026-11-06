@@ -24,6 +24,8 @@ export function localFHLConfigFromCLIEnv(
     apiMode,
     requestPolicy: clean(env.IMAGE_STUDIO_REQUEST_POLICY).toLowerCase() === "compat" ? "compat" : "openai",
     textModelID: clean(env.IMAGE_STUDIO_TEXT_MODEL) || "gpt-5.5",
-    imageModelID: clean(env.IMAGE_STUDIO_IMAGE_MODEL) || "gpt-image-2",
+    imageModelID: Object.prototype.hasOwnProperty.call(env, "IMAGE_STUDIO_IMAGE_MODEL")
+      ? clean(env.IMAGE_STUDIO_IMAGE_MODEL)
+      : "gpt-image-2",
   };
 }

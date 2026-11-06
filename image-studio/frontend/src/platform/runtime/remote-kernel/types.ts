@@ -17,6 +17,7 @@ export type RemoteGeneratePayload = {
   size: string;
   quality: string;
   outputFormat: string;
+  backgroundMode?: "opaque" | "transparent";
   imagePaths: string[];
   imagePath: string;
   maskB64: string;
@@ -62,6 +63,8 @@ export type RemoteJobResult = {
   rawPath: string | null;
   prompt: string;
   mode: string;
+  backgroundMode?: "opaque" | "transparent";
+  alphaStatus?: "native" | "none" | "invalid";
   apimartTaskId?: string;
 };
 

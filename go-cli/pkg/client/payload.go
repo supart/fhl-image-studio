@@ -28,6 +28,9 @@ func BuildPayload(opts Options) ([]byte, error) {
 	if strings.TrimSpace(opts.Prompt) == "" {
 		return nil, ErrEmptyPrompt
 	}
+	if err := ValidateBackgroundMode(opts.BackgroundMode, opts.ImageModelID); err != nil {
+		return nil, err
+	}
 
 	rawSize := strings.TrimSpace(opts.Size)
 	size := ""
@@ -44,6 +47,9 @@ func BuildPayload(opts Options) ([]byte, error) {
 		quality = DefaultQuality
 	}
 	outputFormat := opts.OutputFormat
+	if opts.BackgroundMode == BackgroundTransparent {
+		outputFormat = "png"
+	}
 	if outputFormat == "" {
 		outputFormat = OutputFormat
 	}
@@ -81,6 +87,9 @@ func BuildPayload(opts Options) ([]byte, error) {
 		"output_format":  outputFormat,
 		"moderation":     "low",
 		"partial_images": 0,
+	}
+	if opts.BackgroundMode == BackgroundTransparent {
+		tool["background"] = "transparent"
 	}
 	if opts.MaskB64 != "" {
 		tool["input_image_mask"] = map[string]any{
