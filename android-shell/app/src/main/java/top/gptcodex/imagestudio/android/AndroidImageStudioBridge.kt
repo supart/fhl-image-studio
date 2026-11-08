@@ -51,6 +51,59 @@ internal fun shouldFollowBridgeRedirect(method: String): Boolean {
 
 private val probeModelIdPattern = Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{1,159}$")
 
+private const val maxImageModelCatalogIdLength = 128
+
+internal data class FHLImageModelCatalogEntry(
+    val id: String,
+    val description: String,
+    val imageCapable: Boolean = true,
+    val supportsGenerations: Boolean = true,
+    val supportsEdits: Boolean = true,
+    val supportsTransparency: Boolean,
+)
+
+private val supportedFHLImageModelCatalog = linkedMapOf(
+    "gpt-image-2" to FHLImageModelCatalogEntry(
+        id = "gpt-image-2",
+        description = "兼容原有 V2.0 工作方式，继续使用稳定流程。",
+        supportsTransparency = false,
+    ),
+    "gpt-image-2.5-flare" to FHLImageModelCatalogEntry(
+        id = "gpt-image-2.5-flare",
+        description = "速度优先，适合批量生成和快速迭代，支持透明 PNG。",
+        supportsTransparency = true,
+    ),
+    "gpt-image-2.5-sunburst" to FHLImageModelCatalogEntry(
+        id = "gpt-image-2.5-sunburst",
+        description = "高精度，适合精细编辑、复杂细节和透明 PNG。",
+        supportsTransparency = true,
+    ),
+)
+
+private fun sanitizeImageModelCatalogId(raw: String): String {
+    val id = raw.trim()
+    if (id.isBlank() || id.length > maxImageModelCatalogIdLength) return ""
+    if (id.any { it.code < 0x20 || it.code == 0x7F }) return ""
+    return id
+}
+
+internal fun parseFHLImageModelCatalog(data: JSONArray): List<FHLImageModelCatalogEntry> {
+    val entries = mutableListOf<FHLImageModelCatalogEntry>()
+    val seen = linkedSetOf<String>()
+    for (index in 0 until data.length()) {
+        val item = data.opt(index)
+        val rawId = when (item) {
+            is String -> item
+            is JSONObject -> item.opt("id") as? String ?: ""
+            else -> ""
+        }
+        val id = sanitizeImageModelCatalogId(rawId)
+        val descriptor = supportedFHLImageModelCatalog[id] ?: continue
+        if (seen.add(id)) entries += descriptor
+    }
+    return entries
+}
+
 internal fun parseProbeModelIds(data: JSONArray): List<String> {
     val models = linkedSetOf<String>()
     for (index in 0 until data.length()) {
@@ -162,6 +215,10 @@ class AndroidImageStudioBridge(
                     val payload = args.optJSONObject(0) ?: throw IllegalArgumentException("缺少测活参数")
                     runProbeUpstream(requestId, payload)
                 }
+                "ListImageModels" -> {
+                    val payload = args.optJSONObject(0) ?: throw IllegalArgumentException("缺少生图模型目录参数")
+                    runListImageModels(requestId, payload)
+                }
                 "SubmitAndroidJobs" -> {
                     val payload = args.optJSONObject(0) ?: throw IllegalArgumentException("缺少后台任务参数")
                     AndroidJobManager.submit(context, payload)
@@ -175,7 +232,10 @@ class AndroidImageStudioBridge(
                     context,
                     args.optJSONArray(0) ?: JSONArray(),
                 )
-                "AttachAndroidJobEvents" -> AndroidJobManager.attach(context)
+                "AttachAndroidJobEvents" -> AndroidJobManager.attach(
+                    context,
+                    args.optJSONArray(0) ?: JSONArray(),
+                )
                 "CancelHttpRequest" -> {
                     cancelHttpRequest(args.optString(0))
                     null
@@ -231,7 +291,8 @@ class AndroidImageStudioBridge(
         val result = mutableMapOf<String, Any>("savedPath" to saved)
         val thumb = thumbPath.trim()
         if (thumb.isNotBlank()) result["thumbPath"] = thumb
-        result.putAll(createPreviewRef(File(thumb.ifBlank { saved }), maxCanvasPreviewEdge))
+        val previewSource = androidPreviewSourcePath(saved, thumb)
+        result.putAll(createPreviewRef(File(previewSource), maxCanvasPreviewEdge))
         return result
     }
 
@@ -725,6 +786,86 @@ class AndroidImageStudioBridge(
         throw EarlyResolve()
     }
 
+    private fun runListImageModels(requestId: String, payload: JSONObject): Nothing {
+        // Keep image-model discovery independent from the text-model probe. The caller must
+        // provide the image profile's own key, base URL, and proxy settings for this request.
+        val baseUrl = normalizedSafeImageCatalogBaseURL(payload.optString("baseURL"))
+        val provider = safeImageProviderIdentifier(payload.optString("provider"))
+        val apiKey = payload.optString("apiKey").trim()
+        val proxyMode = payload.optString("proxyMode", "system")
+        val proxyUrl = payload.optString("proxyURL", "")
+        if (apiKey.isBlank()) throw IllegalArgumentException("API Key 不能为空")
+        if (provider.isBlank()) throw IllegalArgumentException("生图模型目录缺少 provider 标识")
+        if (apiKey.any { it.code < 0x20 || it.code == 0x7F }) {
+            throw IllegalArgumentException("API Key 格式无效")
+        }
+        thread(name = "fhl-studio-image-models-${requestId.take(12)}") {
+            var connection: HttpURLConnection? = null
+            try {
+                val url = "$baseUrl/v1/models"
+                connection = openHttpConnection(url, proxyMode, proxyUrl).apply {
+                    requestMethod = "GET"
+                    // A catalog redirect must not forward this profile's bearer token to a
+                    // different origin. The configured URL must serve /v1/models directly.
+                    instanceFollowRedirects = false
+                    connectTimeout = connectTimeoutForUrl(url, 20_000)
+                    readTimeout = 20_000
+                    doInput = true
+                    setRequestProperty("Authorization", "Bearer $apiKey")
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("User-Agent", "fhl-studio-android")
+                }
+                val status = connection.responseCode
+                if (status !in 200..299) {
+                    // Do not include the upstream body in a user-visible error. Some providers
+                    // echo authorization material or other sensitive request details.
+                    throw IllegalStateException("生图模型目录返回 $status")
+                }
+                val body = (connection.inputStream?.bufferedReader()?.use { reader ->
+                    reader.readText().take(1_048_576)
+                } ?: "")
+                val parsed = try {
+                    JSONObject(body)
+                } catch (_: Exception) {
+                    throw IllegalStateException("生图模型目录返回的 JSON 无效")
+                }
+                val data = parsed.optJSONArray("data")
+                    ?: throw IllegalStateException("生图模型目录响应缺少 data 数组")
+                val models = parseFHLImageModelCatalog(data)
+                val modelJSON = JSONArray()
+                for (model in models) {
+                    modelJSON.put(
+                        JSONObject()
+                            .put("id", model.id)
+                            .put("description", model.description)
+                            .put("imageCapable", model.imageCapable)
+                            .put("supportsGenerations", model.supportsGenerations)
+                            .put("supportsEdits", model.supportsEdits)
+                            .put("supportsTransparency", model.supportsTransparency),
+                    )
+                }
+                resolve(
+                    requestId,
+                    mapOf(
+                        "modelCount" to models.size,
+                        "provider" to provider,
+                        "baseURL" to baseUrl,
+                        "fetchedAt" to System.currentTimeMillis(),
+                        "models" to modelJSON,
+                    ),
+                )
+            } catch (error: Exception) {
+                val safeMessage = error.message
+                    ?.takeIf { it.startsWith("生图模型目录") }
+                    ?: "生图模型目录请求失败，请检查网络和 provider 配置。"
+                reject(requestId, safeMessage)
+            } finally {
+                connection?.disconnect()
+            }
+        }
+        throw EarlyResolve()
+    }
+
     private fun openHttpConnection(url: String, proxyMode: String, proxyUrl: String): HttpURLConnection {
         System.setProperty("java.net.preferIPv4Stack", "true")
         System.setProperty("java.net.preferIPv6Addresses", "false")
@@ -853,7 +994,7 @@ class AndroidImageStudioBridge(
         try {
             val suggestedName = queryDisplayName(uri) ?: "import-${timestamp()}.png"
             val copied = copyUriToImports(uri, suggestedName)
-            val previewUrl = if (copied.previewB64.isNotBlank()) "data:image/jpeg;base64,${copied.previewB64}" else ""
+            val previewUrl = androidPreviewDataUrl(copied.previewMimeType, copied.previewB64)
             resolve(
                 requestId,
                 mapOf(
@@ -937,6 +1078,12 @@ class AndroidImageStudioBridge(
         val size: Long,
         val imageB64: String,
         val previewB64: String,
+        val previewMimeType: String,
+    )
+
+    private data class PreviewData(
+        val base64: String,
+        val mimeType: String,
     )
 
     private fun copyUriToImports(uri: Uri, suggestedName: String): CopiedImport {
@@ -963,26 +1110,44 @@ class AndroidImageStudioBridge(
         } else {
             ""
         }
-        return CopiedImport(target, total, imageB64, createPreviewB64(target))
+        val file = target
+        val previewData = createPreviewData(file, maxDialogPreviewEdge, dialogPreviewJpegQuality)
+            ?: createPreviewB64(file, maxDialogPreviewEdge, dialogPreviewJpegQuality)
+                .takeIf { it.isNotBlank() }
+                ?.let { PreviewData(it, if (file.extension.equals("png", ignoreCase = true)) "image/png" else "image/jpeg") }
+        return CopiedImport(
+            target,
+            total,
+            imageB64,
+            previewData?.base64.orEmpty(),
+            previewData?.mimeType.orEmpty(),
+        )
     }
 
+    // Keep the small preview helpers as named contract points for the picker tests;
+    // the MIME-aware implementation lives in createPreviewData below.
     private fun createPreviewB64(file: File): String {
-        return createPreviewB64(file, maxDialogPreviewEdge, dialogPreviewJpegQuality)
+        return createPreviewData(file, maxDialogPreviewEdge, dialogPreviewJpegQuality)?.base64.orEmpty()
     }
 
     private fun createPreviewB64(file: File, maxEdgeLimit: Int): String {
-        return createPreviewB64(file, maxEdgeLimit, defaultPreviewJpegQuality)
+        return createPreviewData(file, maxEdgeLimit, defaultPreviewJpegQuality)?.base64.orEmpty()
     }
 
     private fun createPreviewB64(file: File, maxEdgeLimit: Int, jpegQuality: Int): String {
+        return createPreviewData(file, maxEdgeLimit, jpegQuality)?.base64.orEmpty()
+    }
+
+    private fun createPreviewData(file: File, maxEdgeLimit: Int, jpegQuality: Int): PreviewData? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.absolutePath, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return ""
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
         val maxEdge = max(bounds.outWidth, bounds.outHeight)
         var sample = 1
         while (maxEdge / sample > maxEdgeLimit * 2) sample *= 2
         val decode = BitmapFactory.Options().apply { inSampleSize = sample }
-        val decoded = BitmapFactory.decodeFile(file.absolutePath, decode) ?: return ""
+        val decoded = BitmapFactory.decodeFile(file.absolutePath, decode) ?: return null
+        val preserveAlpha = decoded.hasAlpha()
         val scaled = try {
             val scale = minOf(1f, maxEdgeLimit.toFloat() / max(decoded.width, decoded.height).toFloat())
             if (scale >= 0.999f) decoded
@@ -996,9 +1161,12 @@ class AndroidImageStudioBridge(
             decoded
         }
         return try {
-            val out = java.io.ByteArrayOutputStream()
-            scaled.compress(Bitmap.CompressFormat.JPEG, jpegQuality.coerceIn(1, 100), out)
-            Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+            if (scaled !== decoded) scaled.setHasAlpha(preserveAlpha)
+            val encoded = encodeAndroidPreview(scaled, jpegQuality)
+            PreviewData(
+                base64 = Base64.encodeToString(encoded.bytes, Base64.NO_WRAP),
+                mimeType = encoded.mimeType,
+            )
         } finally {
             if (scaled != decoded) scaled.recycle()
             decoded.recycle()
@@ -1006,13 +1174,13 @@ class AndroidImageStudioBridge(
     }
 
     private fun createPreviewRef(file: File, maxEdgeLimit: Int): Map<String, Any> {
-        val previewB64 = createPreviewB64(file, maxEdgeLimit)
-        if (previewB64.isBlank()) return emptyMap()
+        val preview = createPreviewData(file, maxEdgeLimit, defaultPreviewJpegQuality) ?: return emptyMap()
+        if (preview.base64.isBlank()) return emptyMap()
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        val bytes = Base64.decode(previewB64, Base64.DEFAULT)
+        val bytes = Base64.decode(preview.base64, Base64.DEFAULT)
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         val out = mutableMapOf<String, Any>(
-            "previewUrl" to "data:image/jpeg;base64,$previewB64",
+            "previewUrl" to androidPreviewDataUrl(preview.mimeType, preview.base64),
         )
         if (bounds.outWidth > 0 && bounds.outHeight > 0) {
             out["previewWidth"] = bounds.outWidth

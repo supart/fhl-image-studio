@@ -10,6 +10,7 @@ import { OpenFile } from "../runtime/host";
 import { QUALITY_TIERS, STYLE_CHIPS } from "../../components/panel/panelOptions";
 import type { Mode } from "../../types/domain";
 import { AndroidModeSwitch } from "./AndroidModeSwitch";
+import { AndroidBackgroundModeControl } from "./AndroidBackgroundModeControl";
 import { usePlatform } from "../context";
 import { vibrateForPlatform } from "./bridge";
 import { AndroidAdvancedSection } from "./AndroidAdvancedSection";
@@ -51,7 +52,7 @@ function shouldRecommendAPISwitch(message: string): boolean {
 
 export function AndroidPadComposePanel() {
   const {
-    apiKey, mode, promptPrefix, prompt, optimizationGuidance, negativePrompt, size, quality, seed, styleTag, outputFormat,
+    apiKey, activeCredentialStatus, mode, promptPrefix, prompt, optimizationGuidance, negativePrompt, size, quality, seed, styleTag, outputFormat, imageBackgroundMode,
     batchCount, continuousGenerateTest, sources, currentImage, errorMessage, errorRawPath, apimartRecoveryTask,
     isRunning, lastPayload, isOptimizingPrompt, isReversingPrompt, reversePromptImage,
     apiMode, requestPolicy, baseURL, imageModelID, activeProfileId,
@@ -80,9 +81,12 @@ export function AndroidPadComposePanel() {
   const isMediumPad = androidWidthClass === "medium";
   const isLandscapePad = androidOrientation === "landscape";
   const hasAPIKey = apiKey.trim().length > 0;
+  const credentialChecking = activeCredentialStatus === "checking";
+  const credentialPending = activeCredentialStatus === "unknown" || credentialChecking;
   const hasBaseURL = baseURL.trim().length > 0;
   const runningHubBridgeConfigured = apiMode === "runninghub" && hasBaseURL;
-  const hasUsableUpstream = hasAPIKey || runningHubBridgeConfigured;
+  const hasUsableUpstream = hasAPIKey || runningHubBridgeConfigured || credentialPending;
+  const canSubmitUpstream = hasAPIKey || runningHubBridgeConfigured;
   const needsUpstreamSetup = !hasUsableUpstream;
   const needsBaseURLSetup = hasUsableUpstream && !hasBaseURL;
   const optimizeReady = !!prompt.trim();
@@ -124,6 +128,14 @@ export function AndroidPadComposePanel() {
       activeResolution,
       { apiMode, requestPolicy, imageModelID },
     ));
+  };
+
+  const handleBackgroundModeChange = (next: "standard" | "transparent") => {
+    setField("imageBackgroundMode", next);
+  };
+
+  const handleInvalidTransparent = (reason: string) => {
+    pushToast(`${reason} 已回退为普通图像。`, "warn", 5200);
   };
 
   const handleResolutionSelect = (resolution: typeof activeResolution) => {
@@ -247,7 +259,7 @@ export function AndroidPadComposePanel() {
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={!hasUsableUpstream || !hasBaseURL || !effectivePromptReady}
+          disabled={!canSubmitUpstream || !hasBaseURL || !effectivePromptReady}
           className="liquid-primary-button android-running-append-button h-[52px] min-w-0 text-[15px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-500 dark:disabled:bg-zinc-800"
         >
           追加生成
@@ -273,10 +285,10 @@ export function AndroidPadComposePanel() {
     <button
       type="button"
       onClick={handleSubmit}
-      disabled={!hasUsableUpstream || !hasBaseURL || !effectivePromptReady}
+      disabled={!canSubmitUpstream || !hasBaseURL || !effectivePromptReady}
       className="liquid-primary-button h-[52px] w-full text-[15px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-500 dark:disabled:bg-zinc-800"
     >
-      {mode === "edit" ? "开始编辑" : "开始生成"}
+      {credentialPending ? "正在确认 API 凭据" : mode === "edit" ? "开始编辑" : "开始生成"}
     </button>
   );
 
@@ -376,8 +388,20 @@ export function AndroidPadComposePanel() {
           <span>{activeQualityLabel}</span>
           <span>{activeAspectLabel}</span>
           <span>{batchCount} 张</span>
-          {hasUsableUpstream && hasBaseURL ? <span>上游已连接</span> : hasUsableUpstream ? <span>待补全地址</span> : <span>待配置上游</span>}
+          {credentialPending ? <span>正在确认凭据</span> : hasUsableUpstream && hasBaseURL ? <span>上游已连接</span> : hasUsableUpstream ? <span>待补全地址</span> : <span>待配置上游</span>}
         </div>
+        {!needsUpstreamSetup ? (
+          <AndroidBackgroundModeControl
+            activeProfile={activeProfile}
+            apiMode={apiMode}
+            baseURL={baseURL}
+            imageBackgroundMode={imageBackgroundMode}
+            imageModelID={imageModelID}
+            onChange={handleBackgroundModeChange}
+            onInvalidTransparent={handleInvalidTransparent}
+            surface="pad"
+          />
+        ) : null}
       </section>
 
       <div className="android-pad-compose-grid">
@@ -625,6 +649,7 @@ export function AndroidPadComposePanel() {
               advancedOpen={advancedOpen}
               negativePrompt={negativePrompt}
               outputFormat={outputFormat}
+              imageBackgroundMode={imageBackgroundMode}
               seed={seed}
               setAdvancedOpen={setAdvancedOpen}
               setField={setField as any}

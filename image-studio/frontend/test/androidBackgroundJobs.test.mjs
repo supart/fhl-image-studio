@@ -85,7 +85,7 @@ test("Android GitHub workflow only creates manually reviewed artifacts", () => {
   assert.match(androidReleaseWorkflow, /workflow_dispatch:/);
   assert.match(androidReleaseWorkflow, /permissions:\s*\n\s*contents: read/);
   assert.match(androidReleaseWorkflow, /IMAGE_STUDIO_GIT_COMMIT: \$\{\{ github\.sha \}\}/);
-  assert.match(androidReleaseWorkflow, /IMAGE_STUDIO_BUILD_ID: android-v2\.0\.4-release/);
+  assert.match(androidReleaseWorkflow, /IMAGE_STUDIO_BUILD_ID: android-v2\.0\.5-release/);
   assert.match(androidReleaseWorkflow, /Upload review artifacts/);
   assert.doesNotMatch(androidReleaseWorkflow, /\bpush:/);
   assert.doesNotMatch(androidReleaseWorkflow, /action-gh-release|Publish GitHub Release|contents: write/);
@@ -232,13 +232,30 @@ test("Android native recovery interrupts direct jobs and only resumes safe APIMa
   assert.doesNotMatch(reconcile, /App 已重启，正在恢复任务/);
 });
 
-test("Android activity checks background job recovery again when returning from background", () => {
+test("Android activity coalesces job recovery away from the UI thread", () => {
+  assert.match(mainActivity, /Executors\.newSingleThreadExecutor/);
+  assert.match(mainActivity, /androidJobRecoveryInFlight = AtomicBoolean\(false\)/);
   assert.match(
     mainActivity,
-    /override fun onResume\(\) \{\s*super\.onResume\(\)\s*AndroidJobManager\.resumePendingWork\(applicationContext\)\s*refreshAndroidJobsForPage\(\)\s*\}/,
+    /override fun onResume\(\) \{\s*super\.onResume\(\)\s*refreshAndroidJobsForPage\(\)\s*\}/,
   );
-  assert.match(mainActivity, /AndroidJobManager\.attach\(applicationContext\)/);
+  assert.match(mainActivity, /androidJobRecoveryInFlight\.compareAndSet\(false, true\)/);
+  assert.match(mainActivity, /androidJobRecoveryExecutor\.execute \{[\s\S]*AndroidJobManager\.resumePendingWork\(applicationContext\)/);
+  assert.equal((mainActivity.match(/AndroidJobManager\.resumePendingWork\(applicationContext\)/g) ?? []).length, 1);
+  assert.doesNotMatch(mainActivity, /AndroidJobManager\.attach\(/);
+  assert.match(mainActivity, /androidJobRecoveryExecutor\.shutdownNow\(\)/);
   assert.match(mainActivity, /image-studio:android-jobs-resume/);
+});
+
+test("Android attach replays only explicitly requested native job ids", () => {
+  assert.match(
+    androidImageStudioBridge,
+    /"AttachAndroidJobEvents" -> AndroidJobManager\.attach\(\s*context,\s*args\.optJSONArray\(0\) \?: JSONArray\(\),\s*\)/,
+  );
+  assert.match(androidJobManager, /fun attach\(context: Context, jobIds: JSONArray\): JSONObject/);
+  assert.match(androidJobManager, /val requestedIds = requestedAndroidJobIdSet\(jobIds\)/);
+  assert.match(androidJobManager, /if \(requestedIds\.isEmpty\(\)\) \{\s*return JSONObject\(\)\.put\("ok", true\)\.put\("replayed", 0\)/);
+  assert.match(androidJobManager, /if \(!shouldReplayAttachedJob\(requestedIds, slot\.optString\("jobId"\)\)\) continue/);
 });
 
 test("Android native jobs notify users when background generation finishes", () => {
@@ -249,14 +266,33 @@ test("Android native jobs notify users when background generation finishes", () 
   assert.match(androidJobNotifications, /setContentIntent\(openAppIntent\(context\)\)/);
   assert.match(androidJobNotifications, /setAutoCancel\(true\)/);
   assert.match(androidJobNotifications, /Pictures\/ImageStudio/);
+  assert.match(androidJobNotifications, /NotificationCompat\.Builder\(context, foregroundChannelId\)/);
+  assert.match(androidJobNotifications, /NotificationCompat\.Builder\(context, completionChannelId\)/);
+  assert.match(
+    androidJobNotifications,
+    /NotificationChannel\(\s*foregroundChannelId,[\s\S]*?NotificationManager\.IMPORTANCE_LOW/,
+  );
+  assert.match(
+    androidJobNotifications,
+    /NotificationChannel\(\s*completionChannelId,[\s\S]*?NotificationManager\.IMPORTANCE_DEFAULT/,
+  );
+  const foregroundChannelId = androidJobNotifications.match(/const val foregroundChannelId = "([^"]+)"/)?.[1];
+  const completionChannelId = androidJobNotifications.match(/const val completionChannelId = "([^"]+)"/)?.[1];
+  assert.ok(foregroundChannelId);
+  assert.ok(completionChannelId);
+  assert.notEqual(foregroundChannelId, completionChannelId);
 });
 
-test("Android job client reattaches native job events after returning to foreground", () => {
-  assert.match(androidJobClient, /window\.addEventListener\("focus", refreshEvents\)/);
-  assert.match(androidJobClient, /window\.addEventListener\("pageshow", refreshEvents\)/);
+test("Android job client delegates foreground recovery to the registered store handler", () => {
+  assert.match(androidJobClient, /registerAndroidJobForegroundResumeHandler/);
+  assert.match(androidJobClient, /window\.addEventListener\("focus", notifyForegroundResumeHandlers\)/);
+  assert.match(androidJobClient, /window\.addEventListener\("pageshow", notifyForegroundResumeHandlers\)/);
   assert.match(androidJobClient, /image-studio:android-jobs-resume/);
   assert.match(androidJobClient, /document\.visibilityState === "visible"/);
-  assert.match(androidJobClient, /void attachAndroidJobEvents\(\)\.catch\(\(\) => undefined\)/);
+  assert.doesNotMatch(androidJobClient, /const refreshEvents = \(\) =>/);
+  assert.match(androidJobClient, /attachAndroidJobEvents\(jobIds: string\[\] = \[\]\)/);
+  assert.match(androidJobClient, /invokeAndroidNative\("AttachAndroidJobEvents", requestedJobIds\)/);
+  assert.match(androidJobClient, /attachAndroidJobEvents\(\[jobId\]\)/);
 });
 
 test("Android native job callbacks use API 28 compatible JavaScript", () => {

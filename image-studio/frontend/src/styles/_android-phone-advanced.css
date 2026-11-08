@@ -287,6 +287,18 @@ html[data-platform="android"] .android-phone-format-row .android-choice-chip {
   white-space: nowrap;
 }
 
+html[data-platform="android"] .android-phone-format-row .android-choice-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.44;
+}
+
+html[data-platform="android"] .android-phone-format-lock-note {
+  margin: 7px 0 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 html[data-platform="android"] .android-phone-seed-row {
   display: flex;
   gap: 8px;

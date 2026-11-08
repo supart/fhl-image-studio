@@ -39,7 +39,7 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
   );
   const {
     fullscreen, theme, setTheme, pushToast, workspaces, newWorkspace, openStarPrompt,
-    apiKey, profiles, activeProfileId, fhlTransportMode, setFHLTransportMode,
+    apiKey, activeCredentialStatus, profiles, activeProfileId, fhlTransportMode, setFHLTransportMode,
   } = useStudioStore();
   const { isAndroid, isMac, usesFluentUI, usesAndroidUI, usesAppleUI } = usePlatform();
   const showAndroidConfigRow = usesAndroidUI;
@@ -51,6 +51,19 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
   const activeProfileUsesBridgeKey = activeProfile?.apiMode === "runninghub"
     || (activeProfile ? isRunningHubBaseURL(activeProfile.baseURL) : false);
   const hasConfiguredAPIKey = apiKey.trim().length > 0 || activeProfileUsesBridgeKey;
+  const credentialChecking = activeCredentialStatus === "checking";
+  const credentialPending = activeCredentialStatus === "unknown" || credentialChecking;
+  const credentialError = activeCredentialStatus === "error";
+  const credentialButtonLabel = credentialPending
+    ? "确认中"
+    : credentialError
+      ? "凭据异常"
+      : hasConfiguredAPIKey ? "已配置" : "一键配置";
+  const credentialButtonTitle = credentialPending
+    ? "正在确认安全存储中的 API 凭据"
+    : credentialError
+      ? "API 凭据读取失败，点击重新配置"
+      : hasConfiguredAPIKey ? "API 已配置，点击可修改" : "一键配置 API";
   const activeProfileModeLabel = activeProfile?.apiMode === "apimart"
     ? "APIMart"
     : activeProfile?.apiMode === "runninghub"
@@ -202,15 +215,15 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
               <button
                 type="button"
                 data-audit-id="fhl-config"
-                className={`android-header-fhl-config-btn ${hasConfiguredAPIKey ? "is-configured" : "needs-config"}`}
-                title={hasConfiguredAPIKey ? "API 已配置，点击可修改" : "一键配置 API"}
-                aria-label={hasConfiguredAPIKey ? "API 已配置，点击可修改" : "一键配置 API"}
+                className={`android-header-fhl-config-btn ${credentialPending ? "is-checking" : hasConfiguredAPIKey ? "is-configured" : "needs-config"}`}
+                title={credentialButtonTitle}
+                aria-label={credentialButtonTitle}
                 onPointerDown={(event) => event.stopPropagation()}
                 onMouseDown={(event) => event.stopPropagation()}
                 onClick={openFHLAPIConfig}
               >
                 {hasConfiguredAPIKey ? <Check className="h-3.5 w-3.5" /> : <KeyRound className="h-3.5 w-3.5" />}
-                <span>{hasConfiguredAPIKey ? "已配置" : "一键配置"}</span>
+                <span>{credentialButtonLabel}</span>
               </button>
               <button
                 type="button"
@@ -292,15 +305,15 @@ export function AppHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
           <button
             type="button"
             data-audit-id="fhl-config"
-            className={`android-header-fhl-config-btn ${hasConfiguredAPIKey ? "is-configured" : "needs-config"}`}
-            title={hasConfiguredAPIKey ? "API 已配置，点击可修改" : "一键配置 API"}
-            aria-label={hasConfiguredAPIKey ? "API 已配置，点击可修改" : "一键配置 API"}
+            className={`android-header-fhl-config-btn ${credentialPending ? "is-checking" : hasConfiguredAPIKey ? "is-configured" : "needs-config"}`}
+            title={credentialButtonTitle}
+            aria-label={credentialButtonTitle}
             onPointerDown={(event) => event.stopPropagation()}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={openFHLAPIConfig}
           >
             {hasConfiguredAPIKey ? <Check className="h-3.5 w-3.5" /> : <KeyRound className="h-3.5 w-3.5" />}
-            <span>{hasConfiguredAPIKey ? "已配置" : "一键配置"}</span>
+            <span>{credentialButtonLabel}</span>
           </button>
         )}
         {!isAndroid && <HeaderIconBtn

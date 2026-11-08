@@ -1,7 +1,7 @@
-import { Check, ClipboardPaste, Eye, EyeOff, Minus, Plug, Plus, RefreshCw, Save } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, ClipboardPaste, Eye, EyeOff, Minus, Plug, Plus, RefreshCw, Save } from "lucide-react";
 import type { ReactNode } from "react";
 import { isAPIMartAsyncProfile } from "../../../lib/apimartAPI";
-import { FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT, normalizeFHLImagesPoolSlot } from "../../../lib/profiles";
+import { FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT, isOfficialFHLPoolProfile, normalizeFHLImagesPoolSlot } from "../../../lib/profiles";
 import { fhlTransportLabel, isOfficialFHLProfile } from "../../../lib/providerPolicy";
 import { useStudioStore } from "../../../state/studioStore";
 import type { UpstreamProfile } from "../../../types/domain";
@@ -16,6 +16,7 @@ export function AndroidUpstreamProfileForm({
   canSave,
   draft,
   draftKey,
+  imageModelValidated,
   isTestingKey,
   textModels,
   textModelsLoading,
@@ -38,6 +39,7 @@ export function AndroidUpstreamProfileForm({
   canSave: boolean;
   draft: UpstreamProfile;
   draftKey: string;
+  imageModelValidated: boolean;
   isTestingKey: boolean;
   textModels: string[];
   textModelsLoading: boolean;
@@ -47,7 +49,7 @@ export function AndroidUpstreamProfileForm({
   onSave: () => void | Promise<void>;
   onSaveAndSetActive: () => void | Promise<void>;
   onSaveAndTest: () => void | Promise<void>;
-  onPasteKey: () => void | Promise<void>;
+  onPasteKey: (pastedText?: string) => void | Promise<void>;
   onSetActive: () => void | Promise<void>;
   savedKeyLoaded: boolean;
   savedKeyPresent: boolean;
@@ -68,6 +70,7 @@ export function AndroidUpstreamProfileForm({
   const fixedFHLTextProfile = officialFHLProfile
     && draft.apiMode === "responses"
     && fhlImagesPoolSlot === undefined;
+  const officialFHLImagesProfile = isOfficialFHLPoolProfile(draft);
   const displayAPIMode = fixedFHLTextProfile
     ? "responses"
     : officialFHLProfile
@@ -184,8 +187,20 @@ export function AndroidUpstreamProfileForm({
               data-upstream-api-key-input="true"
               value={draftKey}
               onChange={(event) => onChangeDraftKey(event.target.value)}
+              onPaste={(event) => {
+                event.preventDefault();
+                let incomingText = "";
+                try {
+                  incomingText = event.clipboardData.getData("text");
+                  void onPasteKey(incomingText);
+                } finally {
+                  incomingText = "";
+                }
+              }}
               placeholder={savedKeyLoaded ? "sk-..." : "正在加载..."}
               autoComplete="new-password"
+              autoCorrect="off"
+              autoCapitalize="off"
               className="focus-ring android-upstream-input font-mono-token"
               spellCheck={false}
             />
@@ -243,19 +258,42 @@ export function AndroidUpstreamProfileForm({
         </AndroidField>
       ) : null}
 
-      <AndroidField
-        label="图像模型 ID"
-        hint={runningHubPreset ? "RunningHub 这里填桥接模型键，建议 banana2 或 image_g2。" : undefined}
-      >
-        <input
-          type="text"
-          value={draft.imageModelID}
-          onChange={(event) => onPatchDraft({ imageModelID: event.target.value })}
-          placeholder={runningHubPreset ? "banana2 或 image_g2" : "留空 = 默认 gpt-image-2"}
-          className="focus-ring android-upstream-input font-mono-token"
-          spellCheck={false}
-        />
-      </AndroidField>
+      {officialFHLImagesProfile ? (
+        <AndroidField
+          label="统一生图模型"
+          hint="FHL1-FHL10 的活动生图槽位由统一配置入口管理，避免单槽验证状态不一致。"
+        >
+          <div className="android-upstream-unified-mode-hint" data-testid="android-image-model-unified-hint">
+            <strong>{draft.imageModelID.trim() || "尚未统一选择"}</strong>
+            <small>统一模型面板会自动验证活动槽位；返回 FHL API 10 槽即可查看状态。</small>
+          </div>
+          <div
+            className={`android-upstream-model-status ${imageModelValidated ? "validated" : "pending"}`}
+            data-testid="android-image-model-status"
+          >
+            {imageModelValidated ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+            <span>
+              {imageModelValidated
+                ? `当前槽位已验证 ${draft.imageModelID}`
+                : "当前槽位等待统一模型面板验证。"}
+            </span>
+          </div>
+        </AndroidField>
+      ) : (
+        <AndroidField
+          label="图像模型 ID"
+          hint={runningHubPreset ? "RunningHub 这里填桥接模型键，建议 banana2 或 image_g2。" : undefined}
+        >
+          <input
+            type="text"
+            value={draft.imageModelID}
+            onChange={(event) => onPatchDraft({ imageModelID: event.target.value })}
+            placeholder={runningHubPreset ? "banana2 或 image_g2" : "留空 = 默认 gpt-image-2"}
+            className="focus-ring android-upstream-input font-mono-token"
+            spellCheck={false}
+          />
+        </AndroidField>
+      )}
 
       {fhlImagesPoolSlot !== undefined ? (
         <AndroidField label="并发容量" hint="FHL Images 池由原生调度器统一排队，不能在单个配置中修改。">

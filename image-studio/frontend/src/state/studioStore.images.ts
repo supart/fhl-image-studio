@@ -24,29 +24,16 @@ import {
 import { patchWorkspaceRuntime } from "./workspaceRuntime";
 import { genId } from "./studioStore.shared";
 import { rememberReversePromptImage } from "./reversePromptImageCache";
+import {
+  frozenReplayFromHistory,
+  frozenReplayFromJobSlot,
+  sourceImagesFromFrozenPaths,
+} from "./frozenSubmissionReplay.ts";
 
 type StateAdapter = {
   getState: () => StudioState;
   setState: (patch: Partial<StudioState> | ((state: StudioState) => Partial<StudioState>)) => void;
 };
-
-function pathLeaf(filePath: string): string {
-  const normalized = String(filePath || "").trim().replace(/[\\/]+$/, "");
-  if (!normalized) return "image.png";
-  const parts = normalized.split(/[\\/]/);
-  return parts[parts.length - 1] || "image.png";
-}
-
-function sourceImagesFromJobPaths(paths: string[] | undefined): SourceImage[] {
-  return (paths ?? [])
-    .map((filePath) => String(filePath || "").trim())
-    .filter(Boolean)
-    .map((filePath) => ({
-      path: filePath,
-      name: pathLeaf(filePath),
-      size: 0,
-    }));
-}
 
 export function createImageActions(store: StateAdapter) {
   async function materializeForShare(item: HistoryItem): Promise<HistoryItem> {
@@ -237,13 +224,14 @@ export function createImageActions(store: StateAdapter) {
       if (item.negativePrompt !== undefined) patch.negativePrompt = item.negativePrompt;
       if (item.styleTag !== undefined) patch.styleTag = item.styleTag;
       if (item.outputFormat) patch.outputFormat = item.outputFormat;
+      if (item.imageBackgroundMode) patch.imageBackgroundMode = item.imageBackgroundMode;
       store.setState(patch);
       const sourceNote = item.mode === "edit" && sourceImages.length > 0 ? `和 ${sourceImages.length} 张输入图` : "";
       store.getState().pushToast(`已应用此图的参数${sourceNote}到控制台`, "success");
     },
 
     applyJobSlotParams(group: JobGroupSnapshot, slot: JobSlotSnapshot) {
-      const sourceImages: SourceImage[] = group.mode === "edit" ? sourceImagesFromJobPaths(group.sourceImagePaths) : [];
+      const sourceImages: SourceImage[] = group.mode === "edit" ? sourceImagesFromFrozenPaths(group.sourceImagePaths) : [];
       const seedBase = Number.isFinite(Number(group.seed)) ? Number(group.seed) : 0;
       const patch: Partial<StudioState> = {
         promptPrefix: "",
@@ -252,6 +240,7 @@ export function createImageActions(store: StateAdapter) {
         size: group.size,
         quality: group.quality,
         outputFormat: group.outputFormat,
+        imageBackgroundMode: group.imageBackgroundMode ?? "standard",
         seed: seedBase > 0 ? seedBase + slot.batchIndex : seedBase,
         negativePrompt: group.negativePrompt ?? "",
         styleTag: group.styleTag ?? "",
@@ -264,15 +253,25 @@ export function createImageActions(store: StateAdapter) {
     },
 
     async regenerateJobSlot(group: JobGroupSnapshot, slot: JobSlotSnapshot) {
-      this.applyJobSlotParams(group, slot);
-      await Promise.resolve();
-      await store.getState().submit();
+      const replay = frozenReplayFromJobSlot(group, slot);
+      if (!replay) {
+        const message = "该任务缺少完整的 V2.0.5 冻结快照，已阻止使用当前配置重试。";
+        store.setState({ errorMessage: message, errorRawPath: null });
+        store.getState().pushToast(message, "error", 6000);
+        return;
+      }
+      await store.getState().submit(replay);
     },
 
     async regenerateFromHistory(item: HistoryItem) {
-      this.applyHistoryParams(item);
-      await Promise.resolve();
-      await store.getState().submit();
+      const replay = frozenReplayFromHistory(item);
+      if (!replay) {
+        const message = "该历史记录缺少完整的 V2.0.5 冻结快照，请先应用参数并手动确认。";
+        store.setState({ errorMessage: message, errorRawPath: null });
+        store.getState().pushToast(message, "error", 6000);
+        return;
+      }
+      await store.getState().submit(replay);
     },
 
     async deleteHistoryItem(id: string) {

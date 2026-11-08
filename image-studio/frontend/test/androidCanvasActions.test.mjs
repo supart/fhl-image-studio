@@ -96,12 +96,29 @@ test("Android canvas can exit image compare without returning to history", () =>
 });
 
 test("Android single running canvas renders one pending placeholder", () => {
-  assert.match(canvasStage, /const showingSingleLivePlaceholder = isRunning && visibleBatchSlotCount === 1 && !showingResultGrid && !currentImage;/);
+  assert.match(canvasStage, /const showingSingleLivePlaceholder = isRunning[\s\S]*streamPreviewItems\.length === 0;/);
   assert.match(canvasStage, /<AndroidSinglePendingPreview/);
   assert.match(canvasStage, /apiLabel=\{apiLabelForBatchIndex\(0\)\}/);
   assert.match(canvasStage, /className="batch-grid-overlay android-single-live-placeholder"/);
   assert.match(canvasStage, /gridTemplateColumns: "minmax\(0, 1fr\)"/);
   assert.match(canvasStage, /aria-label="等待第 1 张预览"/);
+});
+
+test("Android single image-to-image runs show a pending placeholder over the retained source", () => {
+  assert.match(canvasStage, /const showingSingleLivePlaceholder = isRunning[\s\S]*streamPreviewItems\.length === 0;/);
+  assert.doesNotMatch(canvasStage, /showingSingleLivePlaceholder[\s\S]*&& !currentImage/);
+  assert.match(canvasStage, /className="batch-grid-overlay android-single-live-placeholder"/);
+});
+
+test("Android canvas zoom preserves the latest view when pinch drag ends", () => {
+  assert.match(canvasStage, /const pinchingRef = useRef\(false\);/);
+  assert.match(canvasStage, /const ignoreDragEndRef = useRef\(false\);/);
+  assert.match(canvasStage, /const viewRef = useRef<ViewState>\(view\);/);
+  assert.match(canvasStage, /pinchingRef\.current = true;[\s\S]*stageRef\.current\?\.stopDrag\(\);/);
+  assert.match(canvasStage, /function endStageDrag[\s\S]*if \(pinchingRef\.current \|\| ignoreDragEndRef\.current\)[\s\S]*e\.target\.stopDrag\(\);/);
+  assert.match(canvasStage, /const latestView = viewRef\.current;[\s\S]*setView\(\{ \.\.\.latestView, x:/);
+  assert.doesNotMatch(canvasStage, /onDragEnd=\{\(e\) => setView\(\{ \.\.\.view,/);
+  assert.match(canvasStage, /function zoomAround[\s\S]*const latestView = viewRef\.current;/);
 });
 
 test("Android canvas keeps failed continuous job slots visible after running state clears", () => {

@@ -15,6 +15,7 @@ import {
   deriveResolutionPreset,
 } from "../../components/panel/sizeCapabilities";
 import { AndroidModeSwitch } from "./AndroidModeSwitch";
+import { AndroidBackgroundModeControl } from "./AndroidBackgroundModeControl";
 import { AndroidPhoneAdvancedSection } from "./AndroidPhoneAdvancedSection";
 import { AndroidPhoneParameterSection } from "./AndroidPhoneParameterSection";
 import { AndroidPhoneSourceSection } from "./AndroidPhoneSourceSection";
@@ -51,8 +52,8 @@ function shouldRecommendAPISwitch(message: string): boolean {
 
 export function AndroidPhoneComposePanel() {
   const {
-    apiKey, mode, promptPrefix, prompt, optimizationGuidance, negativePrompt, size, quality, seed, styleTag,
-    outputFormat, batchCount, continuousGenerateTest, sources, currentImage, errorMessage, errorRawPath,
+    apiKey, activeCredentialStatus, mode, promptPrefix, prompt, optimizationGuidance, negativePrompt, size, quality, seed, styleTag,
+    outputFormat, imageBackgroundMode, batchCount, continuousGenerateTest, sources, currentImage, errorMessage, errorRawPath,
     apimartRecoveryTask,
     isRunning, lastPayload, isOptimizingPrompt, isReversingPrompt, reversePromptImage, apiMode, requestPolicy, baseURL, profiles, activeProfileId, imageModelID,
     progress, streamPreview, runningJobs, jobsCompleted, jobsTotal,
@@ -79,9 +80,12 @@ export function AndroidPhoneComposePanel() {
   const recommendAPIMart = recommendAPISwitch && apiMode !== "apimart";
   const hasMultipleProfiles = profiles.length > 1;
   const hasAPIKey = apiKey.trim().length > 0;
+  const credentialChecking = activeCredentialStatus === "checking";
+  const credentialPending = activeCredentialStatus === "unknown" || credentialChecking;
   const hasBaseURL = baseURL.trim().length > 0;
   const runningHubBridgeConfigured = apiMode === "runninghub" && hasBaseURL;
-  const hasUsableUpstream = hasAPIKey || runningHubBridgeConfigured;
+  const hasUsableUpstream = hasAPIKey || runningHubBridgeConfigured || credentialPending;
+  const canSubmitUpstream = hasAPIKey || runningHubBridgeConfigured;
   const needsUpstreamSetup = !hasUsableUpstream;
   const needsBaseURLSetup = hasUsableUpstream && !hasBaseURL;
   const optimizeReady = !!prompt.trim();
@@ -150,6 +154,14 @@ export function AndroidPhoneComposePanel() {
   const handleModeChange = (next: Mode) => {
     vibrateForPlatform(12);
     setField("mode", next);
+  };
+
+  const handleBackgroundModeChange = (next: "standard" | "transparent") => {
+    setField("imageBackgroundMode", next);
+  };
+
+  const handleInvalidTransparent = (reason: string) => {
+    pushToast(`${reason} 已回退为普通图像。`, "warn", 5200);
   };
 
   const handleSubmit = () => {
@@ -350,6 +362,16 @@ export function AndroidPhoneComposePanel() {
                 ? "先写改动重点，再补参考图和参数。"
                 : "先写主体和镜头，参数在下面补。"}
             </p>
+            <AndroidBackgroundModeControl
+              activeProfile={activeProfile}
+              apiMode={apiMode}
+              baseURL={baseURL}
+              imageBackgroundMode={imageBackgroundMode}
+              imageModelID={imageModelID}
+              onChange={handleBackgroundModeChange}
+              onInvalidTransparent={handleInvalidTransparent}
+              surface="phone"
+            />
           </div>
         ) : null}
         <div className="android-phone-prompt-head">
@@ -593,6 +615,7 @@ export function AndroidPhoneComposePanel() {
           advancedOpen={advancedOpen}
           negativePrompt={negativePrompt}
           outputFormat={outputFormat}
+          imageBackgroundMode={imageBackgroundMode}
           seed={seed}
           setAdvancedOpen={setAdvancedOpen}
           setField={setField as any}
@@ -634,7 +657,7 @@ export function AndroidPhoneComposePanel() {
               <button
                 type="button"
                 onClick={handleSubmit}
-                disabled={!hasUsableUpstream || !hasBaseURL || !effectivePromptReady}
+                disabled={!canSubmitUpstream || !hasBaseURL || !effectivePromptReady}
                 className="liquid-primary-button android-running-append-button h-[54px] min-w-0 text-[15px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-500 dark:disabled:bg-zinc-800"
               >
                 追加生成
@@ -660,10 +683,10 @@ export function AndroidPhoneComposePanel() {
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={!hasUsableUpstream || !hasBaseURL || !effectivePromptReady}
+            disabled={!canSubmitUpstream || !hasBaseURL || !effectivePromptReady}
             className="liquid-primary-button h-[54px] w-full text-[15px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-500 dark:disabled:bg-zinc-800"
           >
-            {mode === "edit" ? "开始编辑" : "开始生成"}
+            {credentialPending ? "正在确认 API 凭据" : mode === "edit" ? "开始编辑" : "开始生成"}
           </button>
         )}
       </div>

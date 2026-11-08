@@ -149,11 +149,11 @@ test("Android retry state and restored workspace sessions cannot retain API keys
 
 test("Android profile writes and paid submissions fail closed through the credential store", () => {
   assert.match(profileActionsSource, /catch \(e: any\) \{\s*if \(readRuntimePlatformState\(\)\.isAndroid\) \{\s*throw new Error/);
-  assert.match(profileActionsSource, /if \(patch\.apiKey !== undefined\) \{[\s\S]*await SetStoredAPIKey[\s\S]*persistProfiles\(nextList\)/);
-  assert.match(storeSource, /if \(readRuntimePlatformState\(\)\.isAndroid\) \{\s*try \{\s*await SetStoredAPIKey\(keyringUserFor\(activeId\), trimmed\);[\s\S]*set\(\{ apiKey: "" \}\);\s*throw error;/);
+  assert.match(profileActionsSource, /if \(patch\.apiKey !== undefined\) \{[\s\S]*await trackCredentialMutation\(\(\) => SetStoredAPIKey[\s\S]*persistProfiles\(nextList\)/);
+  assert.match(storeSource, /if \(readRuntimePlatformState\(\)\.isAndroid\) \{\s*set\(\{ activeCredentialStatus: "checking" \}\);\s*try \{\s*await trackCredentialMutation\(\(\) => SetStoredAPIKey\(keyringUserFor\(activeId\), trimmed\)\);[\s\S]*set\(\{ apiKey: "", activeCredentialStatus: "error" \}\);[\s\S]*throw error;/);
   assert.match(storeSource, /readRuntimePlatformState\(\)\.isAndroid\s*&& !poolAssignment\s*&& !runningHubBridgeSubmit/);
   assert.match(storeSource, /submittedAPIKey = await GetStoredAPIKey\(keyringUserFor\(activeProfile\.id\)\)/);
-  assert.match(storeSource, /set\(\{ apiKey: "", errorMessage: error\?\.message/);
+  assert.match(storeSource, /set\(\{ apiKey: "", activeCredentialStatus: "error", errorMessage: error\?\.message/);
 });
 
 test("native submit rejects unsafe requests and returns the persisted idempotent group", () => {

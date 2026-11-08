@@ -1,5 +1,5 @@
 import { Dices, X } from "lucide-react";
-import type { OutputFormatValue } from "../../types/domain";
+import type { ImageBackgroundMode, OutputFormatValue } from "../../types/domain";
 import { OUTPUT_FORMAT_OPTIONS } from "../../types/domain";
 import { Modal } from "../../components/common/Modal";
 import { vibrateForPlatform } from "./bridge";
@@ -8,6 +8,7 @@ export function AndroidAdvancedSection({
   advancedOpen,
   negativePrompt,
   outputFormat,
+  imageBackgroundMode,
   seed,
   setAdvancedOpen,
   setField,
@@ -16,6 +17,7 @@ export function AndroidAdvancedSection({
   advancedOpen: boolean;
   negativePrompt: string;
   outputFormat: OutputFormatValue;
+  imageBackgroundMode: ImageBackgroundMode;
   seed: number;
   setAdvancedOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setField: (key: string, value: any) => void;
@@ -26,7 +28,10 @@ export function AndroidAdvancedSection({
     setAdvancedOpen(true);
   };
   const negativeState = negativePrompt.trim() ? "已填写" : "未填写";
-  const outputFormatLabel = OUTPUT_FORMAT_OPTIONS.find((item) => item.value === outputFormat)?.label ?? outputFormat;
+  const transparentOutput = imageBackgroundMode === "transparent";
+  const outputFormatLabel = transparentOutput
+    ? "PNG · 透明锁定"
+    : OUTPUT_FORMAT_OPTIONS.find((item) => item.value === outputFormat)?.label ?? outputFormat;
   const title = surface === "pad" ? "3 项高级设置" : "负向提示词、Seed 与输出格式";
   const negativeLabel = surface === "pad" ? "负向" : "负向提示词";
 
@@ -71,6 +76,7 @@ export function AndroidAdvancedSection({
         <AndroidAdvancedEditor
           negativePrompt={negativePrompt}
           outputFormat={outputFormat}
+          transparentOutput={transparentOutput}
           seed={seed}
           setField={setField}
         />
@@ -82,11 +88,13 @@ export function AndroidAdvancedSection({
 function AndroidAdvancedEditor({
   negativePrompt,
   outputFormat,
+  transparentOutput,
   seed,
   setField,
 }: {
   negativePrompt: string;
   outputFormat: OutputFormatValue;
+  transparentOutput: boolean;
   seed: number;
   setField: (key: string, value: any) => void;
 }) {
@@ -109,16 +117,24 @@ function AndroidAdvancedEditor({
             <button
               key={item.value}
               type="button"
+              disabled={transparentOutput && item.value !== "png"}
               onClick={() => {
+                if (transparentOutput && item.value !== "png") return;
                 vibrateForPlatform(5);
                 setField("outputFormat", item.value as OutputFormatValue);
               }}
-              className={`android-choice-chip ${outputFormat === item.value ? "active" : ""}`}
+              className={`android-choice-chip ${
+                (transparentOutput ? item.value === "png" : outputFormat === item.value) ? "active" : ""
+              }`}
+              title={transparentOutput && item.value !== "png" ? "透明 PNG 模式下输出格式已锁定为 PNG" : item.label}
             >
               {item.label}
             </button>
           ))}
         </div>
+        {transparentOutput ? (
+          <p className="android-phone-format-lock-note">透明 PNG 模式已锁定输出格式；切回普通图像后可重新选择 JPEG 或 WebP。</p>
+        ) : null}
       </div>
 
       <div className="android-phone-advanced-section">

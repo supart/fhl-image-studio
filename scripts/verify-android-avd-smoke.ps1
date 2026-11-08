@@ -18,6 +18,21 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+function Get-Sha256Hex {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  $native = Get-Command Get-FileHash -ErrorAction SilentlyContinue
+  if ($null -ne $native) {
+    return ((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash).ToUpperInvariant()
+  }
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $stream = [IO.File]::OpenRead($Path)
+    try { return ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '').ToUpperInvariant() }
+    finally { $stream.Dispose() }
+  }
+  finally { $sha.Dispose() }
+}
 $resolvedApk = (Resolve-Path -LiteralPath $ApkPath).Path
 $resolvedTestApk = if ($AndroidTestApkPath.Trim()) {
   (Resolve-Path -LiteralPath $AndroidTestApkPath).Path
@@ -34,7 +49,7 @@ New-Item -ItemType Directory -Force -Path $resolvedOutput | Out-Null
 $reportPath = Join-Path $resolvedOutput "smoke-report.json"
 $logPath = Join-Path $resolvedOutput "redacted-submit-lines.log"
 $instrumentationLogPath = Join-Path $resolvedOutput "instrumentation.log"
-$apkHash = (Get-FileHash -LiteralPath $resolvedApk -Algorithm SHA256).Hash.ToUpperInvariant()
+$apkHash = Get-Sha256Hex -Path $resolvedApk
 $apkItem = Get-Item -LiteralPath $resolvedApk -Force
 
 function Resolve-Executable {
@@ -137,7 +152,7 @@ $report = [ordered]@{
   installed = $false
   instrumentation = [ordered]@{
     requested = [bool]$resolvedTestApk
-    testApkSha256 = if ($resolvedTestApk) { (Get-FileHash -LiteralPath $resolvedTestApk -Algorithm SHA256).Hash } else { "" }
+    testApkSha256 = if ($resolvedTestApk) { Get-Sha256Hex -Path $resolvedTestApk } else { "" }
     target = $resolvedInstrumentationTarget
     class = $InstrumentationClass.Trim()
     passed = $false

@@ -5,9 +5,12 @@ import {
 import {
   buildResponsesPayload as buildSharedResponsesPayload,
   normalizePartialImages,
+  repairSizeForOpenAI,
   promptWithBatchVariation,
   shouldSendExtendedImageParameters,
   shouldUseImagesNewAPICompat,
+  isTransparentImageRequest,
+  promptForImageRequest,
   supportsImagesResponseFormat,
 } from "../../../../../../shared/kernel/requestModel.js";
 import { normalizeBaseURL, normalizeImageModel } from "./common.ts";
@@ -23,6 +26,39 @@ export function buildResponsesPayload(
   return buildSharedResponsesPayload(payload, sourceDataURLs, { maskMimeType });
 }
 
+export function buildImagesGenerationPayload(
+  payload: RemoteGeneratePayload,
+): Record<string, unknown> {
+  const imageModel = normalizeImageModel(payload.imageModelID);
+  const rawSize = payload.size || "1024x1024";
+  const repairedPayload = repairSizeForOpenAI({ size: rawSize });
+  const body: Record<string, unknown> = {
+    model: imageModel,
+    prompt: promptForImageRequest(promptWithBatchVariation(payload), payload),
+    n: 1,
+    size: repairedPayload?.size || rawSize,
+    quality: payload.quality || "auto",
+    output_format: payload.outputFormat || "png",
+  };
+  if (isTransparentImageRequest(payload)) {
+    body.background = "transparent";
+    body.output_format = "png";
+  }
+  const useNewAPICompat = shouldUseImagesNewAPICompat(payload);
+  if (useNewAPICompat || supportsImagesResponseFormat(imageModel, "generate")) {
+    body.response_format = "b64_json";
+  }
+  if (!useNewAPICompat) {
+    body.stream = true;
+    body.partial_images = normalizePartialImages(payload.partialImages);
+  }
+  if (shouldSendExtendedImageParameters(payload.requestPolicy) && payload.seed) body.seed = payload.seed;
+  if (shouldSendExtendedImageParameters(payload.requestPolicy) && payload.negativePrompt.trim()) {
+    body.negative_prompt = payload.negativePrompt.trim();
+  }
+  return body;
+}
+
 export async function buildImagesRequestBody(
   request: RemoteJobRequest,
   sourceDataURLs: string[],
@@ -30,7 +66,9 @@ export async function buildImagesRequestBody(
   const baseURL = normalizeBaseURL(request.payload.baseURL);
   const mode = request.payload.mode === "edit" ? "edit" : "generate";
   const imageModel = normalizeImageModel(request.payload.imageModelID);
-  const size = request.payload.size || "864x1536";
+  const rawSize = request.payload.size || "1024x1024";
+  const repairedPayload = repairSizeForOpenAI({ size: rawSize });
+  const size = repairedPayload?.size || rawSize;
   const quality = request.payload.quality || "auto";
   const outputFormat = request.payload.outputFormat || "png";
   const includeExtended = shouldSendExtendedImageParameters(request.payload.requestPolicy);
@@ -54,12 +92,16 @@ export async function buildImagesRequestBody(
       const ext = imageExtensionForMimeType(maskMime);
       form.append("mask", new Blob([Uint8Array.from(atob(request.payload.maskB64), (ch) => ch.charCodeAt(0))], { type: maskMime }), `mask.${ext}`);
     }
-    form.append("prompt", promptWithBatchVariation(request.payload));
+    form.append("prompt", promptForImageRequest(promptWithBatchVariation(request.payload), request.payload));
     form.append("model", imageModel);
     form.append("n", "1");
     form.append("size", size);
     form.append("quality", quality);
     form.append("output_format", outputFormat);
+    if (isTransparentImageRequest(request.payload)) {
+      form.set("background", "transparent");
+      form.set("output_format", "png");
+    }
     if (useNewAPICompat || supportsImagesResponseFormat(imageModel, mode)) {
       form.append("response_format", "b64_json");
     }
@@ -72,23 +114,7 @@ export async function buildImagesRequestBody(
     return { url: `${baseURL}/v1/images/edits`, body: form };
   }
 
-  const payload: Record<string, unknown> = {
-    model: imageModel,
-    prompt: promptWithBatchVariation(request.payload),
-    n: 1,
-    size,
-    quality,
-    output_format: outputFormat,
-  };
-  if (useNewAPICompat || supportsImagesResponseFormat(imageModel, mode)) {
-    payload.response_format = "b64_json";
-  }
-  if (!useNewAPICompat) {
-    payload.stream = true;
-    payload.partial_images = partialImages;
-  }
-  if (includeExtended && request.payload.seed) payload.seed = request.payload.seed;
-  if (includeExtended && request.payload.negativePrompt.trim()) payload.negative_prompt = request.payload.negativePrompt.trim();
+  const payload = buildImagesGenerationPayload(request.payload);
   return {
     url: `${baseURL}/v1/images/generations`,
     headers: { "Content-Type": "application/json" },

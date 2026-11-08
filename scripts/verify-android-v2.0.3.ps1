@@ -14,6 +14,21 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $officialReleaseCertificateSha256 = "6b04a805e50cf66e37c740ad0336bbdf6445653f93802005967babf472e8da36"
 
+function Get-Sha256Hex {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  $native = Get-Command Get-FileHash -ErrorAction SilentlyContinue
+  if ($null -ne $native) {
+    return ((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash).ToUpperInvariant()
+  }
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $stream = [IO.File]::OpenRead($Path)
+    try { return ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '').ToUpperInvariant() }
+    finally { $stream.Dispose() }
+  }
+  finally { $sha.Dispose() }
+}
+
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $executionRoot = $repoRoot
 if ($Stage -eq "Release") {
@@ -551,7 +566,7 @@ try {
       $debugApkMetadata = [ordered]@{
         path = $debugApk
         sizeBytes = (Get-Item -LiteralPath $debugApk).Length
-        sha256 = (Get-FileHash -LiteralPath $debugApk -Algorithm SHA256).Hash
+        sha256 = Get-Sha256Hex -Path $debugApk
         applicationId = Read-StepOutput "debug-manifest-applicationId"
         versionName = Read-StepOutput "debug-manifest-versionName"
         versionCode = Read-StepOutput "debug-manifest-versionCode"
@@ -621,7 +636,7 @@ try {
       $releaseApkMetadata = [ordered]@{
         path = $releaseApk
         sizeBytes = (Get-Item -LiteralPath $releaseApk).Length
-        sha256 = (Get-FileHash -LiteralPath $releaseApk -Algorithm SHA256).Hash
+        sha256 = Get-Sha256Hex -Path $releaseApk
         applicationId = Read-StepOutput "release-manifest-applicationId"
         versionName = Read-StepOutput "release-manifest-versionName"
         versionCode = Read-StepOutput "release-manifest-versionCode"

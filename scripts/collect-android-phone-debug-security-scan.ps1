@@ -10,6 +10,21 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+function Get-Sha256Hex {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  $native = Get-Command Get-FileHash -ErrorAction SilentlyContinue
+  if ($null -ne $native) {
+    return ((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash).ToUpperInvariant()
+  }
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $stream = [IO.File]::OpenRead($Path)
+    try { return ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '').ToUpperInvariant() }
+    finally { $stream.Dispose() }
+  }
+  finally { $sha.Dispose() }
+}
 $resolvedRepo = (Resolve-Path -LiteralPath $RepoRoot).Path
 $resolvedApk = (Resolve-Path -LiteralPath $ApkPath).Path
 $outputParent = Split-Path -Parent $OutputJson
@@ -97,7 +112,7 @@ function Test-TextCandidate {
 }
 
 $script:AdbExecutable = Resolve-Executable -Name $Adb
-$apkHash = (Get-FileHash -LiteralPath $resolvedApk -Algorithm SHA256).Hash.ToUpperInvariant()
+$apkHash = Get-Sha256Hex -Path $resolvedApk
 $apkItem = Get-Item -LiteralPath $resolvedApk -Force
 
 $safetyCommand = Join-Path $resolvedRepo "scripts\check-android-release-safety.ps1"

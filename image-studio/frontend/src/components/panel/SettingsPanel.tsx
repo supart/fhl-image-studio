@@ -43,7 +43,7 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
     pruneHistoryOlderThanDays,
     setTheme, setFontScale,
     pushToast,
-    apiKey, baseURL, apiMode, fhlTransportMode,
+    apiKey, activeCredentialStatus, baseURL, apiMode, fhlTransportMode,
     profiles, activeProfileId, setActiveProfile,
     openUpstreamConfig, testAPIKey, isTestingKey,
   } = useStudioStore();
@@ -136,6 +136,7 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
     <AndroidSettingsPanel
       activeProfile={activeProfile}
       activeProfileId={activeProfileId}
+      activeCredentialStatus={activeCredentialStatus}
       apiMode={apiMode}
       clearAPIKey={() => void clearAPIKey()}
       clearHistory={() => void clearHistory()}

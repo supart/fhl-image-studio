@@ -2,7 +2,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ensureAPIMartAsyncProfile, focusAPIMartAPIKeyInput } from "../../../lib/apimartAPI";
 import { validateAPIKeyForHeader } from "../../../lib/apiKey";
 import { ensureFHLImagesProfile, ensureFHLResponsesProfile, focusFHLAPIKeyInput } from "../../../lib/fhlAPI";
-import { chooseAndroidTextModel, isOfficialFHLTextProfile, keyringUserFor } from "../../../lib/profiles";
+import {
+  imageModelIsValidated,
+  imageModelProviderForProfile,
+  loadImageModelCatalog,
+} from "../../../lib/fhlImageModels";
+import {
+  chooseAndroidTextModel,
+  isOfficialFHLPoolProfile,
+  isOfficialFHLTextProfile,
+  keyringUserFor,
+} from "../../../lib/profiles";
 import { useStudioStore } from "../../../state/studioStore";
 import type { APIMode, RequestPolicy, UpstreamProfile } from "../../../types/domain";
 import { GetStoredAPIKey, probeCurrentUpstream, ReadClipboardText } from "../../runtime/host";
@@ -67,6 +77,15 @@ export function useAndroidUpstreamConfig(open: boolean) {
   const [textModelsLoading, setTextModelsLoading] = useState(false);
   const textModelFetchVersion = useRef(0);
 
+  function imageProviderFor(profile: UpstreamProfile | null | undefined): string {
+    return imageModelProviderForProfile(profile);
+  }
+
+  function cachedImageCatalogFor(profile: UpstreamProfile | null | undefined) {
+    if (!profile || !isOfficialFHLPoolProfile(profile)) return null;
+    return loadImageModelCatalog(profile.baseURL, imageProviderFor(profile));
+  }
+
   function clearTextModels() {
     textModelFetchVersion.current += 1;
     setTextModels([]);
@@ -76,6 +95,7 @@ export function useAndroidUpstreamConfig(open: boolean) {
   function loadKeyForProfile(profileId: string) {
     let cancelled = false;
     clearTextModels();
+    const profile = useStudioStore.getState().profiles.find((item) => item.id === profileId) ?? null;
     setDraftKey("");
     setShowKey(false);
     setSavedKeyLoaded(false);
@@ -149,7 +169,6 @@ export function useAndroidUpstreamConfig(open: boolean) {
     && (draft.apiMode === "runninghub" || !!draftKey.trim() || savedKeyPresent)
     && savedKeyLoaded
     && !saving;
-
   function patchDraft(patch: Partial<UpstreamProfile>) {
     if (patch.baseURL !== undefined && patch.baseURL !== draft?.baseURL) clearTextModels();
     setDraft((current) => (current ? { ...current, ...patch } : current));
@@ -262,6 +281,10 @@ export function useAndroidUpstreamConfig(open: boolean) {
         baseURL: draft.baseURL,
         textModelID: draft.textModelID,
         imageModelID: draft.imageModelID,
+        imageModelValidatedAt: draft.imageModelValidatedAt,
+        imageModelCatalogBaseUrl: draft.imageModelCatalogBaseUrl,
+        imageModelCatalogProvider: draft.imageModelCatalogProvider,
+        provider: draft.provider,
         concurrencyLimit: draft.concurrencyLimit,
         imagesNewAPICompat: draft.apiMode === "images" && draft.imagesNewAPICompat === true,
         ...(draft.apiMode !== "runninghub" && nextKey ? { apiKey: nextKey } : {}),
@@ -304,16 +327,23 @@ export function useAndroidUpstreamConfig(open: boolean) {
     setTimeout(() => { void testProfileConnection(draft.id); }, 0);
   }
 
-  async function handlePasteKey() {
+  async function handlePasteKey(pastedText?: string) {
+    let text = "";
     try {
-      const text = await ReadClipboardText();
+      text = pastedText === undefined ? await ReadClipboardText() : pastedText;
       if (!text.trim()) {
         pushToast("剪贴板里没有文本", "warn");
         return;
       }
       handleChangeDraftKey(text.trim());
-    } catch (error: any) {
-      pushToast(`读取剪贴板失败：${error?.message ?? error}`, "error", 5000);
+    } catch {
+      pushToast(
+        pastedText === undefined ? "读取剪贴板失败，请重试。" : "粘贴内容读取失败，请重试。",
+        "error",
+        5000,
+      );
+    } finally {
+      text = "";
     }
   }
 
@@ -336,6 +366,7 @@ export function useAndroidUpstreamConfig(open: boolean) {
     handleUseExistingAPIMartAPI,
     handleUseExistingFHLAPI,
     isTestingKey,
+    imageModelValidated: imageModelIsValidated(draft, cachedImageCatalogFor(draft)),
     openProfileForEditing: selectProfileForEditing,
     patchDraft,
     profiles,

@@ -2,6 +2,7 @@ import type {
   HistoryItem,
   Mode,
   OutputFormatValue,
+  ImageBackgroundMode,
   QualityValue,
   SizeValue,
   StreamPreview,
@@ -34,6 +35,7 @@ export type StreamPreviewSnapshot = {
   size: SizeValue;
   quality: QualityValue;
   outputFormat: OutputFormatValue;
+  imageBackgroundMode?: ImageBackgroundMode;
   currentImage: HistoryItem | null;
   batchIndex?: number;
 };
@@ -72,6 +74,7 @@ export function streamPreviewItemFromPayload(
     size: snapshot.size,
     quality: snapshot.quality,
     outputFormat: snapshot.outputFormat,
+    imageBackgroundMode: snapshot.imageBackgroundMode ?? "standard",
     parentId: mode === "edit" ? snapshot.currentImage?.savedPath : undefined,
     createdAt: Date.now(),
     batchIndex: snapshot.batchIndex,
@@ -183,6 +186,7 @@ export function streamPreviewItemFromWorkspace(
     size: workspace.size,
     quality: workspace.quality,
     outputFormat: workspace.outputFormat,
+    imageBackgroundMode: workspace.imageBackgroundMode ?? "standard",
     currentImage,
     batchIndex: preview.batchIndex,
   });

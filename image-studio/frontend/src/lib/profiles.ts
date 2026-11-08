@@ -2,6 +2,10 @@ import type { APIMode, RequestPolicy, UpstreamProfile } from "../types/domain";
 import { bestEffortUUID } from "./runtimeCompat.ts";
 import { STORAGE_NAMESPACE, storageKey } from "./storageNamespace.ts";
 import { isOfficialFHLProfile, normalizeProviderBaseURL } from "./providerPolicy.ts";
+import {
+  imageModelCatalogBaseUrl,
+  imageModelCatalogProvider,
+} from "./fhlImageModels.ts";
 
 // localStorage 键名规范:
 //   gptcodex.profiles        —— UpstreamProfile[] JSON(无 apiKey,key 在 keyring)
@@ -374,6 +378,17 @@ export function tryParseProfile(raw: unknown): UpstreamProfile | null {
   const baseURL = typeof o.baseURL === "string" ? o.baseURL : "";
   const textModelID = typeof o.textModelID === "string" ? o.textModelID : "";
   const imageModelID = typeof o.imageModelID === "string" ? o.imageModelID : "";
+  const rawValidatedAt = Number(o.imageModelValidatedAt);
+  const imageModelValidatedAt = Number.isFinite(rawValidatedAt) && rawValidatedAt > 0
+    ? Math.floor(rawValidatedAt)
+    : undefined;
+  const storedImageModelCatalogBaseUrl = typeof o.imageModelCatalogBaseUrl === "string"
+    ? imageModelCatalogBaseUrl(o.imageModelCatalogBaseUrl)
+    : undefined;
+  const storedImageModelCatalogProvider = typeof o.imageModelCatalogProvider === "string"
+    && o.imageModelCatalogProvider.trim()
+    ? imageModelCatalogProvider(o.imageModelCatalogProvider)
+    : undefined;
   const rawConcurrencyLimit = typeof o.concurrencyLimit === "number" && o.concurrencyLimit >= 0
     ? Math.floor(o.concurrencyLimit) : 0;
   const storedFHLPoolSlot = isOfficialFHLProfile({ apiMode, baseURL })
@@ -400,6 +415,9 @@ export function tryParseProfile(raw: unknown): UpstreamProfile | null {
     baseURL,
     textModelID,
     imageModelID,
+    imageModelValidatedAt,
+    imageModelCatalogBaseUrl: storedImageModelCatalogBaseUrl || undefined,
+    imageModelCatalogProvider: storedImageModelCatalogProvider || undefined,
     concurrencyLimit,
     continuousPoolEnabled,
     fhlImagesPoolSlot,
@@ -465,5 +483,8 @@ export function duplicateProfile(p: UpstreamProfile): UpstreamProfile {
     lastUsedAt: undefined,
     fhlImagesPoolSlot: undefined,
     fhlImagesPoolKeyHint: undefined,
+    imageModelValidatedAt: undefined,
+    imageModelCatalogBaseUrl: undefined,
+    imageModelCatalogProvider: undefined,
   };
 }

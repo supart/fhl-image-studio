@@ -21,6 +21,7 @@ import { nativeHttpRequestText } from "./nativeHttp.ts";
 import { queryAPIMartTaskRemote, requestAPIMartOnce } from "./apimart.ts";
 import { requestImagesOnce } from "./images.ts";
 import { requestResponsesOnce } from "./responses.ts";
+import { validateTransparentPNGBase64 } from "./transparentOutput.ts";
 import {
   MAX_ATTEMPTS,
   RETRY_BACKOFF_MS,
@@ -34,6 +35,15 @@ import {
 
 export * from "./types.ts";
 export { queryAPIMartTaskRemote };
+
+async function validateFinalImageIfNeeded(
+  request: RemoteJobRequest,
+  result: RemoteJobResult,
+): Promise<RemoteJobResult> {
+  if (request.payload.imageBackgroundMode !== "transparent") return result;
+  await validateTransparentPNGBase64(result.imageB64, result.rawPath);
+  return result;
+}
 
 function stableSizeForRetry(size: string): string {
   switch (size) {
@@ -106,12 +116,21 @@ export async function runRemoteImageJob(
     try {
       const apiMode = normalizeAPIMode(attemptRequest.payload.apiMode);
       if (apiMode === "images") {
-        return await requestImagesOnce(attemptRequest, attempt, callbacks);
+        return await validateFinalImageIfNeeded(
+          attemptRequest,
+          await requestImagesOnce(attemptRequest, attempt, callbacks),
+        );
       }
       if (apiMode === "apimart") {
-        return await requestAPIMartOnce(attemptRequest, attempt, callbacks);
+        return await validateFinalImageIfNeeded(
+          attemptRequest,
+          await requestAPIMartOnce(attemptRequest, attempt, callbacks),
+        );
       }
-      return await requestResponsesOnce(attemptRequest, attempt, callbacks);
+      return await validateFinalImageIfNeeded(
+        attemptRequest,
+        await requestResponsesOnce(attemptRequest, attempt, callbacks),
+      );
     } catch (error) {
       if (callbacks.signal.aborted) throw error;
       const typed = error instanceof RemoteKernelError

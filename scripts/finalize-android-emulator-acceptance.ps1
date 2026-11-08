@@ -37,6 +37,27 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+function Get-Sha256Hex {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $native = Get-Command Get-FileHash -ErrorAction SilentlyContinue
+    if ($null -ne $native) {
+        return ((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash).ToUpperInvariant()
+    }
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [IO.File]::OpenRead($Path)
+        try {
+            return ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '').ToUpperInvariant()
+        }
+        finally {
+            $stream.Dispose()
+        }
+    }
+    finally {
+        $sha.Dispose()
+    }
+}
+
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $officialCertificate = "6B04A805E50CF66E37C740AD0336BBDF6445653F93802005967BABF472E8DA36"
 $formalPackage = "top.fangtangyuan.fhlstudio.android"
@@ -46,8 +67,8 @@ $expectedApkHash = $ExpectedApkSha256.ToUpperInvariant()
 $expectedCommit = $ExpectedGitCommit.ToLowerInvariant()
 $expectedServiceIdentity = "android-V2.0.3-$expectedCommit-$ExpectedBuildId"
 $verifierScriptPath = Join-Path $PSScriptRoot "verify-android-phone-debug-base.ps1"
-$verifierScriptHash = (Get-FileHash -LiteralPath $verifierScriptPath -Algorithm SHA256).Hash.ToUpperInvariant()
-$aggregatorScriptHash = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToUpperInvariant()
+$verifierScriptHash = Get-Sha256Hex -Path $verifierScriptPath
+$aggregatorScriptHash = Get-Sha256Hex -Path $PSCommandPath
 $repoHead = ((& git -C $repoRoot rev-parse HEAD 2>$null) -join "").Trim().ToLowerInvariant()
 if ($LASTEXITCODE -ne 0 -or $repoHead -ne $expectedCommit) {
     throw "Acceptance aggregation requires the repository HEAD to match ExpectedGitCommit."
@@ -144,7 +165,7 @@ function Assert-FileEntry {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Manifest artifact is missing: $fileName" }
     $item = Get-Item -LiteralPath $path -Force
     if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Manifest artifacts cannot be reparse points." }
-    $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToUpperInvariant()
+    $hash = Get-Sha256Hex -Path $path
     if ([long]$Entry.sizeBytes -ne [long]$item.Length -or (Normalize-Hash $Entry.sha256) -ne $hash) {
         throw "Manifest artifact size or SHA-256 changed: $fileName"
     }
@@ -489,10 +510,10 @@ function Read-RunEvidence {
         acceptanceRole = $Role
         scenario = [string]$report.scenario
         tasks = $expectedJobs
-        manifestSha256 = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToUpperInvariant()
-        reportSha256 = (Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToUpperInvariant()
-        attemptsSha256 = (Get-FileHash -LiteralPath $attemptsPath -Algorithm SHA256).Hash.ToUpperInvariant()
-        releaseLogcatSha256 = (Get-FileHash -LiteralPath $logcatPath -Algorithm SHA256).Hash.ToUpperInvariant()
+        manifestSha256 = Get-Sha256Hex -Path $manifestPath
+        reportSha256 = Get-Sha256Hex -Path $reportPath
+        attemptsSha256 = Get-Sha256Hex -Path $attemptsPath
+        releaseLogcatSha256 = Get-Sha256Hex -Path $logcatPath
         device = [string]$report.device
         deviceMetadata = $report.deviceMetadata
         runtimeMetrics = $runtimeMetrics
@@ -665,7 +686,7 @@ function Verify-AggregateReport {
     if ([int]$manifest.schemaVersion -ne 1 -or [string]$manifest.generator -ne "finalize-android-emulator-acceptance.ps1" -or
         (Normalize-Hash $manifest.aggregatorScriptSha256) -ne $aggregatorScriptHash -or
         ([string]$manifest.aggregatorGitCommit).ToLowerInvariant() -ne $expectedCommit -or
-        (Normalize-Hash $manifest.report.sha256) -ne (Get-FileHash -LiteralPath $resolvedReport -Algorithm SHA256).Hash.ToUpperInvariant() -or
+        (Normalize-Hash $manifest.report.sha256) -ne (Get-Sha256Hex -Path $resolvedReport) -or
         [long]$manifest.report.sizeBytes -ne (Get-Item -LiteralPath $resolvedReport).Length) {
         throw "Aggregate evidence manifest does not bind the aggregate report and approved aggregator."
     }
@@ -717,7 +738,7 @@ if ($Mode -eq "Create") {
         report = [ordered]@{
             path = $aggregateFileName
             sizeBytes = [long]$reportItem.Length
-            sha256 = (Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToUpperInvariant()
+            sha256 = Get-Sha256Hex -Path $reportPath
         }
         inputManifests = @($runs | ForEach-Object { [ordered]@{ relativeDirectory = $_.relativeDirectory; sha256 = $_.manifestSha256 } })
     }

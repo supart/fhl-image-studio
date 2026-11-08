@@ -139,7 +139,7 @@ test("Android submit allows appending only when continuous mode is enabled", () 
   assert.match(store, /const appendingContinuousRun = s\.isRunning && s\.continuousGenerateTest === true/);
   assert.match(store, /s\.isRunning && !s\.continuousGenerateTest/);
   assert.match(store, /连续生成模式关闭时不会并发提交/);
-  assert.match(store, /const selectedBatchCount = normalizeBatchCount\(s\.batchCount\);/);
+  assert.match(store, /const selectedBatchCount = frozenReplay \? 1 : normalizeBatchCount\(s\.batchCount\);/);
   assert.match(store, /const requestedBatchCount = s\.continuousGenerateTest === true \? 1 : selectedBatchCount;/);
   assert.match(store, /batchCount: selectedBatchCount/);
   assert.match(store, /batchCount = available/);

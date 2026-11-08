@@ -171,20 +171,25 @@ test("compat matrix audits the actual generated synthetic keys and their tails",
 });
 
 test("single-slot multiline or multi-key clipboard content is routed into the bulk dialog", () => {
+  const stagePasteBlock = pool.slice(
+    pool.indexOf("function stageSlotClipboardText"),
+    pool.indexOf("async function pasteSlot"),
+  );
   const singlePasteBlock = pool.slice(
     pool.indexOf("async function pasteSlot"),
     pool.indexOf("function openBulkPasteDialog"),
   );
-  assert.match(singlePasteBlock, /parsed\.inputTooLarge/);
-  assert.match(singlePasteBlock, /\/\\r\|\\n\/\.test\(text\)/);
-  assert.match(singlePasteBlock, /tokenCount > 1/);
-  assert.match(singlePasteBlock, /bulkPasteDialogRef\.current\?\.stageParsedResult\(parsed, text\.length > 0\)/);
-  assert.match(singlePasteBlock, /text = "";\s*openBulkPasteDialog\(\)/);
+  assert.match(stagePasteBlock, /parsed\.inputTooLarge/);
+  assert.match(stagePasteBlock, /\/\\r\|\\n\/\.test\(text\)/);
+  assert.match(stagePasteBlock, /tokenCount > 1/);
+  assert.match(stagePasteBlock, /bulkPasteDialogRef\.current\?\.stageParsedResult\(parsed, text\.length > 0\)/);
+  assert.match(stagePasteBlock, /openBulkPasteDialog\(\)/);
+  assert.match(singlePasteBlock, /stageSlotClipboardText\(index, text\)/);
   assert.equal((singlePasteBlock.match(/ReadClipboardText\(\)/g) ?? []).length, 1);
   assert.match(singlePasteBlock, /finally \{\s*text = "";/);
-  assert.match(singlePasteBlock, /if \(parsed\.keys\.length !== 1\)/);
-  assert.match(singlePasteBlock, /当前槽位未修改/);
-  assert.match(singlePasteBlock, /patchSlot\(index, parsed\.keys\[0\]\)/);
+  assert.match(stagePasteBlock, /if \(parsed\.keys\.length !== 1\)/);
+  assert.match(stagePasteBlock, /当前槽位未修改/);
+  assert.match(stagePasteBlock, /patchSlot\(index, parsed\.keys\[0\]\)/);
 });
 
 test("Escape and parent close prefer the bulk child layer", () => {

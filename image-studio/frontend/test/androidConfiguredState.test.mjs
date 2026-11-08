@@ -10,6 +10,7 @@ const padCompose = readFileSync(new URL("../src/platform/android/AndroidPadCompo
 const quickProfileSheet = readFileSync(new URL("../src/platform/android/AndroidQuickProfileSheet.tsx", import.meta.url), "utf8");
 const brandAboutSheet = readFileSync(new URL("../src/platform/android/AndroidBrandAboutSheet.tsx", import.meta.url), "utf8");
 const store = readFileSync(new URL("../src/state/studioStore.ts", import.meta.url), "utf8");
+const runtime = readFileSync(new URL("../src/state/studioStore.runtime.ts", import.meta.url), "utf8");
 const layoutCss = readFileSync(new URL("../src/styles/_layout.css", import.meta.url), "utf8");
 const upstreamConfig = readFileSync(new URL("../src/platform/android/upstream/useAndroidUpstreamConfig.ts", import.meta.url), "utf8");
 const upstreamHeader = readFileSync(new URL("../src/platform/android/upstream/AndroidUpstreamHeader.tsx", import.meta.url), "utf8");
@@ -25,23 +26,31 @@ const runningHubChoiceModal = readFileSync(new URL("../src/components/panel/Runn
 const runningHubQuickConfigModal = readFileSync(new URL("../src/components/panel/RunningHubQuickConfigModal.tsx", import.meta.url), "utf8");
 const fhlAPI = readFileSync(new URL("../src/lib/fhlAPI.ts", import.meta.url), "utf8");
 const profiles = readFileSync(new URL("../src/lib/profiles.ts", import.meta.url), "utf8");
+const bootstrapHook = readFileSync(new URL("../src/app/hooks/useStudioBootstrap.ts", import.meta.url), "utf8");
 
 test("Android header configured state accepts API key or RunningHub bridge", () => {
   assert.match(header, /activeProfileUsesBridgeKey = activeProfile\?\.apiMode === "runninghub"/);
   assert.match(header, /isRunningHubBaseURL\(activeProfile\.baseURL\)/);
   assert.match(header, /const hasConfiguredAPIKey = apiKey\.trim\(\)\.length > 0 \|\| activeProfileUsesBridgeKey;/);
+  assert.match(header, /const credentialChecking = activeCredentialStatus === "checking";/);
+  assert.match(header, /const credentialPending = activeCredentialStatus === "unknown" \|\| credentialChecking;/);
+  assert.match(header, /credentialChecking[\s\S]*\? "确认中"/);
   assert.match(header, /activeProfile\?\.apiMode === "runninghub"[\s\S]*\? "RH"/);
 });
 
 test("Android compose setup gate accepts API key or RunningHub bridge", () => {
   for (const source of [phoneCompose, padCompose]) {
     assert.match(source, /const hasAPIKey = apiKey\.trim\(\)\.length > 0;/);
+    assert.match(source, /const credentialChecking = activeCredentialStatus === "checking";/);
+    assert.match(source, /const credentialPending = activeCredentialStatus === "unknown" \|\| credentialChecking;/);
     assert.match(source, /const hasBaseURL = baseURL\.trim\(\)\.length > 0;/);
     assert.match(source, /const runningHubBridgeConfigured = apiMode === "runninghub" && hasBaseURL;/);
-    assert.match(source, /const hasUsableUpstream = hasAPIKey \|\| runningHubBridgeConfigured;/);
+    assert.match(source, /const hasUsableUpstream = hasAPIKey \|\| runningHubBridgeConfigured \|\| credentialPending;/);
+    assert.match(source, /const canSubmitUpstream = hasAPIKey \|\| runningHubBridgeConfigured;/);
     assert.match(source, /const needsUpstreamSetup = !hasUsableUpstream;/);
     assert.match(source, /const needsBaseURLSetup = hasUsableUpstream && !hasBaseURL;/);
-    assert.match(source, /disabled=\{!hasUsableUpstream \|\| !hasBaseURL \|\| !effectivePromptReady\}/);
+    assert.match(source, /disabled=\{!canSubmitUpstream \|\| !hasBaseURL \|\| !effectivePromptReady\}/);
+    assert.match(source, /正在确认 API 凭据/);
     assert.doesNotMatch(source, /const needsUpstreamSetup = !apiKey\.trim\(\) \|\| !baseURL\.trim\(\);/);
   }
 });
@@ -50,7 +59,11 @@ test("Android settings shows configured by API key or RunningHub bridge", () => 
   assert.match(settingsPanel, /const runningHubBridgeConfigured = apiMode === "runninghub" && !!baseURL\.trim\(\);/);
   assert.match(settingsPanel, /const upstreamReady = !!apiKey\.trim\(\) \|\| runningHubBridgeConfigured;/);
   assert.match(settingsPanel, /const canTestUpstream = upstreamReady && !!baseURL\.trim\(\);/);
+  assert.match(settingsPanel, /activeCredentialStatus=\{activeCredentialStatus\}/);
   assert.match(settingsPanel, /canTestUpstream=\{canTestUpstream\}/);
+  assert.match(androidSettings, /const credentialChecking = activeCredentialStatus === "checking";/);
+  assert.match(androidSettings, /const credentialPending = activeCredentialStatus === "unknown" \|\| credentialChecking;/);
+  assert.match(androidSettings, /credentialPending \? "上游凭据确认中"/);
   assert.match(androidSettings, /canTestUpstream: boolean;/);
   assert.match(androidSettings, /disabled=\{!canTestUpstream \|\| isTestingKey\}/);
 });
@@ -97,7 +110,7 @@ test("Android header brand opens about sheet with fork and original GitHub links
   assert.match(header, /onOpenOriginalRepo=\{\(\) => openAndroidExternal\(ANDROID_ORIGINAL_REPO_URL\)\}/);
   assert.match(brandAboutSheet, /ANDROID_FHL_REPO_URL = "https:\/\/github\.com\/supart\/fhl-image-studio"/);
   assert.match(brandAboutSheet, /ANDROID_ORIGINAL_REPO_URL = "https:\/\/github\.com\/RoseKhlifa\/Image-Studio"/);
-  assert.match(brandAboutSheet, /const ANDROID_BRAND_VERSION = "V2\.0\.4";/);
+  assert.match(brandAboutSheet, /const ANDROID_BRAND_VERSION = "V2\.0\.5";/);
   assert.match(brandAboutSheet, /方汤圆版 GitHub/);
   assert.match(brandAboutSheet, /原作者 GitHub/);
   assert.match(brandAboutSheet, /基于 RoseKhlifa\/Image-Studio 的独立修改发行版/);
@@ -105,34 +118,74 @@ test("Android header brand opens about sheet with fork and original GitHub links
 
 test("generation submit freezes pool assignment while preserving the selected non-pool profile", () => {
   assert.match(store, /const selectedActiveProfile = s\.profiles\.find\(\(p\) => p\.id === s\.activeProfileId\);/);
-  assert.match(store, /const useAndroidFHLPool = shouldUseAndroidFHLImagesPool\(\s*readRuntimePlatformState\(\)\.isAndroid,\s*s\.continuousGenerateTest === true,\s*selectedActiveProfile,\s*\);/);
+  assert.match(store, /const useAndroidFHLPool = !frozenReplay && shouldUseAndroidFHLImagesPool\(\s*readRuntimePlatformState\(\)\.isAndroid,\s*s\.continuousGenerateTest === true,\s*selectedActiveProfile,\s*\);/);
   assert.match(store, /let poolAssignment = null;[\s\S]*if \(useAndroidFHLPool\)[\s\S]*poolAssignment = await resolveAndroidFHLPoolAssignment\(s\.profiles\)/);
   assert.match(store, /API 凭据安全迁移失败，请重新配置该 API/);
   assert.match(store, /const apiKey = await GetStoredAPIKey\(keyringUserFor\(profile\.id\)\);/);
   assert.match(store, /const activeProfile = poolAssignment\?\.profile \?\? selectedActiveProfile;/);
-  assert.match(store, /const submitAPIMode = activeProfile\?\.apiMode \?\? s\.apiMode;/);
+  assert.match(store, /const submitAPIMode = frozenReplay\?\.apiMode \?\? activeProfile\?\.apiMode \?\? s\.apiMode;/);
   assert.match(store, /const submitBaseURL = activeProfile\?\.baseURL \?\? s\.baseURL;/);
   assert.match(store, /const submitRequestPolicy = activeProfile\?\.requestPolicy \?\? s\.requestPolicy;/);
   assert.match(store, /const runningHubBridgeSubmit = submitAPIMode === "runninghub" \|\| isRunningHubBaseURL\(submitBaseURL\);/);
   assert.match(store, /if \(!runningHubBridgeSubmit && !submittedAPIKey\.trim\(\)\)/);
   assert.match(store, /if \(!runningHubBridgeSubmit\) \{\s*try \{/);
-  assert.match(store, /const preliminaryAPIMode = effectiveAPIModeForSubmit\(s, activeProfile, submitAPIMode\);/);
+  assert.match(store, /const preliminaryAPIMode = frozenReplay\?\.apiMode\s*\?\? effectiveAPIModeForSubmit\(s, activeProfile, submitAPIMode\);/);
   assert.match(store, /effectiveProviderMode\(profile, fallbackMode, state\.fhlTransportMode, state\.baseURL\)/);
   assert.match(store, /const effectiveAPIMode = preliminaryAPIMode;/);
   assert.match(store, /baseURL: cleanedBaseURL/);
   assert.match(store, /apiMode: effectiveAPIMode/);
   assert.match(store, /const fhlImagesPoolSlot = normalizeFHLImagesPoolSlot\(/);
-  assert.match(store, /poolAssignment\?\.slot \?\? activeProfile\?\.fhlImagesPoolSlot/);
+  assert.match(store, /frozenReplay\?\.fhlImagesPoolSlot \?\? poolAssignment\?\.slot \?\? activeProfile\?\.fhlImagesPoolSlot/);
   assert.match(store, /fhlImagesPoolSlot,/);
   assert.match(store, /const resolvedSize = normalizeSizeSelection\(s\.size,/);
   assert.doesNotMatch(store, /normalizeFHLImagesBillingSize/);
 });
 
-test("Android startup migrates every stored profile credential and surfaces failures", () => {
-  assert.match(store, /if \(runtimePlatform\.isAndroid\) \{\s*for \(const profile of profiles\) \{/);
-  assert.match(store, /androidProfileKeys\.set\(profile\.id, await GetStoredAPIKey\(keyringUserFor\(profile\.id\)\)\)/);
-  assert.match(store, /androidCredentialMigrationError = error\?\.message \?\? "API 凭据安全迁移失败，请重新配置该 API"/);
-  assert.match(store, /errorMessage: androidCredentialMigrationError \|\|/);
+test("Android bootstrap commits metadata before deferred credential, history, output, and job work", () => {
+  const profilesReadyIndex = store.indexOf('markBootstrapStage("profiles-ready")');
+  const nextPaintIndex = store.indexOf("const nextPaintPromise = waitForNextPaint()", profilesReadyIndex);
+  const activeCredentialReadIndex = store.indexOf("const activeKey = await GetStoredAPIKey", profilesReadyIndex);
+  const historyReadIndex = store.indexOf("const historyPagePromise = loadHistoryPage", profilesReadyIndex);
+  const outputReadIndex = store.indexOf("const effectiveOutput = await GetOutputDir", profilesReadyIndex);
+  const jobReadIndex = store.indexOf("const response = await listJobGroups", profilesReadyIndex);
+  assert.ok(profilesReadyIndex >= 0);
+  assert.ok(nextPaintIndex > profilesReadyIndex, "the paint gate must be created after the shell commit");
+  for (const deferredIndex of [activeCredentialReadIndex, historyReadIndex, outputReadIndex, jobReadIndex]) {
+    assert.ok(deferredIndex > profilesReadyIndex, "deferred work must start after the profiles-ready commit");
+  }
+  assert.doesNotMatch(store, /androidProfileKeys/);
+  assert.doesNotMatch(store, /for \(const profile of profiles\)[\s\S]{0,240}GetStoredAPIKey/);
+  assert.match(store, /activeCredentialStatus: activeProfile[\s\S]*\? "present"[\s\S]*: "checking"/);
+  assert.match(store, /bootstrapEpoch !== studioBootstrapEpoch \|\| get\(\)\.activeProfileId !== expectedProfileId/);
+  assert.match(store, /await waitForCredentialMutations\(\);\s*const expectedCredentialRevision = currentCredentialMutationRevision\(\);/);
+  assert.match(store, /currentCredentialMutationRevision\(\) !== expectedCredentialRevision/);
+  assert.match(store, /history: \[\],[\s\S]*historyLoading: true/);
+  assert.match(store, /Promise\.allSettled\(\[[\s\S]*credentialTask[\s\S]*outputRootsTask[\s\S]*deferredContentTask/);
+  assert.match(store, /function markBootstrapStage\(stage: "start" \| "profiles-ready" \| "credential-ready"\)/);
+  assert.match(store, /performance\.mark\(`fhl-bootstrap-\$\{stage\}`\)/);
+  assert.match(store, /function waitForNextPaint\(\)[\s\S]*requestAnimationFrame[\s\S]*requestFrame\(\(\) => resolve\(\)\)[\s\S]*setTimeout/);
+  const localConfigTask = store.slice(store.indexOf("const localConfigTask"), store.indexOf("const credentialTask"));
+  const credentialTask = store.slice(store.indexOf("const credentialTask"), store.indexOf("const outputRootsTask"));
+  const outputRootsTask = store.slice(store.indexOf("const outputRootsTask"), store.indexOf("const deferredContentTask"));
+  const deferredContentTask = store.slice(store.indexOf("const deferredContentTask"), store.indexOf("await Promise.allSettled"));
+  for (const task of [localConfigTask, credentialTask, outputRootsTask, deferredContentTask]) {
+    assert.match(task, /async \(\) => \{\s*await nextPaintPromise;/, "deferred bootstrap tasks must yield to paint first");
+  }
+  assert.doesNotMatch(store, /performance\.mark\([\s\S]{0,100}(apiKey|profile\.name|baseURL)/);
+});
+
+test("Studio bootstrap is coalesced in the hook and store under React StrictMode", () => {
+  assert.match(bootstrapHook, /let bootstrapPromise: Promise<void> \| null = null;/);
+  assert.match(bootstrapHook, /if \(!bootstrapPromise\) \{/);
+  assert.match(bootstrapHook, /bootstrapPromise = bootstrap\(\)\.catch/);
+  assert.match(store, /if \(studioBootstrapInFlight\) return studioBootstrapInFlight;/);
+  assert.match(store, /const bootstrapEpoch = \+\+studioBootstrapEpoch;/);
+});
+
+test("Workspace persistence keeps the saved canvas while deferred history is loading", () => {
+  assert.match(runtime, /const historyHydrationPending = s\.historyLoading && s\.history\.length === 0 && s\.batchResults\.length === 0;/);
+  assert.match(runtime, /currentImageId: historyHydrationPending\s*\n\s*\? \(w\.currentImageId \?\? null\)/);
+  assert.match(runtime, /batchResultIds: historyHydrationPending\s*\n\s*\? \[\.\.\.\(w\.batchResultIds \?\? \[\]\)\]/);
 });
 
 test("FHL Responses custom aspect sizes stay on Responses API", () => {
@@ -222,7 +275,7 @@ test("Android FHL entry opens a ten-slot Images pool and keeps Responses separat
   assert.doesNotMatch(upstreamHeader, /onCreateImages/);
   assert.doesNotMatch(fhlAPI, /export async function ensureFHLResponsesProfile[\s\S]*return ensureFHLImagesProfile\(store\);/);
   assert.match(fhlAPI, /const fhlProfile = store\.profiles\.find\(isOfficialFHLTextProfile\)/);
-  assert.match(fhlAPI, /export async function ensureFHLImagesProfile[\s\S]*isOfficialFHLPoolProfile\(profile\)/);
+  assert.match(fhlAPI, /export async function ensureFHLImagesProfile[\s\S]*store\.profiles\.find\(isOfficialFHLPoolProfile\)/);
   assert.match(fhlAPI, /export async function ensureFHLResponsesProfile[\s\S]*apiMode: "responses"/);
   assert.match(fhlAPI, /textModelID: fhlProfile\.textModelID\.trim\(\) \|\| FHL_TEXT_MODEL_ID/);
   assert.match(fhlAPI, /export async function ensureFHLResponsesProfile[\s\S]*imagesNewAPICompat: false/);
@@ -234,7 +287,7 @@ test("Android FHL entry opens a ten-slot Images pool and keeps Responses separat
   assert.match(profiles, /export function makeFHLResponsesProfile[\s\S]*apiMode: "responses"/);
   assert.match(profiles, /export function makeFHLResponsesProfile[\s\S]*imagesNewAPICompat: false/);
   assert.match(store, /s\.profiles\s*\.filter\(isOfficialFHLTextProfile\)/);
-  assert.match(store, /const nextFHLAPIMode: APIMode = localFHLConfig\?\.apiMode \?\? profile\.apiMode;/);
+  assert.match(store, /const nextFHLAPIMode: APIMode = profile\.apiMode;/);
   assert.match(store, /apiMode: nextFHLAPIMode/);
   assert.match(store, /imagesNewAPICompat: nextFHLAPIMode === "images"/);
 });
@@ -265,9 +318,9 @@ test("Android RunningHub one-click opens choice and quick config before creating
 
 test("Android upstream starts with empty defaults and highlights one-click presets", () => {
   assert.match(store, /const runtimePlatform = readRuntimePlatformState\(\);/);
-  assert.match(store, /const shouldKeepAndroidProfilesEmpty = runtimePlatform\.isAndroid && !localFHLConfig;/);
-  assert.match(store, /profiles\.length === 1 && profiles\[0\]\?\.id === FHL_PROFILE_ID/);
-  assert.match(store, /const storedDefaultKey = await GetStoredAPIKey\(keyringUserFor\(profiles\[0\]\.id\)\)\.catch\(\(\) => ""\);/);
+  assert.match(store, /const shouldKeepAndroidProfilesEmpty = runtimePlatform\.isAndroid;/);
+  assert.match(store, /get\(\)\.profiles\.length === 1[\s\S]*get\(\)\.profiles\[0\]\?\.id === FHL_PROFILE_ID/);
+  assert.match(store, /const activeKey = await GetStoredAPIKey\(keyringUserFor\(expectedProfileId\)\);/);
   assert.match(store, /profiles\.length === 0 && !shouldKeepAndroidProfilesEmpty/);
   assert.doesNotMatch(store, /if \(profiles\.length === 0\) \{\s*const profile = makeFHLResponsesProfile\(\);/);
   assert.match(upstreamHeader, /option\.id === "fhl-images" \? "android-upstream-onekey-button" : ""/);
@@ -285,6 +338,100 @@ test("Android FHL bulk paste stays responsive and marks unsaved slots without ex
   for (const forbiddenDisplay of ["parsed.keys.join", "text.slice", "displayKeyHint(parsed"]) {
     assert.ok(!fhlPoolConfig.includes(forbiddenDisplay));
   }
+});
+
+test("Android FHL unified model panel is fixed and auto-validates the enabled pool", () => {
+  assert.doesNotMatch(fhlPoolConfig, /统一获取并配置生图模型/);
+  const summaryBlock = fhlPoolConfig.slice(
+    fhlPoolConfig.indexOf("android-fhl-pool-summary"),
+    fhlPoolConfig.indexOf("android-fhl-pool-model-config"),
+  );
+  assert.doesNotMatch(summaryBlock, /android-fhl-unified-model-fetch/);
+
+  const panelBlock = fhlPoolConfig.slice(
+    fhlPoolConfig.indexOf('data-testid="android-fhl-unified-model-panel"'),
+    fhlPoolConfig.indexOf("android-fhl-slot-list"),
+  );
+  assert.match(panelBlock, /data-model-state=\{modelPanelState\}/);
+  assert.match(panelBlock, /data-testid="android-fhl-unified-model-fetch"/);
+  assert.match(panelBlock, /aria-label="刷新模型列表"/);
+  assert.match(panelBlock, /title="刷新模型列表"/);
+  assert.match(panelBlock, /data-testid="android-fhl-unified-model-apply"/);
+  assert.match(panelBlock, /保存统一模型/);
+  assert.match(panelBlock, /验证完成后选择共同模型/);
+  assert.match(panelBlock, /modelPanelState !== "ready"/);
+  assert.match(fhlPoolConfig, /prepareFHLPoolImageModelConfig/);
+  assert.match(fhlPoolConfig, /\{ persist: false \}/);
+  assert.match(fhlPoolConfig, /commitValidatedFHLPoolImageModelSelection/);
+  assert.match(fhlPoolConfig, /catalog: modelSnapshot\.catalog/);
+  assert.match(fhlPoolConfig, /currentCredentialMutationRevision\(\)/);
+  assert.match(fhlPoolConfig, /buildFHLPoolModelValidationSignature/);
+  assert.match(fhlPoolConfig, /credentialScanStatus/);
+  assert.match(fhlPoolConfig, /credentialScanEpoch/);
+  assert.match(fhlPoolConfig, /type CredentialScanStatus = [^;]*"error"/);
+  assert.match(fhlPoolConfig, /setCredentialScanStatus\("error"\)/);
+  assert.match(fhlPoolConfig, /无法读取已保存凭据，请刷新后重试/);
+  assert.doesNotMatch(fhlPoolConfig, /GetStoredAPIKey\([\s\S]{0,120}\.catch\(\(\) => ""\)/);
+  assert.match(fhlPoolConfig, /autoValidationSignature/);
+  assert.match(fhlPoolConfig, /force: true/);
+  assert.match(panelBlock, /onClick=\{refreshUnifiedImageModels\}/);
+  assert.match(fhlPoolConfig, /只更新已配置且启用的槽位；空槽和停用槽不会参与目录请求/);
+
+  assert.match(upstreamCss, /\.android-fhl-pool-model-config[\s\S]*height: 190px/);
+  assert.match(upstreamCss, /\.android-fhl-pool-model-config[\s\S]*overflow: hidden/);
+  assert.match(upstreamCss, /\.android-fhl-pool-model-status[\s\S]*overflow-y: auto/);
+  assert.match(upstreamCss, /@media \(max-width: 380px\)[\s\S]*\.android-fhl-pool-model-config[\s\S]*height: 236px/);
+  assert.match(upstreamCss, /\.android-fhl-pool-model-actions/);
+  assert.match(upstreamCss, /\.android-fhl-pool-model-refresh/);
+  const compactLayout = upstreamCss.slice(upstreamCss.lastIndexOf("@media (max-width: 380px)"));
+  assert.doesNotMatch(compactLayout, /\.android-fhl-unified-model-fetch/);
+
+  assert.match(upstreamProfileForm, /data-testid="android-image-model-unified-hint"/);
+  assert.match(upstreamProfileForm, /FHL1-FHL10 的活动生图槽位由统一配置入口管理/);
+  assert.match(upstreamProfileForm, /统一模型面板会自动验证活动槽位/);
+  assert.match(upstreamProfileForm, /当前槽位等待统一模型面板验证/);
+  assert.doesNotMatch(upstreamProfileForm, /统一获取并配置生图模型/);
+  assert.doesNotMatch(upstreamProfileForm, /data-testid="android-image-model-(?:fetch|select)"/);
+  assert.doesNotMatch(upstreamModal, /onFetchImageModels=|onSelectImageModel=/);
+  assert.doesNotMatch(upstreamConfig, /function handleFetchImageModels|function handleSelectImageModel/);
+});
+
+test("Android API credential fields support native paste while keeping changes in draft state", () => {
+  assert.match(upstreamCss, /\.android-upstream-secret input,[\s\S]*\.android-fhl-slot-secret input,[\s\S]*\.android-fhl-bulk-secret-input[\s\S]*-webkit-user-select: text;[\s\S]*user-select: text;/);
+
+  const profilePasteHandler = upstreamProfileForm.slice(
+    upstreamProfileForm.indexOf("onPaste={(event)"),
+    upstreamProfileForm.indexOf('placeholder={savedKeyLoaded ? "sk-..."', upstreamProfileForm.indexOf("onPaste={(event)")),
+  );
+  assert.match(profilePasteHandler, /event\.preventDefault\(\)/);
+  assert.match(profilePasteHandler, /event\.clipboardData\.getData\("text"\)/);
+  assert.match(profilePasteHandler, /onPasteKey\(incomingText\)/);
+
+  const profilePasteFunction = upstreamConfig.slice(
+    upstreamConfig.indexOf("async function handlePasteKey"),
+    upstreamConfig.indexOf("\n  return {", upstreamConfig.indexOf("async function handlePasteKey")),
+  );
+  assert.match(profilePasteFunction, /pastedText === undefined \? await ReadClipboardText\(\) : pastedText/);
+  assert.match(profilePasteFunction, /handleChangeDraftKey\(text\.trim\(\)\)/);
+  assert.match(profilePasteFunction, /finally \{\s*text = "";/);
+  assert.doesNotMatch(profilePasteFunction, /updateProfile\(|SetStoredAPIKey|testProfileConnection\(/);
+
+  const slotPasteStage = fhlPoolConfig.slice(
+    fhlPoolConfig.indexOf("function stageSlotClipboardText"),
+    fhlPoolConfig.indexOf("async function pasteSlot"),
+  );
+  assert.match(slotPasteStage, /parseBulkAPIKeyLines\(text, FHL_IMAGES_POOL_SLOT_COUNT\)/);
+  assert.match(slotPasteStage, /openBulkPasteDialog\(\)/);
+  assert.match(slotPasteStage, /patchSlot\(index, parsed\.keys\[0\]\)/);
+  assert.doesNotMatch(slotPasteStage, /createProfile\(|updateProfile\(|saveSlots\(|testProfileConnection\(/);
+
+  const slotInput = fhlPoolConfig.slice(
+    fhlPoolConfig.indexOf('id={`android-fhl-key-${slotNumber}`}'),
+    fhlPoolConfig.indexOf("</div>", fhlPoolConfig.indexOf('id={`android-fhl-key-${slotNumber}`}')),
+  );
+  assert.match(slotInput, /onPaste=\{\(event\) => \{/);
+  assert.match(slotInput, /event\.clipboardData\.getData\("text"\)/);
+  assert.match(slotInput, /stageSlotClipboardText\(index, incomingText\)/);
 });
 
 test("Android upstream keeps Responses labels and compat policy wording", () => {

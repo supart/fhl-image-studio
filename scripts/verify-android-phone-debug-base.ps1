@@ -70,6 +70,27 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Get-Sha256Hex {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $native = Get-Command Get-FileHash -ErrorAction SilentlyContinue
+    if ($null -ne $native) {
+        return ((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash).ToUpperInvariant()
+    }
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [IO.File]::OpenRead($Path)
+        try {
+            return ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '').ToUpperInvariant()
+        }
+        finally {
+            $stream.Dispose()
+        }
+    }
+    finally {
+        $sha.Dispose()
+    }
+}
+
 $script:AdbExecutable = $null
 $script:ForwardEstablished = $false
 $script:ForwardPrepared = $false
@@ -4786,7 +4807,7 @@ function Write-EvidenceManifest {
             role = $Role
             path = $FileName
             sizeBytes = [long]$item.Length
-            sha256 = (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash.ToUpperInvariant()
+            sha256 = Get-Sha256Hex -Path $item.FullName
         })
     }
     & $addArtifact "report" ([IO.Path]::GetFileName($reportPath))
@@ -4980,7 +5001,7 @@ function Complete-ExistingSequentialEvidence {
     }
     if (-not (Test-Path -LiteralPath $ApkPath -PathType Leaf)) { throw "APK was not found: $ApkPath" }
     $expectedHash = ($ExpectedApkSha256 -replace "\s", "").ToUpperInvariant()
-    $actualHash = (Get-FileHash -LiteralPath $ApkPath -Algorithm SHA256).Hash.ToUpperInvariant()
+    $actualHash = Get-Sha256Hex -Path $ApkPath
     if ($expectedHash -notmatch "^[0-9A-F]{64}$" -or $actualHash -ne $expectedHash) {
         throw "APK SHA-256 mismatch; evidence finalization was blocked."
     }
@@ -5201,7 +5222,7 @@ function Get-ValidatedSequentialResumeState {
 
     $expectedHash = ($ExpectedApkSha256 -replace "\s", "").ToUpperInvariant()
     $resolvedApkPath = (Resolve-Path -LiteralPath $ApkPath).Path
-    $actualHash = (Get-FileHash -LiteralPath $resolvedApkPath -Algorithm SHA256).Hash.ToUpperInvariant()
+    $actualHash = Get-Sha256Hex -Path $resolvedApkPath
     if ($expectedHash -notmatch "^[0-9A-F]{64}$" -or $actualHash -ne $expectedHash) {
         throw "Sequential resume APK SHA-256 mismatch."
     }
@@ -5408,9 +5429,9 @@ function Resume-RunningSequentialEvidence {
             createdAt = (Get-Date).ToString("o")
             apkSha256 = [string]$stateAfterStart.apkSha256
             installedApkSha256 = $installedHash
-            sourceReportSha256 = (Get-FileHash -LiteralPath "$reportPath.pre-resume" -Algorithm SHA256).Hash
-            sourceAttemptsSha256 = (Get-FileHash -LiteralPath "$attemptsPath.pre-resume" -Algorithm SHA256).Hash
-            sourceSnapshotSha256 = (Get-FileHash -LiteralPath "$resumeSnapshotPath.pre-resume" -Algorithm SHA256).Hash
+        sourceReportSha256 = Get-Sha256Hex -Path "$reportPath.pre-resume"
+        sourceAttemptsSha256 = Get-Sha256Hex -Path "$attemptsPath.pre-resume"
+        sourceSnapshotSha256 = Get-Sha256Hex -Path "$resumeSnapshotPath.pre-resume"
             checkpointedResults = 8
             nativeRecoveredResults = 1
             recoveredSequence = 9
@@ -7889,7 +7910,7 @@ if ($RunInternalLoadAuditSelfTest) {
     Invoke-InternalLoadAuditSelfTest
     if (Test-Path -LiteralPath $ApkPath -PathType Leaf) {
         $selfTestHash = ($ExpectedApkSha256 -replace "\s", "").ToUpperInvariant()
-        $actualSelfTestHash = (Get-FileHash -LiteralPath $ApkPath -Algorithm SHA256).Hash.ToUpperInvariant()
+        $actualSelfTestHash = Get-Sha256Hex -Path $ApkPath
         if ($selfTestHash -notmatch "^[0-9A-F]{64}$" -or $actualSelfTestHash -ne $selfTestHash) {
             throw "Internal APK binding self-test found an APK SHA-256 mismatch."
         }
@@ -7902,7 +7923,7 @@ if ($RunInternalResponsesCapabilityAuditSelfTest) {
     Invoke-InternalResponsesCapabilityAuditSelfTest
     if (Test-Path -LiteralPath $ApkPath -PathType Leaf) {
         $selfTestHash = ($ExpectedApkSha256 -replace "\s", "").ToUpperInvariant()
-        $actualSelfTestHash = (Get-FileHash -LiteralPath $ApkPath -Algorithm SHA256).Hash.ToUpperInvariant()
+        $actualSelfTestHash = Get-Sha256Hex -Path $ApkPath
         if ($selfTestHash -notmatch "^[0-9A-F]{64}$" -or $actualSelfTestHash -ne $selfTestHash) {
             throw "Responses capability internal self-test found an APK SHA-256 mismatch."
         }
@@ -8058,7 +8079,7 @@ try {
         throw "Verifier Git commit could not be resolved."
     }
     $report.verifierGitCommit = $verifierGitCommit
-    $report.verifierScriptSha256 = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToUpperInvariant()
+    $report.verifierScriptSha256 = Get-Sha256Hex -Path $PSCommandPath
     if ($EvidenceSource -eq "ReleaseLogcat" -and $verifierGitCommit -ne $normalizedGitCommit) {
         throw "ReleaseLogcat requires the verifier HEAD to match the frozen product commit."
     }
@@ -8097,7 +8118,7 @@ try {
     $resolvedApkPath = (Resolve-Path -LiteralPath $ApkPath).Path
     $expectedHash = ($ExpectedApkSha256 -replace "\s", "").ToUpperInvariant()
     if ($expectedHash -notmatch "^[0-9A-F]{64}$") { throw "ExpectedApkSha256 must be a complete SHA-256 value." }
-    $actualHash = (Get-FileHash -LiteralPath $resolvedApkPath -Algorithm SHA256).Hash.ToUpperInvariant()
+    $actualHash = Get-Sha256Hex -Path $resolvedApkPath
     if ($actualHash -ne $expectedHash) { throw "APK SHA-256 mismatch; candidate execution was blocked." }
     $ApkPath = $resolvedApkPath
     $report.apkFile = [IO.Path]::GetFileName($resolvedApkPath)

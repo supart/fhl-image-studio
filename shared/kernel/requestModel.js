@@ -3,6 +3,7 @@ export const DEFAULT_IMAGE_MODEL = "gpt-image-2";
 export const DEFAULT_SIZE = "1024x1024";
 export const DEFAULT_QUALITY = "auto";
 export const DEFAULT_OUTPUT_FORMAT = "png";
+export const TRANSPARENT_IMAGE_PROMPT_SUFFIX = "Output on a fully transparent background with real alpha transparency and clean edges. Do not add a solid backdrop, drawn checkerboard, scenery, or watermark.";
 export const DEFAULT_REQUEST_POLICY = "openai";
 export const DEFAULT_PARTIAL_IMAGES = 1;
 export const MAX_ATTEMPTS = 3;
@@ -42,6 +43,34 @@ export function normalizeTextModel(modelID) {
 
 export function normalizeImageModel(modelID) {
   return String(modelID || "").trim() || DEFAULT_IMAGE_MODEL;
+}
+
+export function isGPTImage2Model(modelID) {
+  return normalizeImageModel(modelID).toLowerCase() === "gpt-image-2";
+}
+
+export function isGPTImage25Model(modelID) {
+  const normalized = normalizeImageModel(modelID).toLowerCase();
+  return normalized === "gpt-image-2.5-flare" || normalized === "gpt-image-2.5-sunburst";
+}
+
+export function supportsNativeTransparency(modelID) {
+  return isGPTImage25Model(modelID);
+}
+
+export function normalizeImageBackgroundMode(value) {
+  return value === "transparent" ? "transparent" : "standard";
+}
+
+export function isTransparentImageRequest(payload) {
+  return normalizeImageBackgroundMode(payload?.imageBackgroundMode) === "transparent";
+}
+
+export function promptForImageRequest(prompt, payload = {}) {
+  const original = String(prompt || "");
+  if (!isTransparentImageRequest(payload)) return normalizePromptText(original);
+  if (!original.trim() || original.includes(TRANSPARENT_IMAGE_PROMPT_SUFFIX)) return original;
+  return `${original}\n\n${TRANSPARENT_IMAGE_PROMPT_SUFFIX}`;
 }
 
 export function normalizePromptText(prompt) {
@@ -319,6 +348,10 @@ export function buildResponsesImageTool(payload, sourceDataURLs, options = {}) {
       ? 0
       : normalizePartialImages(payload.partialImages),
   };
+  if (isTransparentImageRequest(payload)) {
+    tool.background = "transparent";
+    tool.output_format = "png";
+  }
   if (compatExtensions && payload.seed) tool.seed = payload.seed;
   if (compatExtensions && negativePrompt) tool.negative_prompt = negativePrompt;
 
@@ -345,9 +378,8 @@ export function buildResponsesPayload(payload, sourceDataURLs, options = {}) {
     ...buildResponsesImageTool(payload, sourceDataURLs, options),
   };
   const aspectSuffix = fhlExactResponsesAspectPromptSuffix(payload, tool.size);
-  const prompt = aspectSuffix
-    ? `${normalizePromptText(payload.prompt)}\n\n${aspectSuffix}`
-    : normalizePromptText(payload.prompt);
+  let prompt = promptForImageRequest(payload.prompt, payload);
+  if (aspectSuffix) prompt = `${prompt}\n\n${aspectSuffix}`;
   const content = [{ type: "input_text", text: prompt }];
   const variation = buildBatchVariationInstruction(payload);
   if (variation) {

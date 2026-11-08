@@ -8,11 +8,45 @@ import {
   buildResponsesPayload,
   buildPromptReversePayload,
   describeProblem,
+  isGPTImage2Model,
+  isGPTImage25Model,
   isRetryableRaw,
   normalizePartialImages,
   promptWithBatchVariation,
   repairSizeForOpenAI,
+  supportsNativeTransparency,
 } from "../../../shared/kernel/requestModel.js";
+
+test("GPT Image 2.5 capabilities require exact product model IDs", () => {
+  assert.equal(isGPTImage2Model("gpt-image-2"), true);
+  assert.equal(isGPTImage25Model("gpt-image-2.5-flare"), true);
+  assert.equal(isGPTImage25Model("gpt-image-2.5-sunburst"), true);
+  assert.equal(supportsNativeTransparency("gpt-image-2.5-flare"), true);
+  for (const ambiguous of ["gpt-image-2.5", "gpt-image-2.5-custom", "gpt-image-20"]) {
+    assert.equal(isGPTImage2Model(ambiguous), false);
+    assert.equal(isGPTImage25Model(ambiguous), false);
+    assert.equal(supportsNativeTransparency(ambiguous), false);
+  }
+});
+
+test("transparent Responses request appends its instruction once and forces PNG", () => {
+  const original = "  keep this spacing  ";
+  const payload = buildResponsesPayload({
+    prompt: original,
+    size: "1024x1024",
+    quality: "high",
+    outputFormat: "jpeg",
+    imageBackgroundMode: "transparent",
+    imageModelID: "gpt-image-2.5-flare",
+    textModelID: "gpt-5.5",
+    requestPolicy: "openai",
+  }, []);
+  const text = payload.input[0].content[0].text;
+  assert.ok(text.startsWith(original));
+  assert.equal(text.match(/Output on a fully transparent background/g)?.length, 1);
+  assert.equal(payload.tools[0].output_format, "png");
+  assert.equal(payload.tools[0].background, "transparent");
+});
 
 test("Responses payload defaults partial_images to streaming preview count", () => {
   const payload = buildResponsesPayload({

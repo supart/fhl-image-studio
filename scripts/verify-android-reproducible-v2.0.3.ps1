@@ -33,6 +33,21 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $officialReleaseCertificateSha256 = "6b04a805e50cf66e37c740ad0336bbdf6445653f93802005967babf472e8da36"
 
+function Get-Sha256Hex {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  $native = Get-Command Get-FileHash -ErrorAction SilentlyContinue
+  if ($null -ne $native) {
+    return ((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash).ToUpperInvariant()
+  }
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $stream = [IO.File]::OpenRead($Path)
+    try { return ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '').ToUpperInvariant() }
+    finally { $stream.Dispose() }
+  }
+  finally { $sha.Dispose() }
+}
+
 $startedAt = Get-Date
 $script:secretValues = New-Object System.Collections.Generic.List[string]
 $script:reportErrors = New-Object System.Collections.Generic.List[string]
@@ -324,8 +339,8 @@ function Invoke-Build {
     Copy-Item -LiteralPath $ResolvedKeystorePath -Destination $localKeystore -Force
     Add-SecretValue $localKeystore
     Add-SecretValue $localKeystore.Replace('\', '/')
-    $copiedHash = (Get-FileHash -LiteralPath $localKeystore -Algorithm SHA256).Hash
-    $sourceHash = (Get-FileHash -LiteralPath $ResolvedKeystorePath -Algorithm SHA256).Hash
+    $copiedHash = Get-Sha256Hex -Path $localKeystore
+    $sourceHash = Get-Sha256Hex -Path $ResolvedKeystorePath
     if ($copiedHash -ne $sourceHash) { throw "Keystore copy verification failed for source $Label." }
 
     [Environment]::SetEnvironmentVariable("GRADLE_USER_HOME", $gradleUserHome, "Process")
@@ -473,7 +488,7 @@ function Read-ApkMetadata {
   return [pscustomobject]@{
     label = $Label
     sizeBytes = (Get-Item -LiteralPath $ApkPath).Length
-    sha256 = (Get-FileHash -LiteralPath $ApkPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    sha256 = (Get-Sha256Hex -Path $ApkPath).ToLowerInvariant()
     metadata = [pscustomobject]$actual
     expectedMetadata = [pscustomobject]$expected
     metadataMatches = $metadataMatches

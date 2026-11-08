@@ -79,12 +79,19 @@ export function normalizeBatchCount(value: unknown): number {
   return Math.max(1, Math.min(9, Math.floor(n)));
 }
 
+export function normalizeImageBackgroundMode(value: unknown): "standard" | "transparent" {
+  return value === "transparent" ? "transparent" : "standard";
+}
+
 export function patchWorkspaceRuntime(workspaces: Workspace[], workspaceId: string, patch: WorkspacePatch): Workspace[] {
   return workspaces.map((w) => {
     if (w.id !== workspaceId) return w;
     const next: Workspace = { ...w };
     if (patch.name !== undefined) next.name = patch.name;
     if (patch.promptPrefix !== undefined) next.promptPrefix = patch.promptPrefix;
+    if (patch.imageBackgroundMode !== undefined) {
+      next.imageBackgroundMode = normalizeImageBackgroundMode(patch.imageBackgroundMode);
+    }
     if (patch.currentImageId !== undefined) next.currentImageId = patch.currentImageId;
     if (patch.batchResultIds !== undefined) next.batchResultIds = patch.batchResultIds;
     if (patch.resultGridOpen !== undefined) next.resultGridOpen = patch.resultGridOpen;

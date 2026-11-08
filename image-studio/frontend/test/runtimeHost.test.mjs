@@ -636,6 +636,34 @@ test("runtimeHost parses browser model lists", async () => {
   });
 });
 
+test("runtimeHost image model catalog errors never expose provider response bodies", async () => {
+  const providerSecret = "provider-private-token-that-must-not-reach-ui";
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async (url) => {
+      assert.equal(String(url), "https://relay.example.com/v1/models");
+      return new Response(JSON.stringify({
+        error: providerSecret,
+        request_metadata: "private-upstream-metadata",
+      }), { status: 502, headers: { "content-type": "application/json" } });
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    await assert.rejects(
+      runtimeHost.listImageModelsFromUpstream(
+        "https://relay.example.com",
+        "sk-test-models",
+        "fhl",
+      ),
+      (error) => {
+        assert.equal(error.message, "生图模型目录返回 502");
+        assert.doesNotMatch(error.message, new RegExp(providerSecret, "i"));
+        assert.doesNotMatch(error.message, /private-upstream-metadata/i);
+        return true;
+      },
+    );
+  });
+});
+
 test("runtimeHost probes upstream through Wails backend", async () => {
   await withPatchedGlobals(async () => {
     Object.defineProperty(globalThis, "navigator", {

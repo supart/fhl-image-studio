@@ -101,11 +101,11 @@ test("Android batch result API badges prefer configured provider labels", () => 
   assert.match(androidJobManager, /Regex\("FHL\\\\p\{Nd\}"\)\.containsMatchIn\(displaySkeleton\)/);
 });
 
-test("Android failed job slot params are restored through the store without submit", () => {
+test("Android applies slot params without submit and regenerates only from the frozen snapshot", () => {
   assert.match(storeTypes, /JobSlotSnapshot/);
   assert.match(storeTypes, /applyJobSlotParams: \(group: JobGroupSnapshot, slot: JobSlotSnapshot\) => void/);
   assert.match(storeTypes, /regenerateJobSlot: \(group: JobGroupSnapshot, slot: JobSlotSnapshot\) => Promise<void>/);
-  assert.match(imageActions, /sourceImagesFromJobPaths/);
+  assert.match(imageActions, /sourceImagesFromFrozenPaths/);
   assert.match(imageActions, /applyJobSlotParams\(group: JobGroupSnapshot, slot: JobSlotSnapshot\)/);
   assert.match(imageActions, /regenerateJobSlot\(group: JobGroupSnapshot, slot: JobSlotSnapshot\)/);
   assert.match(imageActions, /prompt: group\.prompt/);
@@ -124,8 +124,9 @@ test("Android failed job slot params are restored through the store without subm
     /regenerateJobSlot\(group: JobGroupSnapshot, slot: JobSlotSnapshot\) \{[\s\S]*?\r?\n    \},\r?\n\r?\n    async regenerateFromHistory/,
   );
   assert.ok(regenerateJobSlot, "regenerateJobSlot action should be present");
-  assert.match(regenerateJobSlot[0], /this\.applyJobSlotParams\(group, slot\)/);
-  assert.match(regenerateJobSlot[0], /submit\(\)/);
+  assert.match(regenerateJobSlot[0], /frozenReplayFromJobSlot\(group, slot\)/);
+  assert.doesNotMatch(regenerateJobSlot[0], /this\.applyJobSlotParams/);
+  assert.match(regenerateJobSlot[0], /submit\(replay\)/);
   assert.match(store, /applyJobSlotParams: \(group, slot\) => imageActions\.applyJobSlotParams\(group, slot\)/);
   assert.match(store, /regenerateJobSlot: async \(group, slot\) => imageActions\.regenerateJobSlot\(group, slot\)/);
 });

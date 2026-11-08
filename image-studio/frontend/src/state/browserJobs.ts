@@ -4,7 +4,10 @@ import type {
   JobStatus,
   ProgressInfo,
 } from "../types/domain.ts";
-import { MAX_BROWSER_JOB_GROUPS } from "../platform/runtime/browserJobContracts.ts";
+import {
+  MAX_BROWSER_JOB_GROUPS,
+  summarizeJobStatuses,
+} from "../platform/runtime/browserJobContracts.ts";
 
 export const MAX_ANDROID_JOB_GROUPS = 700;
 export const MAX_ANDROID_TERMINAL_JOB_GROUPS = 500;
@@ -79,9 +82,63 @@ export function retainAndroidJobGroups(groups: JobGroupSnapshot[]) {
   return [...nonTerminal, ...terminal].sort((a, b) => b.createdAt - a.createdAt);
 }
 
+function jobStatusProgressRank(status: JobStatus) {
+  if (isTerminalJobStatus(status)) return 2;
+  return status === "running" ? 1 : 0;
+}
+
+function monotonicAndroidJobSlot(
+  existing: JobSlotSnapshot,
+  incoming: JobSlotSnapshot,
+): JobSlotSnapshot {
+  if (incoming.updatedAt > existing.updatedAt) return incoming;
+  if (incoming.updatedAt < existing.updatedAt) return existing;
+
+  const existingRank = jobStatusProgressRank(existing.status);
+  const incomingRank = jobStatusProgressRank(incoming.status);
+  if (incomingRank > existingRank) return incoming;
+
+  // Equal-time terminal snapshots may represent competing final callbacks.
+  // Keep the value already accepted by the store instead of flipping outcomes.
+  return existing;
+}
+
+export function mergeAndroidJobGroupSnapshot(
+  existing: JobGroupSnapshot,
+  incoming: JobGroupSnapshot,
+): JobGroupSnapshot {
+  const incomingSlots = new Map(incoming.slots.map((slot) => [slot.jobId, slot]));
+  const mergedSlots = existing.slots.map((slot) => {
+    const next = incomingSlots.get(slot.jobId);
+    incomingSlots.delete(slot.jobId);
+    return next ? monotonicAndroidJobSlot(slot, next) : slot;
+  });
+  mergedSlots.push(...incomingSlots.values());
+
+  return {
+    ...incoming,
+    ...existing,
+    slotIds: mergedSlots.map((slot) => slot.jobId),
+    slots: mergedSlots,
+    statusSummary: summarizeJobStatuses(mergedSlots),
+  };
+}
+
+function withRecomputedAndroidStatusSummary(group: JobGroupSnapshot): JobGroupSnapshot {
+  return {
+    ...group,
+    slotIds: group.slots.map((slot) => slot.jobId),
+    statusSummary: summarizeJobStatuses(group.slots),
+  };
+}
+
 export function mergeAndroidJobGroupList(existing: JobGroupSnapshot[], incoming: JobGroupSnapshot) {
+  const current = existing.find((group) => group.groupId === incoming.groupId);
+  const merged = current
+    ? mergeAndroidJobGroupSnapshot(current, incoming)
+    : withRecomputedAndroidStatusSummary(incoming);
   return retainAndroidJobGroups([
-    incoming,
+    merged,
     ...existing.filter((group) => group.groupId !== incoming.groupId),
   ]);
 }
@@ -102,9 +159,13 @@ export function replaceAndroidWorkspaceJobGroups(
   workspaceId: string,
   groups: JobGroupSnapshot[],
 ) {
+  const merged = groups.reduce(
+    (next, group) => mergeAndroidJobGroupList(next, group),
+    current[workspaceId] ?? [],
+  );
   return {
     ...current,
-    [workspaceId]: retainAndroidJobGroups(groups),
+    [workspaceId]: retainAndroidJobGroups(merged),
   };
 }
 

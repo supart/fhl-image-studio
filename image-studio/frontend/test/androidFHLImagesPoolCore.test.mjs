@@ -139,7 +139,8 @@ test("target profile testing reads its own credential without switching active p
 });
 
 test("Android bootstrap preserves Images slots and text tools require FHL Responses", () => {
-  assert.match(storeSource, /localFHLConfig\?\.apiMode \?\? profile\.apiMode/);
+  assert.match(storeSource, /const nextFHLAPIMode: APIMode = profile\.apiMode/);
+  assert.match(storeSource, /apiMode: localFHLConfig\.apiMode/);
   assert.match(storeSource, /profile\.fhlImagesPoolSlot === undefined/);
   assert.match(storeSource, /isOfficialFHLTextProfile/);
   assert.doesNotMatch(storeSource, /activeStateIsFHLResponses/);

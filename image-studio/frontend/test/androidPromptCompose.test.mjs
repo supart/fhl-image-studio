@@ -205,12 +205,12 @@ test("Android prompt prefix follows desktop supplemental prompt layout", () => {
     assert.match(source, /主要描述画面内容，会和补充提示词一起生成/);
     assert.match(source, /setField\("promptPrefix", e\.target\.value\)/);
     assert.match(source, /const effectivePromptReady = promptPrefixActive \|\| prompt\.trim\(\)\.length > 0;/);
-    assert.match(source, /disabled=\{!hasUsableUpstream \|\| !hasBaseURL \|\| !effectivePromptReady\}/);
+    assert.match(source, /disabled=\{!canSubmitUpstream \|\| !hasBaseURL \|\| !effectivePromptReady\}/);
   }
   assert.match(promptComposition, /export function buildEffectivePrompt\(promptPrefix: string, prompt: string\)/);
   assert.match(promptComposition, /return `\$\{prefix\}\\n\$\{main\}`;/);
-  assert.match(store, /const effectivePrompt = buildEffectivePrompt\(s\.promptPrefix, s\.prompt\);/);
-  assert.match(store, /augmentPromptWithAnnotations\(effectivePrompt,/);
+  assert.match(store, /const effectivePrompt = frozenReplay\?\.prompt \?\? buildEffectivePrompt\(s\.promptPrefix, s\.prompt\);/);
+  assert.match(store, /augmentPromptWithAnnotations\(\s*effectivePrompt,/);
   assert.match(layoutCss, /\.android-prompt-prefix-toggle/);
   assert.match(layoutCss, /\.android-prompt-prefix-input/);
   assert.match(layoutCss, /\.android-prompt-main-block/);

@@ -86,6 +86,7 @@ test("Android API 28 reachable code avoids unsupported direct UUID and globalThi
     "../vite.config.ts",
     "../src/platform/android/canvas/AndroidCanvasStage.tsx",
     "../src/state/studioStore.ts",
+    "../src/platform/runtime/androidJobClient.ts",
     "../src/platform/runtime/host.ts",
     "../src/platform/runtime/remote-kernel/common.ts",
     "../src/platform/runtime/remote-kernel/images.ts",
@@ -98,12 +99,13 @@ test("Android API 28 reachable code avoids unsupported direct UUID and globalThi
   assert.match(sources[0], /target: "chrome69"/);
   assert.doesNotMatch(sources.join("\n"), /crypto\.randomUUID\s*\(/);
   assert.doesNotMatch(sources.join("\n"), /globalThis\.(?:set|clear)(?:Timeout|Interval)\s*\(/);
+  assert.doesNotMatch(sources.join("\n"), /\bqueueMicrotask\s*\(/);
   assert.doesNotMatch(sources.at(-1), /\bglobalThis\b/);
   assert.doesNotMatch(sources.at(-2), /\bblob\.arrayBuffer\s*\(/);
-  assert.doesNotMatch(sources[3], /\bfile\.text\s*\(/);
+  assert.doesNotMatch(sources[4], /\bfile\.text\s*\(/);
   assert.match(sources[1], /bestEffortUUID\("annotation"\)/);
   assert.match(sources[2], /requireSecureRandomUUID\("付费生图请求"\)/);
-  assert.match(sources[3], /secureRuntimeID\("submission", "Android付费生图请求"\)/);
+  assert.match(sources[4], /secureRuntimeID\("submission", "Android付费生图请求"\)/);
 });
 
 test("Android modal styles do not depend on unsupported :has selectors", () => {

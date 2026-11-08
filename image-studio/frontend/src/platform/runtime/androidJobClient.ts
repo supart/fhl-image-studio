@@ -12,9 +12,32 @@ type AndroidJobWindow = Window & {
   __imageStudioAndroidJobEvent?: (event: BrowserJobEvent) => void;
 };
 
+export type AndroidJobForegroundResumeHandler = () => void | Promise<void>;
+
 const listeners = new Map<string, Set<(event: BrowserJobEvent) => void>>();
+const foregroundResumeHandlers = new Set<AndroidJobForegroundResumeHandler>();
 let hooksInstalled = false;
 let previousHook: ((event: BrowserJobEvent) => void) | undefined;
+let foregroundResumeNotificationQueued = false;
+
+function dispatchForegroundResumeHandlers() {
+  for (const handler of Array.from(foregroundResumeHandlers)) {
+    try {
+      void Promise.resolve(handler()).catch(() => undefined);
+    } catch {
+      // A failed consumer must not prevent the remaining resume handlers.
+    }
+  }
+}
+
+function notifyForegroundResumeHandlers() {
+  if (foregroundResumeNotificationQueued) return;
+  foregroundResumeNotificationQueued = true;
+  void Promise.resolve().then(() => {
+    foregroundResumeNotificationQueued = false;
+    dispatchForegroundResumeHandlers();
+  });
+}
 
 function ensureAndroidJobEventHook() {
   if (typeof window === "undefined" || hooksInstalled) return;
@@ -36,14 +59,11 @@ function ensureAndroidJobEventHook() {
     }
     previousHook?.(event);
   };
-  const refreshEvents = () => {
-    void attachAndroidJobEvents().catch(() => undefined);
-  };
-  window.addEventListener("focus", refreshEvents);
-  window.addEventListener("pageshow", refreshEvents);
-  window.addEventListener("image-studio:android-jobs-resume", refreshEvents);
+  window.addEventListener("focus", notifyForegroundResumeHandlers);
+  window.addEventListener("pageshow", notifyForegroundResumeHandlers);
+  window.addEventListener("image-studio:android-jobs-resume", notifyForegroundResumeHandlers);
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") refreshEvents();
+    if (document.visibilityState === "visible") notifyForegroundResumeHandlers();
   });
   hooksInstalled = true;
 }
@@ -68,24 +88,38 @@ export async function cancelAndroidJobs(jobIds: string[]): Promise<BrowserJobCan
   return invokeAndroidNative<BrowserJobCancelResponse>("CancelAndroidJobs", payload.jobIds);
 }
 
-export async function attachAndroidJobEvents(): Promise<void> {
+export async function attachAndroidJobEvents(jobIds: string[] = []): Promise<void> {
   ensureAndroidJobEventHook();
-  await invokeAndroidNative("AttachAndroidJobEvents");
+  const requestedJobIds = [...new Set(jobIds.map((jobId) => jobId.trim()).filter(Boolean))];
+  await invokeAndroidNative("AttachAndroidJobEvents", requestedJobIds);
+}
+
+export function registerAndroidJobForegroundResumeHandler(
+  handler: AndroidJobForegroundResumeHandler,
+) {
+  ensureAndroidJobEventHook();
+  foregroundResumeHandlers.add(handler);
+  return () => {
+    foregroundResumeHandlers.delete(handler);
+  };
 }
 
 export function subscribeToAndroidJob(
   jobId: string,
   onEvent: (event: BrowserJobEvent) => void,
   onError?: (error: Error) => void,
+  options: { replayOnSubscribe?: boolean } = {},
 ) {
   const bucket = listeners.get(jobId) ?? new Set<(event: BrowserJobEvent) => void>();
   listeners.set(jobId, bucket);
   bucket.add(onEvent);
   try {
     ensureAndroidJobEventHook();
-    void attachAndroidJobEvents().catch((error) => {
-      onError?.(error instanceof Error ? error : new Error(String(error)));
-    });
+    if (options.replayOnSubscribe !== false) {
+      void attachAndroidJobEvents([jobId]).catch((error) => {
+        onError?.(error instanceof Error ? error : new Error(String(error)));
+      });
+    }
   } catch (error) {
     onError?.(error instanceof Error ? error : new Error(String(error)));
   }

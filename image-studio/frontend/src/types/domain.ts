@@ -22,12 +22,19 @@ export interface UpstreamProfile {
   baseURL: string;
   textModelID: string;
   imageModelID: string;
+  /** Unix ms at which the exact image model was selected from the active Images catalog. */
+  imageModelValidatedAt?: number;
+  /** Safe normalized catalog URL; never contains credentials or query data. */
+  imageModelCatalogBaseUrl?: string;
+  /** Safe provider identifier associated with the catalog. */
+  imageModelCatalogProvider?: string;
   // 0 = 不限。同一 profile 跨所有 workspace 共享并发计数。
   concurrencyLimit: number;
   // Images profile 是否参与连续生成的自动分配池。
   continuousPoolEnabled?: boolean;
   // 官方 FHL Images 池中的稳定槽号，仅允许 1..10。
   fhlImagesPoolSlot?: number;
+  provider?: string;
   // 仅用于辨认槽位的脱敏 Key 提示，绝不能保存完整凭据。
   fhlImagesPoolKeyHint?: string;
   imagesNewAPICompat?: boolean;
@@ -43,6 +50,7 @@ export type KernelRuntimeMode = "auto" | "local" | "remote";
 export type ProxyMode = "none" | "system" | "custom";
 // 让上游做编码;落盘扩展名 jpeg → .jpg,其他原样。
 export type OutputFormatValue = "png" | "jpeg" | "webp";
+export type ImageBackgroundMode = "standard" | "transparent";
 export type ThemeMode = "system" | "light" | "dark";
 
 export interface SizeOption { value: SizeValue; label: string; }
@@ -113,6 +121,7 @@ export interface HistoryItem {
   size: SizeValue;
   quality: QualityValue;
   outputFormat?: OutputFormatValue;
+  imageBackgroundMode?: ImageBackgroundMode;
   // Frozen request transport. Old records may omit this, in which case the
   // UI must keep the generic label instead of inferring from current settings.
   apiMode?: APIMode;
@@ -120,6 +129,11 @@ export interface HistoryItem {
   apiProfileId?: string;
   apiProfileName?: string;
   fhlImagesPoolSlot?: number;
+  provider?: string;
+  imageModelID?: string;
+  imageModelValidatedAt?: number;
+  imageModelCatalogBaseUrl?: string;
+  imageModelCatalogProvider?: string;
   parentId?: string;       // id of the source image (when mode === "edit")
   createdAt: number;       // unix ms
 
@@ -151,6 +165,7 @@ export interface APIMartRecoveryTask {
   size: SizeValue;
   quality: QualityValue;
   outputFormat: OutputFormatValue;
+  imageBackgroundMode?: ImageBackgroundMode;
   batchIndex?: number;
   errorMessage?: string;
   rawPath?: string;
@@ -191,6 +206,12 @@ export interface JobSlotSnapshot {
   apiProfileId?: string;
   apiProfileName?: string;
   fhlImagesPoolSlot?: number;
+  provider?: string;
+  imageModelID?: string;
+  imageModelValidatedAt?: number;
+  imageModelCatalogBaseUrl?: string;
+  imageModelCatalogProvider?: string;
+  imageBackgroundMode?: ImageBackgroundMode;
   queueSequence?: number;
   reservationSlot?: number;
   reservationSessionId?: string;
@@ -221,6 +242,7 @@ export interface JobSlotSnapshot {
   apimartTaskId?: string;
   apimartTaskStatus?: string;
   apimartTaskLastCheckedAt?: number;
+  errorCode?: string;
   errorMessage?: string;
   revisedPrompt?: string;
   sourceEvent?: string;
@@ -241,12 +263,18 @@ export interface JobGroupSnapshot {
   apiProfileId?: string;
   apiProfileName?: string;
   fhlImagesPoolSlot?: number;
+  provider?: string;
+  imageModelID?: string;
+  imageModelValidatedAt?: number;
+  imageModelCatalogBaseUrl?: string;
+  imageModelCatalogProvider?: string;
   prompt: string;
   batchCount: number;
   concurrencyLimit?: number;
   size: SizeValue;
   quality: QualityValue;
   outputFormat: OutputFormatValue;
+  imageBackgroundMode?: ImageBackgroundMode;
   negativePrompt?: string;
   styleTag?: string;
   seed?: number;
@@ -286,6 +314,7 @@ export interface Workspace {
   size: SizeValue;
   quality: QualityValue;
   outputFormat: OutputFormatValue;
+  imageBackgroundMode?: ImageBackgroundMode;
   seed: number;
   batchCount: number;
   continuousGenerateTest?: boolean;

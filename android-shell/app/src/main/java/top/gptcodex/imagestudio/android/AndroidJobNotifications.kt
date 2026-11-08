@@ -10,13 +10,14 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 
 object AndroidJobNotifications {
-    const val channelId = "fhl_studio_generation"
+    const val foregroundChannelId = "fhl_studio_generation_service"
+    const val completionChannelId = "fhl_studio_generation_results"
     const val foregroundNotificationId = 207550870
     private const val completionNotificationBaseId = 207550900
 
     fun foregroundNotification(context: Context): Notification {
-        ensureChannel(context)
-        return NotificationCompat.Builder(context, channelId)
+        ensureChannels(context)
+        return NotificationCompat.Builder(context, foregroundChannelId)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
             .setContentTitle("FHL Studio 正在生成图片")
             .setContentText("退到桌面后任务仍会继续，完成后点通知或重新打开 App 查看结果。")
@@ -64,17 +65,24 @@ object AndroidJobNotifications {
         )
     }
 
-    fun ensureChannel(context: Context) {
+    fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channel = NotificationChannel(
-            channelId,
-            "FHL Studio 生图任务",
+        val foregroundChannel = NotificationChannel(
+            foregroundChannelId,
+            "FHL Studio 后台生图",
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = "FHL Studio 后台生图任务进度和完成通知"
+            description = "FHL Studio 后台生图任务进度"
         }
-        manager.createNotificationChannel(channel)
+        val completionChannel = NotificationChannel(
+            completionChannelId,
+            "FHL Studio 生图结果",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = "FHL Studio 生图完成和失败通知"
+        }
+        manager.createNotificationChannels(listOf(foregroundChannel, completionChannel))
     }
 
     private fun notify(
@@ -86,8 +94,8 @@ object AndroidJobNotifications {
         icon: Int,
     ) {
         try {
-            ensureChannel(context)
-            val notification = NotificationCompat.Builder(context, channelId)
+            ensureChannels(context)
+            val notification = NotificationCompat.Builder(context, completionChannelId)
                 .setSmallIcon(icon)
                 .setContentTitle(title)
                 .setContentText(text)

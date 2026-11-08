@@ -5,6 +5,7 @@ export type GenerateOptionsLike = {
   size: string;
   quality: string;
   outputFormat: string;
+  imageBackgroundMode?: "standard" | "transparent";
   imagePaths: string[];
   imagePath: string;
   maskB64: string;
@@ -13,6 +14,10 @@ export type GenerateOptionsLike = {
   baseURL: string;
   textModelID: string;
   imageModelID: string;
+  provider?: string;
+  imageModelValidatedAt?: number;
+  imageModelCatalogBaseUrl?: string;
+  imageModelCatalogProvider?: string;
   proxyMode?: string;
   proxyURL?: string;
   apiMode: string;
@@ -99,6 +104,30 @@ export type ProbeUpstreamResultLike = {
   modelCount?: number;
   models?: string[];
   ok?: boolean;
+};
+
+export type ImageModelDescriptorLike = {
+  id: string;
+  description?: string;
+  imageCapable?: boolean;
+  supportsGenerations?: boolean;
+  supportsEdits?: boolean;
+  supportsTransparency?: boolean;
+};
+
+export type ListImageModelsOptionsLike = {
+  apiKey: string;
+  baseURL: string;
+  provider?: string;
+  proxyMode?: string;
+  proxyURL?: string;
+};
+
+export type ListImageModelsResultLike = {
+  modelCount?: number;
+  provider?: string;
+  baseURL?: string;
+  models?: ImageModelDescriptorLike[];
 };
 
 export type JobStartedLike = { jobId: string };

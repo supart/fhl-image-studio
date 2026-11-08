@@ -16,6 +16,7 @@ export type RemoteGeneratePayload = {
   size: string;
   quality: string;
   outputFormat: string;
+  imageBackgroundMode?: "standard" | "transparent";
   imagePaths: string[];
   imagePath: string;
   maskB64: string;
@@ -24,6 +25,10 @@ export type RemoteGeneratePayload = {
   baseURL: string;
   textModelID: string;
   imageModelID: string;
+  provider?: string;
+  imageModelValidatedAt?: number;
+  imageModelCatalogBaseUrl?: string;
+  imageModelCatalogProvider?: string;
   proxyMode?: string;
   proxyURL?: string;
   apiMode: string;
@@ -129,17 +134,19 @@ export const STATUS_INTERVAL_MS = 10_000;
 
 export class RemoteKernelError extends Error {
   rawPath: string | null;
+  errorCode?: string;
   apimartTaskId?: string;
   apimartTaskStatus?: string;
 
   constructor(
     message: string,
     rawPath: string | null = null,
-    options: { apimartTaskId?: string; apimartTaskStatus?: string } = {},
+    options: { apimartTaskId?: string; apimartTaskStatus?: string; errorCode?: string } = {},
   ) {
     super(message);
     this.name = "RemoteKernelError";
     this.rawPath = rawPath;
+    this.errorCode = options.errorCode;
     this.apimartTaskId = options.apimartTaskId;
     this.apimartTaskStatus = options.apimartTaskStatus;
   }

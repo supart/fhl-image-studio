@@ -8,6 +8,7 @@ export namespace backend {
 	    size: string;
 	    quality: string;
 	    outputFormat: string;
+	    imageBackgroundMode: string;
 	    imagePaths: string[];
 	    imagePath: string;
 	    maskB64: string;
@@ -16,6 +17,10 @@ export namespace backend {
 	    baseURL: string;
 	    textModelID: string;
 	    imageModelID: string;
+	    provider?: string;
+	    imageModelValidatedAt?: number;
+	    imageModelCatalogBaseUrl?: string;
+	    imageModelCatalogProvider?: string;
 	    proxyMode: string;
 	    proxyURL: string;
 	    apiMode: string;
@@ -38,6 +43,7 @@ export namespace backend {
 	        this.size = source["size"];
 	        this.quality = source["quality"];
 	        this.outputFormat = source["outputFormat"];
+	        this.imageBackgroundMode = source["imageBackgroundMode"];
 	        this.imagePaths = source["imagePaths"];
 	        this.imagePath = source["imagePath"];
 	        this.maskB64 = source["maskB64"];
@@ -46,6 +52,10 @@ export namespace backend {
 	        this.baseURL = source["baseURL"];
 	        this.textModelID = source["textModelID"];
 	        this.imageModelID = source["imageModelID"];
+	        this.provider = source["provider"];
+	        this.imageModelValidatedAt = source["imageModelValidatedAt"];
+	        this.imageModelCatalogBaseUrl = source["imageModelCatalogBaseUrl"];
+	        this.imageModelCatalogProvider = source["imageModelCatalogProvider"];
 	        this.proxyMode = source["proxyMode"];
 	        this.proxyURL = source["proxyURL"];
 	        this.apiMode = source["apiMode"];

@@ -68,6 +68,9 @@ import type {
   MediaAssetRefLike,
   ProbeUpstreamOptionsLike,
   ProbeUpstreamResultLike,
+  ImageModelDescriptorLike,
+  ListImageModelsOptionsLike,
+  ListImageModelsResultLike,
   PromptOptimizeOptionsLike,
   PromptReverseOptionsLike,
   SelectFileResponseLike,
@@ -218,6 +221,81 @@ async function probeUpstreamFromBrowser(
   }
   const models = parseProbeModelIDs(parsed.data);
   return { modelCount: models.length, models };
+}
+
+function normalizeImageModelDescriptor(value: unknown): ImageModelDescriptorLike | null {
+  const item = (typeof value === "string"
+    ? { id: value }
+    : value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+  const id = typeof item.id === "string" ? item.id.trim() : "";
+  if (!id || id.length > 128 || /[\u0000-\u001f\u007f]/.test(id)) return null;
+  const description = typeof item.description === "string" && item.description.length <= 400
+    ? item.description.replace(/[\u0000-\u001f\u007f]/g, "").trim()
+    : undefined;
+  const bool = (key: string) => typeof item[key] === "boolean" ? item[key] as boolean : undefined;
+  return {
+    id,
+    ...(description ? { description } : {}),
+    ...(bool("imageCapable") !== undefined ? { imageCapable: bool("imageCapable") } : {}),
+    ...(bool("supportsGenerations") !== undefined ? { supportsGenerations: bool("supportsGenerations") } : {}),
+    ...(bool("supportsEdits") !== undefined ? { supportsEdits: bool("supportsEdits") } : {}),
+    ...(bool("supportsTransparency") !== undefined ? { supportsTransparency: bool("supportsTransparency") } : {}),
+  };
+}
+
+function normalizeImageModelResult(value: ListImageModelsResultLike | null | undefined): ListImageModelsResultLike {
+  const models: ImageModelDescriptorLike[] = [];
+  const seen = new Set<string>();
+  for (const raw of Array.isArray(value?.models) ? value.models : []) {
+    const model = normalizeImageModelDescriptor(raw);
+    if (!model || seen.has(model.id)) continue;
+    seen.add(model.id);
+    models.push(model);
+  }
+  const provider = typeof value?.provider === "string" ? value.provider.trim().slice(0, 80) : undefined;
+  const baseURL = typeof value?.baseURL === "string" ? value.baseURL.trim().replace(/\/+$/, "") : undefined;
+  return {
+    modelCount: Number.isFinite(Number(value?.modelCount)) ? Math.max(0, Math.floor(Number(value?.modelCount))) : models.length,
+    ...(provider ? { provider } : {}),
+    ...(baseURL ? { baseURL } : {}),
+    models,
+  };
+}
+
+async function listImageModelsFromBrowser(
+  baseURL: string,
+  apiKey: string,
+  provider = "fhl",
+  proxyMode = "system",
+  proxyURL = "",
+  signal?: AbortSignal,
+): Promise<ListImageModelsResultLike> {
+  void proxyMode;
+  void proxyURL;
+  const normalizedBaseURL = normalizeProbeBaseURL(baseURL);
+  const headerAPIKey = validateAPIKeyForHeader(apiKey);
+  if (!normalizedBaseURL) throw new Error("BASE_URL 不能为空");
+  const response = await fetch(`${normalizedBaseURL}/v1/models`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${headerAPIKey}`, Accept: "application/json" },
+    signal,
+  });
+  const raw = await response.text();
+  if (!response.ok) {
+    throw new Error(`生图模型目录返回 ${response.status}`);
+  }
+  let parsed: any;
+  try { parsed = JSON.parse(raw); } catch { throw new Error("生图模型目录返回的 JSON 无效"); }
+  if (!Array.isArray(parsed?.data)) throw new Error("生图模型目录响应缺少 data 数组");
+  return normalizeImageModelResult({
+    provider,
+    // Keep the catalog bound to the caller's canonical upstream URL. The
+    // fetch URL may be a local preview proxy and must never leak into the
+    // persisted validation metadata.
+    baseURL: normalizeSharedBaseURL(baseURL),
+    modelCount: parsed.data.length,
+    models: parsed.data,
+  });
 }
 
 function makeRuntimeID(prefix: "job" | "submission"): string {
@@ -400,6 +478,7 @@ async function submitSingleAndroidJob(options: GenerateOptionsLike): Promise<Job
     size: options.size as any,
     quality: options.quality as any,
     outputFormat: options.outputFormat as any,
+    imageBackgroundMode: options.imageBackgroundMode,
     batchCount: 1,
     concurrencyLimit: options.concurrencyLimit,
     seed: options.seed || 0,
@@ -414,6 +493,10 @@ async function submitSingleAndroidJob(options: GenerateOptionsLike): Promise<Job
     imagesNewAPICompat: normalizeHostAPIMode(options.apiMode) === "images" && options.imagesNewAPICompat === true,
     textModelID: options.textModelID,
     imageModelID: options.imageModelID,
+    provider: options.provider,
+    imageModelValidatedAt: options.imageModelValidatedAt,
+    imageModelCatalogBaseUrl: options.imageModelCatalogBaseUrl,
+    imageModelCatalogProvider: options.imageModelCatalogProvider,
   });
   return { jobId: response.jobIds[0] || options.requestedJobId || "" };
 }
@@ -964,6 +1047,64 @@ export async function probeCurrentUpstream(
     return probeUpstreamFromBrowser(baseURL, apiKey, apiMode, signal);
   }
   throw new Error(unsupportedMessage("ProbeUpstream"));
+}
+
+/**
+ * Discover image models through the image-specific host contract.
+ *
+ * This intentionally does not fall back to ProbeUpstream: text and image
+ * credentials/configuration are independent, and a text-model response is
+ * not sufficient to authorize an image model selection.
+ */
+export async function listImageModelsFromUpstream(
+  baseURL: string,
+  apiKey: string,
+  provider = "fhl",
+  proxyMode = "system",
+  proxyURL = "",
+  signal?: AbortSignal,
+): Promise<ListImageModelsResultLike> {
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  const options: ListImageModelsOptionsLike = {
+    baseURL,
+    apiKey,
+    provider,
+    proxyMode,
+    proxyURL,
+  };
+  const normalizeResult = (value: ListImageModelsResultLike | null | undefined) => {
+    const normalized = normalizeImageModelResult(value);
+    return {
+      ...normalized,
+      provider: normalized.provider || provider.trim() || "fhl",
+      baseURL: normalized.baseURL || normalizeSharedBaseURL(baseURL),
+    };
+  };
+  if (hasServiceMethod("ListImageModels")) {
+    return normalizeResult(await invokeService<ListImageModelsResultLike>(
+      unsupportedMessage,
+      "ListImageModels",
+      options,
+    ));
+  }
+  if (canInvokeAndroidMethod("ListImageModels")) {
+    return normalizeResult(await invokeAndroid<ListImageModelsResultLike>(
+      unsupportedMessage,
+      "ListImageModels",
+      options,
+    ));
+  }
+  if (detectHostKind() === "browser") {
+    return normalizeResult(await listImageModelsFromBrowser(
+      baseURL,
+      apiKey,
+      provider,
+      proxyMode,
+      proxyURL,
+      signal,
+    ));
+  }
+  throw new Error(unsupportedMessage("ListImageModels"));
 }
 
 export function registerEphemeralLog(text: string, suggestedName = "raw-response.txt"): string {

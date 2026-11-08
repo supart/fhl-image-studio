@@ -30,6 +30,9 @@ import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewFeature
 import androidx.webkit.WebViewClientCompat
 import org.json.JSONObject
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
@@ -39,6 +42,12 @@ class MainActivity : AppCompatActivity() {
     private var androidSafeTop = 0
     private var androidSafeRight = 0
     private var androidSafeBottom = 0
+    private val androidJobRecoveryExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "fhl-studio-job-recovery")
+    }
+    private val androidJobRecoveryInFlight = AtomicBoolean(false)
+    @Volatile
+    private var activityDestroyed = false
     private val openImageDocumentLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (::bridge.isInitialized) bridge.onOpenImageDialogResult(uri)
     }
@@ -327,7 +336,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
         webView.addJavascriptInterface(bridge, "AndroidImageStudio")
-        AndroidJobManager.resumePendingWork(applicationContext)
         val launchNonce = System.currentTimeMillis()
         webView.loadUrl("https://appassets.androidplatform.net/assets/index.html?target=${BuildConfig.TARGET_PLATFORM}&rev=$launchNonce")
         ViewCompat.requestApplyInsets(webView)
@@ -336,18 +344,36 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        AndroidJobManager.resumePendingWork(applicationContext)
         refreshAndroidJobsForPage()
     }
 
     private fun refreshAndroidJobsForPage() {
-        if (!::webView.isInitialized) return
-        webView.post {
-            AndroidJobManager.attach(applicationContext)
-            webView.evaluateJavascript(
-                "window.dispatchEvent(new CustomEvent('image-studio:android-jobs-resume'))",
-                null,
-            )
+        if (!::webView.isInitialized || activityDestroyed) return
+        if (!androidJobRecoveryInFlight.compareAndSet(false, true)) return
+        try {
+            androidJobRecoveryExecutor.execute {
+                try {
+                    AndroidJobManager.resumePendingWork(applicationContext)
+                    if (!activityDestroyed) {
+                        webView.post {
+                            if (activityDestroyed || isFinishing || isDestroyed) return@post
+                            webView.evaluateJavascript(
+                                "window.dispatchEvent(new CustomEvent('image-studio:android-jobs-resume'))",
+                                null,
+                            )
+                        }
+                    }
+                } catch (error: Exception) {
+                    Log.e("ImageStudioJobs", "Unable to recover Android jobs", error)
+                } finally {
+                    androidJobRecoveryInFlight.set(false)
+                }
+            }
+        } catch (error: RejectedExecutionException) {
+            androidJobRecoveryInFlight.set(false)
+            if (!activityDestroyed) {
+                Log.w("ImageStudioJobs", "Android job recovery executor rejected work", error)
+            }
         }
     }
 
@@ -372,6 +398,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        activityDestroyed = true
+        androidJobRecoveryExecutor.shutdownNow()
         webView.removeJavascriptInterface("AndroidImageStudio")
         if (::bridge.isInitialized) bridge.dispose()
         webView.destroy()

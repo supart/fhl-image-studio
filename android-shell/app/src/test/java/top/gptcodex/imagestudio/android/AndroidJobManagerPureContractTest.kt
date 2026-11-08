@@ -6,6 +6,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.json.JSONArray
 import org.json.JSONObject
 import java.lang.reflect.InvocationTargetException
 import java.net.HttpURLConnection
@@ -14,6 +15,173 @@ import java.util.concurrent.CancellationException
 import java.util.concurrent.ConcurrentHashMap
 
 class AndroidJobManagerPureContractTest {
+    @Test
+    fun `legacy jpeg preview for png is rebuilt from the saved image`() {
+        assertEquals(
+            "/images/result.png",
+            androidPreviewSourcePath("/images/result.png", "/previews/result-preview.jpg"),
+        )
+        assertEquals(
+            "/previews/result-preview.png",
+            androidPreviewSourcePath("/images/result.png", "/previews/result-preview.png"),
+        )
+        assertEquals(
+            "/previews/result-preview.jpg",
+            androidPreviewSourcePath("/images/result.webp", "/previews/result-preview.jpg"),
+        )
+        assertEquals(
+            "/images/result.png",
+            androidPreviewSourcePath("/images/result.png", ""),
+        )
+        assertEquals("data:image/png;base64,abc", androidPreviewDataUrl("image/png", "abc"))
+        assertEquals("data:image/jpeg;base64,abc", androidPreviewDataUrl("image/jpeg", "abc"))
+        assertEquals("", androidPreviewDataUrl("image/png", ""))
+    }
+
+    @Test
+    fun `empty attach request never replays jobs`() {
+        val requestedIds = requestedAndroidJobIdSet(JSONArray())
+
+        assertTrue(requestedIds.isEmpty())
+        assertFalse(shouldReplayAttachedJob(requestedIds, "job-1"))
+        assertFalse(shouldReplayAttachedJob(requestedIds, ""))
+    }
+
+    @Test
+    fun `attach replay matches only normalized requested job ids`() {
+        val requestedIds = requestedAndroidJobIdSet(
+            JSONArray()
+                .put(" job-1 ")
+                .put("job-1")
+                .put("  ")
+                .put(JSONObject.NULL)
+                .put(42),
+        )
+
+        assertEquals(setOf("job-1"), requestedIds)
+        assertTrue(shouldReplayAttachedJob(requestedIds, "job-1"))
+        assertFalse(shouldReplayAttachedJob(requestedIds, "job-2"))
+        assertFalse(shouldReplayAttachedJob(requestedIds, " job-1 "))
+    }
+
+    @Test
+    fun `transparent prompt instruction is appended once and standard prompts stay unchanged`() {
+        val base = "a paper kite"
+        val transparent = appendTransparentPromptInstruction(base, true)
+
+        assertEquals(1, transparent.split(transparentImagePromptInstruction).size - 1)
+        assertEquals(transparent, appendTransparentPromptInstruction(transparent, true))
+        assertEquals(base, appendTransparentPromptInstruction(base, false))
+        assertEquals("transparent", normalizedImageBackgroundMode(" Transparent "))
+        assertEquals("standard", normalizedImageBackgroundMode(""))
+    }
+
+    @Test
+    fun `transparent mode is recognized only from the canonical background field`() {
+        assertTrue(isTransparentImageBackgroundMode(JSONObject().put("imageBackgroundMode", "transparent")))
+        assertTrue(isTransparentImageBackgroundMode(JSONObject().put("imageBackgroundMode", "TRANSPARENT")))
+        assertFalse(isTransparentImageBackgroundMode(JSONObject().put("background", "transparent")))
+        assertFalse(isTransparentImageBackgroundMode(JSONObject().put("imageBackgroundMode", "standard")))
+    }
+
+    @Test
+    fun `official FHL image submissions require an exact validated catalog binding`() {
+        val standard = validateAndroidImageSubmissionMetadata(
+            apiMode = "images",
+            baseURL = "https://www.fhl.mom/v1",
+            imageBackgroundMode = "standard",
+            outputFormat = "jpeg",
+            imageModelID = "gpt-image-2",
+            imageModelValidatedAt = 1234L,
+            imageModelCatalogBaseUrl = "https://www.fhl.mom:443/v1",
+            imageModelCatalogProvider = "fhl-secondary",
+            provider = "FHL-SECONDARY",
+        )
+        assertEquals("gpt-image-2", standard.imageModelID)
+        assertEquals("https://www.fhl.mom", standard.imageModelCatalogBaseUrl)
+        assertEquals("fhl-secondary", standard.provider)
+        assertEquals("jpeg", standard.outputFormat)
+
+        val transparent = validateAndroidImageSubmissionMetadata(
+            apiMode = "responses",
+            baseURL = "https://www.fhl.mom",
+            imageBackgroundMode = "transparent",
+            outputFormat = "PNG",
+            imageModelID = "gpt-image-2.5-sunburst",
+            imageModelValidatedAt = 5678L,
+            imageModelCatalogBaseUrl = "https://www.fhl.mom/v1",
+            imageModelCatalogProvider = "fhl",
+            provider = "fhl",
+        )
+        assertEquals("transparent", transparent.imageBackgroundMode)
+        assertEquals("png", transparent.outputFormat)
+    }
+
+    @Test
+    fun `native submission rejects unsupported transparent routes models and stale catalogs`() {
+        fun validate(
+            apiMode: String = "images",
+            baseURL: String = "https://www.fhl.mom",
+            background: String = "transparent",
+            format: String = "png",
+            model: String = "gpt-image-2.5-flare",
+            validatedAt: Long = 1234L,
+            catalogBaseURL: String = "https://www.fhl.mom",
+            catalogProvider: String = "fhl",
+            provider: String = "fhl",
+        ) = validateAndroidImageSubmissionMetadata(
+            apiMode,
+            baseURL,
+            background,
+            format,
+            model,
+            validatedAt,
+            catalogBaseURL,
+            catalogProvider,
+            provider,
+        )
+
+        assertIllegalArgument { validate(apiMode = "apimart", baseURL = "https://api.apimart.ai") }
+        assertIllegalArgument { validate(apiMode = "runninghub", baseURL = "http://127.0.0.1:8117") }
+        assertIllegalArgument { validate(model = "gpt-image-2") }
+        assertIllegalArgument { validate(model = "gpt-image-2.5") }
+        assertIllegalArgument { validate(format = "webp") }
+        assertIllegalArgument { validate(validatedAt = 0L) }
+        assertIllegalArgument { validate(catalogBaseURL = "https://example.test") }
+        assertIllegalArgument { validate(catalogProvider = "fhl-old") }
+        assertIllegalArgument {
+            validate(
+                background = "standard",
+                model = "other-image-model",
+            )
+        }
+    }
+
+    @Test
+    fun `catalog and job metadata reject credentials controls and unsafe URLs`() {
+        assertEquals("https://www.fhl.mom", normalizedSafeImageCatalogBaseURL(" https://www.fhl.mom:443/v1/ "))
+        assertEquals("http://127.0.0.1:8080", normalizedSafeImageCatalogBaseURL("http://127.0.0.1:8080/v1"))
+        assertEquals("fhl-secondary", safeImageProviderIdentifier(" FHL-SECONDARY "))
+        assertEquals("run-123", safeJobMetadataIdentifier(" run-123 ", "requestRunId"))
+
+        assertIllegalArgument { normalizedSafeImageCatalogBaseURL("https://user:secret@www.fhl.mom/v1") }
+        assertIllegalArgument { normalizedSafeImageCatalogBaseURL("https://www.fhl.mom/v1?token=secret") }
+        assertIllegalArgument { normalizedSafeImageCatalogBaseURL("https://www.fhl.mom/v1#private") }
+        assertIllegalArgument { normalizedSafeImageCatalogBaseURL("http://www.fhl.mom/v1") }
+        assertIllegalArgument { safeImageProviderIdentifier("Bearer abcdefghijklmnop") }
+        assertIllegalArgument { safeJobMetadataIdentifier("run\u0000spoof", "requestRunId") }
+        assertIllegalArgument { safeJobMetadataIdentifier("x".repeat(129), "requestRunId") }
+    }
+
+    @Test
+    fun `transparent validation failures expose one structured error code`() {
+        val slot = JSONObject().put("errorCode", "stale")
+        putStructuredJobErrorCode(slot, invalidTransparentOutputErrorCode)
+        assertEquals("invalid_transparent_output", slot.optString("errorCode"))
+        putStructuredJobErrorCode(slot, null)
+        assertFalse(slot.has("errorCode"))
+    }
+
     @Test
     fun `api mode normalization preserves supported routes`() {
         assertEquals("images", invoke<String>("normalizeAPIMode", " Images "))
@@ -116,11 +284,23 @@ class AndroidJobManagerPureContractTest {
             .put("apiMode", " Images ")
             .put("apiKey", "secret-value")
             .put("baseURL", "https://www.fhl.mom/v1")
+            .put("imageBackgroundMode", " TRANSPARENT ")
+            .put("imageModelID", "gpt-image-2.5-flare")
+            .put("provider", "fhl")
+            .put("imageModelValidatedAt", 1234L)
+            .put("imageModelCatalogBaseUrl", "https://www.fhl.mom")
+            .put("imageModelCatalogProvider", "fhl")
         val stored = invoke<JSONObject>("payloadForPersistence", source, "group-1")
 
         assertEquals("images", stored.optString("apiMode"))
         assertEquals("group-1", stored.optString("groupId"))
         assertEquals("https://www.fhl.mom/v1", stored.optString("baseURL"))
+        assertEquals("transparent", stored.optString("imageBackgroundMode"))
+        assertEquals("gpt-image-2.5-flare", stored.optString("imageModelID"))
+        assertEquals("fhl", stored.optString("provider"))
+        assertEquals(1234L, stored.optLong("imageModelValidatedAt"))
+        assertEquals("https://www.fhl.mom", stored.optString("imageModelCatalogBaseUrl"))
+        assertEquals("fhl", stored.optString("imageModelCatalogProvider"))
         assertFalse(stored.has("apiKey"))
         assertEquals(" Images ", source.optString("apiMode"))
         assertTrue(source.has("apiKey"))
@@ -850,6 +1030,15 @@ class AndroidJobManagerPureContractTest {
                 "Expected ${T::class.java.name}, got ${error.cause?.javaClass?.name}",
                 error.cause is T,
             )
+        }
+    }
+
+    private fun assertIllegalArgument(block: () -> Unit) {
+        try {
+            block()
+            throw AssertionError("Expected IllegalArgumentException")
+        } catch (_: IllegalArgumentException) {
+            // Expected fail-closed validation.
         }
     }
 

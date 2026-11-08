@@ -109,10 +109,7 @@ export async function ensureFHLResponsesProfile(
 }
 
 export async function ensureFHLImagesProfile(store: FHLProfileActions): Promise<string> {
-  const fhlProfile = store.profiles.find((profile) => (
-    isOfficialFHLPoolProfile(profile)
-    && profile.imageModelID === FHL_IMAGE_MODEL_ID
-  ));
+  const fhlProfile = store.profiles.find(isOfficialFHLPoolProfile);
 
   if (!fhlProfile) {
     const id = await store.createProfile({
@@ -138,7 +135,7 @@ export async function ensureFHLImagesProfile(store: FHLProfileActions): Promise<
     requestPolicy: "openai",
     baseURL: FHL_BASE_URL,
     textModelID: FHL_TEXT_MODEL_ID,
-    imageModelID: FHL_IMAGE_MODEL_ID,
+    imageModelID: fhlProfile.imageModelID.trim() || FHL_IMAGE_MODEL_ID,
     concurrencyLimit: fhlProfile.concurrencyLimit > 0 ? Math.min(2, fhlProfile.concurrencyLimit) : DEFAULT_CONCURRENCY_LIMIT,
     imagesNewAPICompat: true,
   });

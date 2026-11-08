@@ -38,6 +38,7 @@ import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
+import java.util.zip.CRC32
 import kotlin.concurrent.thread
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -45,6 +46,276 @@ import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
+
+internal const val transparentImagePromptInstruction =
+    "Output on a fully transparent background with real alpha transparency and clean edges. Do not add a solid backdrop, drawn checkerboard, scenery, or watermark."
+internal const val invalidTransparentOutputErrorCode = "invalid_transparent_output"
+
+private val supportedFHLImageModels = setOf(
+    "gpt-image-2",
+    "gpt-image-2.5-flare",
+    "gpt-image-2.5-sunburst",
+)
+private val transparentFHLImageModels = setOf(
+    "gpt-image-2.5-flare",
+    "gpt-image-2.5-sunburst",
+)
+private val safeMetadataIdentifierPattern = Regex("^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+private val safeProviderIdentifierPattern = Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$")
+private val secretLikeMetadataPattern = Regex(
+    "(?i)(?:bearer\\s+|(?:^|[^a-z0-9])(?:sk|msk)-[a-z0-9_-]{8,}|ghp_[a-z0-9]{20,}|github_pat_[a-z0-9_]{20,})",
+)
+
+internal fun requestedAndroidJobIdSet(jobIds: JSONArray): Set<String> {
+    val requestedIds = LinkedHashSet<String>()
+    for (index in 0 until jobIds.length()) {
+        val jobId = (jobIds.opt(index) as? String)?.trim().orEmpty()
+        if (jobId.isNotBlank()) requestedIds.add(jobId)
+    }
+    return requestedIds
+}
+
+internal fun shouldReplayAttachedJob(requestedIds: Set<String>, jobId: String): Boolean {
+    return jobId.isNotBlank() && requestedIds.contains(jobId)
+}
+
+internal data class AndroidImageSubmissionMetadata(
+    val imageBackgroundMode: String,
+    val outputFormat: String,
+    val imageModelID: String,
+    val imageModelValidatedAt: Long,
+    val imageModelCatalogBaseUrl: String,
+    val imageModelCatalogProvider: String,
+    val provider: String,
+)
+
+internal fun safeJobMetadataIdentifier(raw: String, fieldName: String): String {
+    val value = raw.trim()
+    if (value.isBlank()) return ""
+    if (!safeMetadataIdentifierPattern.matches(value) || secretLikeMetadataPattern.containsMatchIn(value)) {
+        throw IllegalArgumentException("Android 提交的 $fieldName 元数据无效。")
+    }
+    return value
+}
+
+internal fun safeImageProviderIdentifier(raw: String): String {
+    val value = raw.trim().lowercase(Locale.US)
+    if (value.isBlank()) return ""
+    if (!safeProviderIdentifierPattern.matches(value) || secretLikeMetadataPattern.containsMatchIn(value)) {
+        throw IllegalArgumentException("Android 提交的 provider 元数据无效。")
+    }
+    return value
+}
+
+internal fun normalizedSafeImageCatalogBaseURL(raw: String): String {
+    val value = raw.trim().trimEnd('/')
+    if (value.isBlank()) return ""
+    val uri = try {
+        URI(value)
+    } catch (_: Exception) {
+        throw IllegalArgumentException("生图模型目录 BASE_URL 无效。")
+    }
+    val scheme = uri.scheme?.lowercase(Locale.US).orEmpty()
+    val host = uri.host?.lowercase(Locale.US).orEmpty()
+    if (scheme !in setOf("http", "https") || host.isBlank()) {
+        throw IllegalArgumentException("生图模型目录 BASE_URL 必须包含有效协议和主机。")
+    }
+    if (uri.rawUserInfo != null || uri.rawQuery != null || uri.rawFragment != null) {
+        throw IllegalArgumentException("生图模型目录 BASE_URL 不能包含凭据、query 或 fragment。")
+    }
+    val loopback = host == "localhost" || host.endsWith(".localhost") || host == "127.0.0.1" ||
+        host == "::1" || host == "0:0:0:0:0:0:0:1"
+    if (scheme != "https" && !loopback) {
+        throw IllegalArgumentException("生图模型目录拒绝使用非 TLS 上游。")
+    }
+    val normalizedPort = when {
+        uri.port == -1 -> -1
+        scheme == "https" && uri.port == 443 -> -1
+        scheme == "http" && uri.port == 80 -> -1
+        else -> uri.port
+    }
+    var path = (uri.rawPath ?: "").trimEnd('/')
+    if (path.endsWith("/v1", ignoreCase = true)) path = path.dropLast(3)
+    path = path.trimEnd('/')
+    return URI(scheme, null, host, normalizedPort, path.ifBlank { null }, null, null).toString().trimEnd('/')
+}
+
+internal fun normalizedOfficialFHLBaseURL(raw: String): String? {
+    val normalized = try {
+        normalizedSafeImageCatalogBaseURL(raw)
+    } catch (_: IllegalArgumentException) {
+        return null
+    }
+    return normalized.takeIf { it == "https://www.fhl.mom" }
+}
+
+internal fun validateAndroidImageSubmissionMetadata(
+    apiMode: String,
+    baseURL: String,
+    imageBackgroundMode: String,
+    outputFormat: String,
+    imageModelID: String,
+    imageModelValidatedAt: Long,
+    imageModelCatalogBaseUrl: String,
+    imageModelCatalogProvider: String,
+    provider: String,
+): AndroidImageSubmissionMetadata {
+    val normalizedMode = apiMode.trim().lowercase(Locale.US)
+    val background = normalizedImageBackgroundMode(imageBackgroundMode)
+    val format = outputFormat.trim().lowercase(Locale.US).ifBlank { "png" }
+    val model = safeJobMetadataIdentifier(imageModelID, "imageModelID")
+    val catalogBase = normalizedSafeImageCatalogBaseURL(imageModelCatalogBaseUrl)
+    val catalogProvider = safeImageProviderIdentifier(imageModelCatalogProvider)
+    val currentProvider = safeImageProviderIdentifier(provider)
+    val officialFHLBase = normalizedOfficialFHLBaseURL(baseURL)
+    val officialFHLRequest = normalizedMode in setOf("images", "responses") && officialFHLBase != null
+
+    if (officialFHLRequest) {
+        if (model !in supportedFHLImageModels) {
+            throw IllegalArgumentException("官方 FHL 生图必须选择 provider 目录返回的精确模型。")
+        }
+        if (imageModelValidatedAt <= 0L || catalogBase != officialFHLBase) {
+            throw IllegalArgumentException("当前 FHL 生图模型尚未通过此 Base URL 的目录验证。")
+        }
+        if (currentProvider.isBlank() || catalogProvider.isBlank() || currentProvider != catalogProvider) {
+            throw IllegalArgumentException("当前 FHL provider 与模型目录验证身份不匹配。")
+        }
+    }
+
+    if (background == "transparent") {
+        if (!officialFHLRequest) {
+            throw IllegalArgumentException("透明 PNG 仅支持已验证的官方 FHL Images 或 Responses 路由。")
+        }
+        if (model !in transparentFHLImageModels) {
+            throw IllegalArgumentException("当前精确生图模型不支持透明 PNG。")
+        }
+        if (format != "png") {
+            throw IllegalArgumentException("透明背景任务必须使用 PNG 输出格式。")
+        }
+    }
+
+    return AndroidImageSubmissionMetadata(
+        imageBackgroundMode = background,
+        outputFormat = if (background == "transparent") "png" else format,
+        imageModelID = model,
+        imageModelValidatedAt = imageModelValidatedAt.takeIf { it > 0L } ?: 0L,
+        imageModelCatalogBaseUrl = catalogBase,
+        imageModelCatalogProvider = catalogProvider,
+        provider = currentProvider,
+    )
+}
+
+internal fun putStructuredJobErrorCode(target: JSONObject, errorCode: String?) {
+    val safe = errorCode?.trim().orEmpty()
+    if (safe.isBlank()) target.remove("errorCode") else target.put("errorCode", safe)
+}
+
+internal fun normalizedImageBackgroundMode(raw: String): String {
+    return if (raw.trim().equals("transparent", ignoreCase = true)) "transparent" else "standard"
+}
+
+internal fun isTransparentImageBackgroundMode(payload: JSONObject): Boolean {
+    return normalizedImageBackgroundMode(payload.optString("imageBackgroundMode")) == "transparent"
+}
+
+internal fun appendTransparentPromptInstruction(prompt: String, transparent: Boolean): String {
+    val trimmed = prompt.trim()
+    if (!transparent || trimmed.contains(transparentImagePromptInstruction)) return trimmed
+    return if (trimmed.isBlank()) {
+        transparentImagePromptInstruction
+    } else {
+        "$trimmed\n\n$transparentImagePromptInstruction"
+    }
+}
+
+/**
+ * Returns null for a valid transparent PNG, or a short diagnostic for a rejected final output.
+ * This intentionally runs only on final bytes, never on streaming preview images.
+ */
+internal fun validateTransparentPngBytes(bytes: ByteArray): String? {
+    val signature = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+    if (bytes.size < signature.size || !signature.indices.all { bytes[it] == signature[it] }) {
+        return "PNG signature is missing"
+    }
+    if (!hasCompletePngStructure(bytes)) return "PNG structure is incomplete or corrupt"
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    try {
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    } catch (_: Throwable) {
+        return "PNG bounds could not be decoded"
+    }
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return "PNG dimensions are invalid"
+    val decoded = try {
+        BitmapFactory.decodeByteArray(
+            bytes,
+            0,
+            bytes.size,
+            BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 },
+        )
+    } catch (_: Throwable) {
+        null
+    } ?: return "PNG pixels could not be decoded"
+    try {
+        val chunkWidth = minOf(decoded.width, 1024).coerceAtLeast(1)
+        val row = IntArray(chunkWidth)
+        var hasVisiblePixel = false
+        var hasTransparentPixel = false
+        for (y in 0 until decoded.height) {
+            var x = 0
+            while (x < decoded.width) {
+                val count = minOf(chunkWidth, decoded.width - x)
+                decoded.getPixels(row, 0, count, x, y, count, 1)
+                for (index in 0 until count) {
+                    val alpha = row[index] ushr 24
+                    if (alpha > 0) hasVisiblePixel = true
+                    if (alpha < 255) hasTransparentPixel = true
+                    if (hasVisiblePixel && hasTransparentPixel) return null
+                }
+                x += count
+            }
+        }
+        if (!hasVisiblePixel) return "PNG has no visible pixels"
+        if (!hasTransparentPixel) return "PNG has no transparent pixels"
+        return "PNG alpha channel is invalid"
+    } catch (_: Throwable) {
+        return "PNG pixels could not be inspected"
+    } finally {
+        if (!decoded.isRecycled) decoded.recycle()
+    }
+}
+
+private fun hasCompletePngStructure(bytes: ByteArray): Boolean {
+    var offset = 8
+    var chunkIndex = 0
+    var hasImageData = false
+    while (offset <= bytes.size - 12) {
+        val lengthLong = readPngUInt32(bytes, offset)
+        if (lengthLong > Int.MAX_VALUE) return false
+        val length = lengthLong.toInt()
+        val typeOffset = offset + 4
+        val dataOffset = typeOffset + 4
+        val crcOffsetLong = dataOffset.toLong() + length.toLong()
+        if (crcOffsetLong > bytes.size.toLong() - 4L) return false
+        val crcOffset = crcOffsetLong.toInt()
+        val type = String(bytes, typeOffset, 4, Charsets.US_ASCII)
+        val crc = CRC32().apply { update(bytes, typeOffset, 4 + length) }.value
+        if (crc != readPngUInt32(bytes, crcOffset)) return false
+        if (chunkIndex == 0 && (type != "IHDR" || length != 13)) return false
+        if (type == "IDAT") hasImageData = true
+        offset = crcOffset + 4
+        if (type == "IEND") return length == 0 && hasImageData && offset == bytes.size
+        chunkIndex += 1
+    }
+    return false
+}
+
+private fun readPngUInt32(bytes: ByteArray, offset: Int): Long {
+    if (offset < 0 || offset > bytes.size - 4) return Long.MAX_VALUE
+    return ((bytes[offset].toLong() and 0xFFL) shl 24) or
+        ((bytes[offset + 1].toLong() and 0xFFL) shl 16) or
+        ((bytes[offset + 2].toLong() and 0xFFL) shl 8) or
+        (bytes[offset + 3].toLong() and 0xFFL)
+}
 
 object AndroidJobEventBus {
     private val listeners = CopyOnWriteArraySet<(JSONObject) -> Unit>()
@@ -161,6 +432,25 @@ object AndroidJobManager {
             payload.optString("apiLabel", "FHL"),
             rawFHLImagesPoolSlot,
         )
+        val imageMetadata = validateAndroidImageSubmissionMetadata(
+            apiMode = apiMode,
+            baseURL = baseURL,
+            imageBackgroundMode = payload.optString("imageBackgroundMode"),
+            outputFormat = payload.optString("outputFormat", "png"),
+            imageModelID = payload.optString("imageModelID"),
+            imageModelValidatedAt = payload.optLong("imageModelValidatedAt", 0L),
+            imageModelCatalogBaseUrl = payload.optString("imageModelCatalogBaseUrl"),
+            imageModelCatalogProvider = payload.optString("imageModelCatalogProvider"),
+            provider = payload.optString("provider"),
+        )
+        val imageBackgroundMode = imageMetadata.imageBackgroundMode
+        val imageModelID = imageMetadata.imageModelID
+        val imageModelValidatedAt = imageMetadata.imageModelValidatedAt
+        val imageModelCatalogBaseUrl = imageMetadata.imageModelCatalogBaseUrl
+        val imageModelCatalogProvider = imageMetadata.imageModelCatalogProvider
+        val provider = imageMetadata.provider
+        val outputFormat = imageMetadata.outputFormat
+        val submittedRequestRunId = safeJobMetadataIdentifier(payload.optString("requestRunId"), "requestRunId")
         val apiProfileId = payload.optString("apiProfileId").trim()
         val apiProfileName = payload.optString("apiProfileName").trim()
         var createdGroup: JSONObject? = null
@@ -187,7 +477,7 @@ object AndroidJobManager {
             }
 
             val groupId = "android-group-${UUID.randomUUID()}"
-            val requestRunId = payload.optString("requestRunId").ifBlank { groupId }
+            val requestRunId = submittedRequestRunId.ifBlank { groupId }
             val slotIds = JSONArray()
             val slots = JSONArray()
             val newJobIds = mutableListOf<String>()
@@ -204,6 +494,7 @@ object AndroidJobManager {
                     .put("workspaceId", workspaceId)
                     .put("batchIndex", continuousBatchIndex + index)
                     .put("apiLabel", apiLabel)
+                    .put("imageBackgroundMode", imageBackgroundMode)
                     .put("status", "queued")
                     .put("createdAt", now)
                     .put("updatedAt", now)
@@ -217,6 +508,11 @@ object AndroidJobManager {
                     .put("reservationActive", false)
                 if (apiProfileId.isNotBlank()) slot.put("apiProfileId", apiProfileId)
                 if (apiProfileName.isNotBlank()) slot.put("apiProfileName", apiProfileName)
+                if (provider.isNotBlank()) slot.put("provider", provider)
+                if (imageModelID.isNotBlank()) slot.put("imageModelID", imageModelID)
+                if (imageModelValidatedAt > 0L) slot.put("imageModelValidatedAt", imageModelValidatedAt)
+                if (imageModelCatalogBaseUrl.isNotBlank()) slot.put("imageModelCatalogBaseUrl", imageModelCatalogBaseUrl)
+                if (imageModelCatalogProvider.isNotBlank()) slot.put("imageModelCatalogProvider", imageModelCatalogProvider)
                 if (fhlImagesPoolSlot != null) slot.put("fhlImagesPoolSlot", fhlImagesPoolSlot)
                 slots.put(slot)
             }
@@ -231,10 +527,11 @@ object AndroidJobManager {
                 .put("apiMode", apiMode)
                 .put("apiLabel", apiLabel)
                 .put("prompt", payload.optString("prompt"))
+                .put("imageBackgroundMode", imageBackgroundMode)
                 .put("batchCount", batchCount)
                 .put("size", payload.optString("size", "1024x1024"))
                 .put("quality", payload.optString("quality", "medium"))
-                .put("outputFormat", payload.optString("outputFormat", "png"))
+                .put("outputFormat", outputFormat)
                 .put("negativePrompt", payload.optString("negativePrompt"))
                 .put("styleTag", payload.optString("styleTag"))
                 .put("seed", payload.optLong("seed", 0L))
@@ -248,6 +545,11 @@ object AndroidJobManager {
                 .put("statusSummary", summarizeSlots(slots))
             if (apiProfileId.isNotBlank()) group.put("apiProfileId", apiProfileId)
             if (apiProfileName.isNotBlank()) group.put("apiProfileName", apiProfileName)
+            if (provider.isNotBlank()) group.put("provider", provider)
+            if (imageModelID.isNotBlank()) group.put("imageModelID", imageModelID)
+            if (imageModelValidatedAt > 0L) group.put("imageModelValidatedAt", imageModelValidatedAt)
+            if (imageModelCatalogBaseUrl.isNotBlank()) group.put("imageModelCatalogBaseUrl", imageModelCatalogBaseUrl)
+            if (imageModelCatalogProvider.isNotBlank()) group.put("imageModelCatalogProvider", imageModelCatalogProvider)
             if (fhlImagesPoolSlot != null) group.put("fhlImagesPoolSlot", fhlImagesPoolSlot)
             if (apiMode == "apimart") {
                 val originalBaseURL = payload.optString("baseURL").trim()
@@ -256,6 +558,14 @@ object AndroidJobManager {
 
             val storedPayload = payloadForPersistence(payload, groupId)
                 .put("apiLabel", apiLabel)
+                .put("imageBackgroundMode", imageBackgroundMode)
+                .put("outputFormat", outputFormat)
+                .put("requestRunId", requestRunId)
+            if (provider.isNotBlank()) storedPayload.put("provider", provider) else storedPayload.remove("provider")
+            if (imageModelID.isNotBlank()) storedPayload.put("imageModelID", imageModelID) else storedPayload.remove("imageModelID")
+            if (imageModelValidatedAt > 0L) storedPayload.put("imageModelValidatedAt", imageModelValidatedAt) else storedPayload.remove("imageModelValidatedAt")
+            if (imageModelCatalogBaseUrl.isNotBlank()) storedPayload.put("imageModelCatalogBaseUrl", imageModelCatalogBaseUrl) else storedPayload.remove("imageModelCatalogBaseUrl")
+            if (imageModelCatalogProvider.isNotBlank()) storedPayload.put("imageModelCatalogProvider", imageModelCatalogProvider) else storedPayload.remove("imageModelCatalogProvider")
             if (fhlImagesPoolSlot != null) {
                 storedPayload.put("fhlImagesPoolSlot", fhlImagesPoolSlot)
             } else {
@@ -390,12 +700,17 @@ object AndroidJobManager {
         return JSONObject().put("cancelledJobIds", cancelled)
     }
 
-    fun attach(context: Context): JSONObject {
+    fun attach(context: Context, jobIds: JSONArray): JSONObject {
         val appContext = context.applicationContext
+        val requestedIds = requestedAndroidJobIdSet(jobIds)
         val shouldStart = synchronized(lock) {
             reconcilePendingJobsLocked(appContext)
         }
         if (shouldStart) startService(appContext)
+        if (requestedIds.isEmpty()) {
+            return JSONObject().put("ok", true).put("replayed", 0)
+        }
+        var replayed = 0
         synchronized(lock) {
             val groups = loadRegistry(appContext).optJSONArray("groups") ?: JSONArray()
             for (i in 0 until groups.length()) {
@@ -403,16 +718,18 @@ object AndroidJobManager {
                 val slots = group.optJSONArray("slots") ?: continue
                 for (j in 0 until slots.length()) {
                     val slot = slots.optJSONObject(j) ?: continue
+                    if (!shouldReplayAttachedJob(requestedIds, slot.optString("jobId"))) continue
                     AndroidJobEventBus.emit(
                         JSONObject()
                             .put("type", eventTypeForStatus(slot.optString("status")))
                             .put("slot", JSONObject(slot.toString()))
                             .put("group", JSONObject(group.toString())),
                     )
+                    replayed += 1
                 }
             }
         }
-        return JSONObject().put("ok", true)
+        return JSONObject().put("ok", true).put("replayed", replayed)
     }
 
     fun ensureWorker(context: Context, idleCallback: (() -> Unit)? = null) {
@@ -573,6 +890,7 @@ object AndroidJobManager {
             current.put("stage", "后台任务已启动")
             current.put("startedAt", startedAt)
             current.put("updatedAt", startedAt)
+            current.remove("errorCode")
         }
         try {
             val slotPayload = JSONObject(payload.toString())
@@ -586,6 +904,22 @@ object AndroidJobManager {
             slotPayload.put("clientSubmissionId", group.optString("clientSubmissionId"))
             slotPayload.put("requestRunId", requestRunId)
             slotPayload.put("batchVariationKey", "$requestRunId-${jobId.takeLast(12)}-${batchIndex + 1}")
+            val frozenImageBackgroundMode = normalizedImageBackgroundMode(
+                payload.optString("imageBackgroundMode").ifBlank { group.optString("imageBackgroundMode") },
+            )
+            slotPayload.put("imageBackgroundMode", frozenImageBackgroundMode)
+            if (!slotPayload.has("imageModelID") && group.optString("imageModelID").isNotBlank()) {
+                slotPayload.put("imageModelID", group.optString("imageModelID"))
+            }
+            if (!slotPayload.has("imageModelValidatedAt") && group.has("imageModelValidatedAt")) {
+                slotPayload.put("imageModelValidatedAt", group.optLong("imageModelValidatedAt"))
+            }
+            if (!slotPayload.has("imageModelCatalogBaseUrl") && group.optString("imageModelCatalogBaseUrl").isNotBlank()) {
+                slotPayload.put("imageModelCatalogBaseUrl", group.optString("imageModelCatalogBaseUrl"))
+            }
+            if (!slotPayload.has("imageModelCatalogProvider") && group.optString("imageModelCatalogProvider").isNotBlank()) {
+                slotPayload.put("imageModelCatalogProvider", group.optString("imageModelCatalogProvider"))
+            }
             val existingAPIMartTaskId = slot.optString("apimartTaskId").trim()
             if (existingAPIMartTaskId.isNotBlank()) {
                 slotPayload.put("apimartTaskId", existingAPIMartTaskId)
@@ -613,7 +947,29 @@ object AndroidJobManager {
                 else -> requestResponses(context, jobId, slotPayload, startedAt)
             }
             if (cancelledJobIds.contains(jobId)) throw CancellationException("cancelled")
-            val outputFormat = payload.optString("outputFormat", "png").ifBlank { "png" }
+            val nativeTransparentOutput = frozenImageBackgroundMode == "transparent" &&
+                (apiMode == "images" || apiMode == "responses")
+            if (nativeTransparentOutput) {
+                val finalBytes = try {
+                    result.imageBytes ?: Base64.decode(result.imageB64, Base64.DEFAULT)
+                } catch (_: Exception) {
+                    ByteArray(0)
+                }
+                val validationError = validateTransparentPngBytes(finalBytes)
+                if (validationError != null) {
+                    throw JobRequestException(
+                        "透明 PNG 校验失败：$validationError",
+                        null,
+                        false,
+                        errorCode = invalidTransparentOutputErrorCode,
+                    )
+                }
+            }
+            val outputFormat = if (nativeTransparentOutput) {
+                "png"
+            } else {
+                payload.optString("outputFormat", "png").ifBlank { "png" }
+            }
             val suggestedName = "$apiMode-${payload.optString("mode", "generate")}-${safeNamePart(payload.optString("prompt"))}-${timestampForFile()}-${batchIndex + 1}.$outputFormat"
             val savedPath = if (result.imageBytes != null) {
                 saveFinalImageBytes(context, result.imageBytes, outputFormat, suggestedName)
@@ -626,6 +982,7 @@ object AndroidJobManager {
             val succeeded = commitWorkerOutcomeUnlessCancelled(context, jobId, startedAt, "terminal") { current ->
                 current.put("status", "succeeded")
                 current.put("stage", "生成完成")
+                current.remove("errorCode")
                 current.put("finishedAt", System.currentTimeMillis())
                 current.put("elapsedSec", ((System.currentTimeMillis() - startedAt) / 1000.0))
                 current.put("savedPath", savedPath)
@@ -667,6 +1024,7 @@ object AndroidJobManager {
                 current.put("finishedAt", System.currentTimeMillis())
                 current.put("elapsedSec", ((System.currentTimeMillis() - startedAt) / 1000.0))
                 current.put("errorMessage", error.message ?: "生成失败")
+                putStructuredJobErrorCode(current, error.errorCode)
                 if (!error.rawPath.isNullOrBlank()) current.put("rawPath", error.rawPath)
                 if (!error.taskId.isNullOrBlank()) {
                     current.put("taskId", error.taskId)
@@ -685,6 +1043,7 @@ object AndroidJobManager {
                 current.put("finishedAt", System.currentTimeMillis())
                 current.put("elapsedSec", ((System.currentTimeMillis() - startedAt) / 1000.0))
                 current.put("errorMessage", error.message ?: error.javaClass.simpleName)
+                current.remove("errorCode")
             }
             if (failed) {
                 AndroidJobNotifications.notifyFailure(context, jobId, error.message ?: error.javaClass.simpleName)
@@ -740,6 +1099,7 @@ object AndroidJobManager {
             slot.put("elapsedSec", ((now - startedAt) / 1000.0).coerceAtLeast(0.0))
         }
         slot.put("errorMessage", "")
+        slot.remove("errorCode")
     }
 
     private fun statusAfterCancellationArbitration(
@@ -1571,9 +1931,11 @@ object AndroidJobManager {
             else -> "1024x1024"
         }
         val aspectSuffix = fhlExactResponsesAspectPromptSuffix(payload, size)
-        val prompt = payload.optString("prompt").trim().let { base ->
+        val promptWithAspect = payload.optString("prompt").trim().let { base ->
             if (aspectSuffix.isBlank()) base else "$base\n\n$aspectSuffix"
         }
+        val transparent = isTransparentImageBackgroundMode(payload)
+        val prompt = appendTransparentPromptInstruction(promptWithAspect, transparent)
         val content = JSONArray().put(JSONObject().put("type", "input_text").put("text", prompt))
         val variation = batchVariationInstruction(payload)
         if (variation.isNotBlank()) {
@@ -1589,12 +1951,13 @@ object AndroidJobManager {
             .put("action", if (sourceDataUrls.length() > 0) "edit" else "generate")
             .put("size", size)
             .put("quality", payload.optString("quality", "medium").ifBlank { "medium" })
-            .put("output_format", payload.optString("outputFormat", "png").ifBlank { "png" })
+            .put("output_format", if (transparent) "png" else payload.optString("outputFormat", "png").ifBlank { "png" })
             .put("moderation", "low")
             .put(
                 "partial_images",
                 if (shouldDisablePartialImagesForFHLExactResponses(payload, size)) 0 else normalizePartialImages(payload.opt("partialImages")),
             )
+        if (transparent) tool.put("background", "transparent")
         val seed = payload.optLong("seed", 0L)
         val negativePrompt = payload.optString("negativePrompt").trim()
         if (compat && seed > 0L) tool.put("seed", seed)
@@ -1689,7 +2052,14 @@ object AndroidJobManager {
     }
 
     private fun promptWithBatchVariation(payload: JSONObject): String {
-        val prompt = payload.optString("prompt").trim()
+        return promptWithBatchVariation(payload, includeTransparentInstruction = false)
+    }
+
+    private fun promptWithBatchVariation(payload: JSONObject, includeTransparentInstruction: Boolean): String {
+        val prompt = appendTransparentPromptInstruction(
+            payload.optString("prompt").trim(),
+            includeTransparentInstruction && isTransparentImageBackgroundMode(payload),
+        )
         val variation = batchVariationInstruction(payload)
         return if (variation.isBlank()) prompt else "$prompt\n\n$variation"
     }
@@ -1700,7 +2070,8 @@ object AndroidJobManager {
         val imageModel = payload.optString("imageModelID", defaultImageModel).ifBlank { defaultImageModel }
         val size = payload.optString("size", "864x1536").ifBlank { "864x1536" }
         val quality = payload.optString("quality", "auto").ifBlank { "auto" }
-        val outputFormat = payload.optString("outputFormat", "png").ifBlank { "png" }
+        val transparent = isTransparentImageBackgroundMode(payload)
+        val outputFormat = if (transparent) "png" else payload.optString("outputFormat", "png").ifBlank { "png" }
         val includeExtended = payload.optString("requestPolicy", "openai") == "compat"
         val useNewAPICompat = payload.optBoolean("imagesNewAPICompat", false)
         val partialImages = normalizePartialImages(payload.opt("partialImages"))
@@ -1726,12 +2097,13 @@ object AndroidJobManager {
             if (maskB64.isNotBlank()) {
                 appendMultipartFile(out, boundary, "mask", "mask.png", "image/png", Base64.decode(maskB64, Base64.DEFAULT))
             }
-            appendMultipartField(out, boundary, "prompt", promptWithBatchVariation(payload))
+            appendMultipartField(out, boundary, "prompt", promptWithBatchVariation(payload, includeTransparentInstruction = true))
             appendMultipartField(out, boundary, "model", imageModel)
             appendMultipartField(out, boundary, "n", "1")
             appendMultipartField(out, boundary, "size", size)
             appendMultipartField(out, boundary, "quality", quality)
             appendMultipartField(out, boundary, "output_format", outputFormat)
+            if (transparent) appendMultipartField(out, boundary, "background", "transparent")
             if (useNewAPICompat || supportsImagesResponseFormat(imageModel, mode)) appendMultipartField(out, boundary, "response_format", "b64_json")
             if (!useNewAPICompat) {
                 appendMultipartField(out, boundary, "stream", "true")
@@ -1747,11 +2119,12 @@ object AndroidJobManager {
 
         val body = JSONObject()
             .put("model", imageModel)
-            .put("prompt", promptWithBatchVariation(payload))
+            .put("prompt", promptWithBatchVariation(payload, includeTransparentInstruction = true))
             .put("n", 1)
             .put("size", size)
             .put("quality", quality)
             .put("output_format", outputFormat)
+        if (transparent) body.put("background", "transparent")
         if (useNewAPICompat || supportsImagesResponseFormat(imageModel, mode)) body.put("response_format", "b64_json")
         if (!useNewAPICompat) {
             body.put("stream", true)
@@ -1788,8 +2161,7 @@ object AndroidJobManager {
     }
 
     private fun isFHLBaseURL(baseURL: String): Boolean {
-        val normalized = baseURL.trim().trimEnd('/').lowercase(Locale.US).removeSuffix("/v1")
-        return normalized == "https://www.fhl.mom"
+        return normalizedOfficialFHLBaseURL(baseURL) != null
     }
 
     private fun hostForURL(value: String): String {
@@ -2239,9 +2611,21 @@ object AndroidJobManager {
         require(groupId.isNotBlank()) { "Android job group ID must not be blank" }
         val stored = JSONObject(payload.toString())
         stored.remove("apiKey")
+        val imageModelID = safeJobMetadataIdentifier(payload.optString("imageModelID"), "imageModelID")
+        val provider = safeImageProviderIdentifier(payload.optString("provider"))
+        val catalogProvider = safeImageProviderIdentifier(payload.optString("imageModelCatalogProvider"))
+        val catalogBaseURL = normalizedSafeImageCatalogBaseURL(payload.optString("imageModelCatalogBaseUrl"))
+        val requestRunId = safeJobMetadataIdentifier(payload.optString("requestRunId"), "requestRunId")
+        if (imageModelID.isBlank()) stored.remove("imageModelID") else stored.put("imageModelID", imageModelID)
+        if (provider.isBlank()) stored.remove("provider") else stored.put("provider", provider)
+        if (catalogProvider.isBlank()) stored.remove("imageModelCatalogProvider") else stored.put("imageModelCatalogProvider", catalogProvider)
+        if (catalogBaseURL.isBlank()) stored.remove("imageModelCatalogBaseUrl") else stored.put("imageModelCatalogBaseUrl", catalogBaseURL)
+        if (requestRunId.isBlank()) stored.remove("requestRunId") else stored.put("requestRunId", requestRunId)
+        if (payload.optLong("imageModelValidatedAt", 0L) <= 0L) stored.remove("imageModelValidatedAt")
         return stored
             .put("groupId", groupId)
             .put("apiMode", normalizeAPIMode(payload.optString("apiMode", "responses")))
+            .put("imageBackgroundMode", normalizedImageBackgroundMode(payload.optString("imageBackgroundMode")))
     }
 
     private fun temporaryCredentialAvailable(context: Context, groupId: String, apiMode: String): Boolean {
@@ -2474,16 +2858,7 @@ object AndroidJobManager {
     }
 
     private fun isOfficialFHLBaseURL(baseURL: String): Boolean {
-        val uri = try {
-            URI(baseURL.trim())
-        } catch (_: Exception) {
-            return false
-        }
-        if (!uri.isAbsolute || !uri.scheme.equals("https", ignoreCase = true)) return false
-        if (!uri.host.equals("www.fhl.mom", ignoreCase = true)) return false
-        if (uri.rawUserInfo != null || uri.rawQuery != null || uri.rawFragment != null) return false
-        if (uri.port != -1 && uri.port != 443) return false
-        return (uri.rawPath ?: "") in setOf("", "/", "/v1", "/v1/")
+        return normalizedOfficialFHLBaseURL(baseURL) != null
     }
 
     private fun acceptedFHLPoolSlot(apiMode: String, baseURL: String, rawSlot: Int): Int? {
@@ -3161,6 +3536,10 @@ object AndroidJobManager {
             .put("apiMode", group.optString("apiMode"))
             .put("apiLabel", group.optString("apiLabel"))
             .put("apiProfileId", group.optString("apiProfileId"))
+            .put("imageModelID", group.optString("imageModelID"))
+            .put("imageBackgroundMode", group.optString("imageBackgroundMode", "standard"))
+            .put("imageModelValidatedAt", group.optLong("imageModelValidatedAt", 0L))
+            .put("imageModelCatalogProvider", group.optString("imageModelCatalogProvider"))
             .put("fhlImagesPoolSlot", group.optInt("fhlImagesPoolSlot", 0))
             .put("baseURLHost", hostForURL(payload.optString("baseURL")))
             .put("size", group.optString("size"))
@@ -3251,6 +3630,10 @@ object AndroidJobManager {
             .put("apiMode", group.optString("apiMode"))
             .put("apiLabel", group.optString("apiLabel"))
             .put("apiProfileId", slot.optString("apiProfileId").ifBlank { group.optString("apiProfileId") })
+            .put("imageModelID", slot.optString("imageModelID").ifBlank { group.optString("imageModelID") })
+            .put("imageBackgroundMode", group.optString("imageBackgroundMode", "standard"))
+            .put("imageModelValidatedAt", group.optLong("imageModelValidatedAt", 0L))
+            .put("imageModelCatalogProvider", group.optString("imageModelCatalogProvider"))
             .put("size", group.optString("size"))
             .put("quality", group.optString("quality"))
             .put("outputFormat", group.optString("outputFormat"))
@@ -3263,6 +3646,7 @@ object AndroidJobManager {
             .put("hasSavedImage", slot.optString("savedPath").isNotBlank())
             .put("hasGalleryUri", slot.optString("galleryUri").isNotBlank())
             .put("errorMessageChars", errorMessage.length)
+            .put("errorCode", slot.optString("errorCode"))
     }
 
     private fun appendJobAudit(context: Context, type: String, details: JSONObject) {
@@ -3948,14 +4332,14 @@ object AndroidJobManager {
                 decoded
             }
             try {
-                val out = ByteArrayOutputStream()
-                scaled.compress(Bitmap.CompressFormat.JPEG, previewJpegQuality, out)
-                val bytes = out.toByteArray()
+                val preserveAlpha = decoded.hasAlpha()
+                if (scaled !== decoded) scaled.setHasAlpha(preserveAlpha)
+                val encoded = encodeAndroidPreview(scaled, previewJpegQuality)
                 val previewFile = uniqueFile(
                     File(context.filesDir, "previews").apply { mkdirs() },
-                    "${source.nameWithoutExtension}-preview.jpg",
+                    "${source.nameWithoutExtension}-preview.${encoded.fileExtension}",
                 )
-                FileOutputStream(previewFile).use { it.write(bytes) }
+                FileOutputStream(previewFile).use { it.write(encoded.bytes) }
                 PreviewAsset(
                     previewFile.absolutePath,
                     "",
@@ -4109,5 +4493,6 @@ object AndroidJobManager {
         val apimartTaskId: String? = null,
         val apimartTaskStatus: String? = null,
         val taskId: String? = null,
+        val errorCode: String? = null,
     ) : Exception(message)
 }

@@ -4,6 +4,7 @@ import type {
   APIMartRecoveryTask,
   APIMode,
   HistoryItem,
+  ImageBackgroundMode,
   JobGroupSnapshot,
   JobSlotSnapshot,
   KernelRuntimeMode,
@@ -32,6 +33,31 @@ export interface ModeConfig {
   textModelID: string;
   imageModelID: string;
   concurrencyLimit: number;
+}
+
+export type ActiveCredentialStatus = "unknown" | "checking" | "present" | "missing" | "error";
+
+export interface FrozenSubmissionReplay {
+  source: "last-payload" | "history" | "job-slot";
+  apiProfileId: string;
+  apiProfileName?: string;
+  fhlImagesPoolSlot?: number;
+  apiMode: APIMode;
+  provider: string;
+  imageModelID: string;
+  imageModelValidatedAt?: number;
+  imageModelCatalogBaseUrl?: string;
+  imageModelCatalogProvider?: string;
+  mode: Mode;
+  prompt: string;
+  size: SizeValue;
+  quality: QualityValue;
+  outputFormat: OutputFormatValue;
+  imageBackgroundMode: ImageBackgroundMode;
+  seed: number;
+  negativePrompt: string;
+  styleTag: string;
+  sources: SourceImage[];
 }
 
 export interface ReversePromptImage {
@@ -86,6 +112,7 @@ export interface UndoEntry {
 
 export interface StudioState {
   apiKey: string;
+  activeCredentialStatus: ActiveCredentialStatus;
   mode: Mode;
   promptPrefix: string;
   prompt: string;
@@ -94,6 +121,7 @@ export interface StudioState {
   size: SizeValue;
   quality: QualityValue;
   outputFormat: OutputFormatValue;
+  imageBackgroundMode: ImageBackgroundMode;
   seed: number;
   kernelRuntimeMode: KernelRuntimeMode;
   baseURL: string;
@@ -174,6 +202,10 @@ export interface StudioState {
     requestPolicy?: RequestPolicy;
     textModelID?: string;
     imageModelID?: string;
+    imageModelValidatedAt?: number;
+    imageModelCatalogBaseUrl?: string;
+    imageModelCatalogProvider?: string;
+    provider?: string;
     concurrencyLimit?: number;
     continuousPoolEnabled?: boolean;
     fhlImagesPoolSlot?: number;
@@ -190,7 +222,7 @@ export interface StudioState {
   removeSource: (index: number) => void;
   clearSources: () => void;
   reorderSources: (from: number, to: number) => void;
-  submit: () => Promise<void>;
+  submit: (replay?: FrozenSubmissionReplay) => Promise<void>;
   cancel: () => Promise<void>;
   reuseAsSource: (item: HistoryItem) => Promise<void>;
   applyHistoryParams: (item: HistoryItem) => void;

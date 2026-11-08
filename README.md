@@ -2,12 +2,12 @@
 
 > 基于 [RoseKhlifa/Image-Studio](https://github.com/RoseKhlifa/Image-Studio) 的独立修改发行版。本项目不隶属于、不代表、也不由上游项目维护。
 
-本仓库按 GNU AGPLv3.0 公开完整对应源码。Android V2.0.4 不内置 API Key，用户需要在应用内自行配置自己的服务凭据。
+本仓库按 GNU AGPLv3.0 公开完整对应源码。Android V2.0.5 不内置 API Key，用户需要在应用内自行配置自己的服务凭据。
 
-## Android V2.0.4
+## Android V2.0.5（开发验证中）
 
 - 包名：`top.fangtangyuan.fhlstudio.android`
-- 版本：`V2.0.4 / 1050004`
+- 版本：`V2.0.5 / 1050005`
 - 系统要求：Android 9（API 28）及以上
 - 默认生图协议：FHL `Images API`
 - 备用协议：保留 FHL `Responses API`，只影响之后提交的新任务
@@ -19,19 +19,25 @@
 - 批量粘贴最多10个 API，只显示固定掩码，确认预填后仍需用户主动保存和测试。
 - FHL池每槽最多4个运行任务、总池最多40个；同槽FIFO并按全局最老可运行任务调度。
 - 一次点击只创建一组任务，提交ID、槽位、协议和来源在提交时冻结，付费POST不自动换Key重提。
-- Android原生后台生成、完成通知、历史来源标签和冷启动防重复提交。
+- Android 原生后台生成、持久任务对账、完成通知、历史来源标签和冷启动防重复提交；真正未知的 Images/Responses 付费 POST 仍中断关闭，不自动重发。
+- 启动先恢复 Profile、工作区、模型和主题；活动槽凭据显示“确认中”，凭据、历史媒体、输出目录和原生任务随后并行恢复，不再让十槽 Keystore 读取阻塞首屏。
+- 回到前台会重新读取原生任务 registry，按时间单调合并并补写结果；旧终态不会抢占当前画布，媒体暂未就绪时有限重试并留待下次回前台补偿。
+- 前台服务使用 LOW 通知频道，生成完成和失败使用独立 DEFAULT 结果频道；通知权限失败不改变任务终态或历史恢复。
 - 快速设置可折叠并记忆状态；批量结果在手机上固定两列并按可见行虚拟化。
 - 文生图、图生图、多参考图、画布编辑、历史回用、保存原图和系统分享。
 - FHL Responses 文本配置可从 `/v1/models` 获取模型列表，反推提示词和提示词优化共用用户保存的文本模型。
 - FHL Images 多参考图使用重复的 `image` 字段，并新增 `4:3`、`3:4` 比例。
+- 生图模型目录只允许 provider 实际返回的 `gpt-image-2`、`gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`；旧 Profile 需重新获取目录并明确选择。
+- 手机和平板主创作区支持普通图像与透明 PNG；Flare/Sunburst 透明请求锁定 PNG，最终结果必须包含真实 Alpha。
+- provider、精确模型、验证目录、API 模式、背景、格式、prompt 和参考图顺序冻结到任务、历史与重试，不从当前 UI 偷换来源。
 
 ## 首次使用
 
-1. 安装正式APK并打开应用。
+1. 取得经审核的 APK 后安装并打开应用；当前 V2.0.5 开发分支尚未发布正式 APK。
 2. 点击“一键配置”，进入“FHL API 10槽”。
 3. 逐槽配置，或使用“批量配置10个API”粘贴；应用不会提供或自动下载任何Key。
-4. 保存并测试已填写槽位后，用小任务确认服务可用。
-5. 默认使用Images API；只有上游规则需要时再从顶部切换Responses API。
+4. 保存并测试已填写槽位，获取生图模型目录并明确选择一个 provider 已提供的精确模型。
+5. 用小任务确认服务可用；默认使用 Images API，只有上游规则需要时再从顶部切换 Responses API。
 
 ## 从源码构建
 
@@ -45,10 +51,10 @@ npm run build:android
 
 cd ../../android-shell
 $env:IMAGE_STUDIO_ANDROID_USE_PREBUILT_FRONTEND='1'
-$env:IMAGE_STUDIO_ANDROID_VERSION_NAME='V2.0.4'
-$env:IMAGE_STUDIO_ANDROID_VERSION_CODE='1050004'
+$env:IMAGE_STUDIO_ANDROID_VERSION_NAME='V2.0.5'
+$env:IMAGE_STUDIO_ANDROID_VERSION_CODE='1050005'
 $env:IMAGE_STUDIO_GIT_COMMIT=(git -C .. rev-parse HEAD)
-$env:IMAGE_STUDIO_BUILD_ID='android-v2.0.4-release'
+$env:IMAGE_STUDIO_BUILD_ID='android-v2.0.5-release'
 ./gradlew.bat testDebugUnitTest lintRelease assembleRelease
 ```
 
@@ -56,9 +62,11 @@ $env:IMAGE_STUDIO_BUILD_ID='android-v2.0.4-release'
 
 ## 验证与限制
 
-- V2.0.4 定向前端测试48项、Android JVM 54项和 API 36.1 模拟器 instrumentation 13项通过；前端完整测试364/365，唯一失败是既有 Windows PowerShell 环境缺少 `Get-FileHash`。
-- `npm run build:android`、`:app:assembleDebug` 和模拟器覆盖安装通过；模拟器已确认“获取模型”、模型选择和自定义模型输入正常显示。
-- 当前没有可安全使用的测试 API Key，因此未把真实 `/v1/models`、提示词优化、图片反推或付费生图记作通过。
+- V2.0.4 修改前基线已复核：前端完整测试 `364/365`（唯一失败为旧 Windows PowerShell 缺少 `Get-FileHash`）、Worker `5/5`、Android JVM `54/54`、`npm run build:android` 和 `:app:assembleDebug` 通过。
+- V2.0.5 当前阶段最终回归：前端 `426/426`、TypeScript、`npm run build:android`、Android JVM `64/64`、强制 `assembleDebug` 和安全扫描均通过；Worker 未受本批影响，未重复执行。
+- 当前外测 Debug APK：`V2.0.5-debug / 1050005`，包名 `top.fangtangyuan.fhlstudio.android.debug`，大小 `14,785,860` 字节，SHA-256 `A72B2A3CBFC85886DBC2DCDA8AF13C32FFB203F5757D5E72EA7B4057F6040F01`。它使用 Android Debug 证书，可与正式包并存，不是正式发布包。
+- `codex_api36` 已由 `ty-android-mcp` 验证为 API 36、`1440x3200 @ 560 dpi`；最新 APK 已保留数据覆盖安装并通过 fresh screen。FHL 十槽固定模型卡片自动验证 10 个活动槽，手动刷新恢复 `ready`，显式保存后确认共同调度；安装观察期无生成点击、任务或上游 POST。
+- 真实 API Images 验收的已通过项和 Responses provider 503 停止记录见 `RELEASE_NOTES_V2.0.5_ANDROID.md`；本次固定面板验收未触发付费生图。所有凭据操作均由用户手动完成，自动化不读取或记录 Key。
 - Responses生图通道保留，但验证期间官方上游曾返回HTTP 503；共享测试账户也可能受到429限流。
 - 本版本未执行216次正式真实API发布门禁。请先小规模验证自己的服务配额，不要将限流结果当作本地调度失败。
 
@@ -71,4 +79,4 @@ $env:IMAGE_STUDIO_BUILD_ID='android-v2.0.4-release'
 
 ## 发布
 
-Android V2.0.4 计划使用独立 Tag `v2.0.4-android`。详细更新见 [RELEASE_NOTES_V2.0.4_ANDROID.md](./RELEASE_NOTES_V2.0.4_ANDROID.md)，审核和上传步骤见 [GITHUB_UPLOAD_STEPS.md](./GITHUB_UPLOAD_STEPS.md)。GitHub Actions只生成审核附件，不会自动创建 Release。
+Android V2.0.5 当前只在本地分支开发验证，尚未 push、打 Tag 或创建 Release。阶段 Debug 外测包已整理到本机忽略目录；正式 Release 仍需单独授权和受保护签名材料。计划独立 Tag 为 `v2.0.5-android`；草案见 [RELEASE_NOTES_V2.0.5_ANDROID.md](./RELEASE_NOTES_V2.0.5_ANDROID.md)。手动 GitHub Actions 只生成审核附件，不会自动创建 Release。

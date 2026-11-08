@@ -494,6 +494,38 @@ html[data-platform="android"] .android-upstream-model-row button:focus-visible {
   outline: none;
 }
 
+html[data-platform="android"] .android-upstream-model-status {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 7px;
+  border-radius: 14px;
+  padding: 9px 11px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+html[data-platform="android"] .android-upstream-model-status svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+html[data-platform="android"] .android-upstream-model-status span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+html[data-platform="android"] .android-upstream-model-status.validated {
+  background: rgb(5 150 105 / 0.1);
+  color: rgb(4 120 87);
+}
+
+html[data-platform="android"] .android-upstream-model-status.pending {
+  background: rgb(245 158 11 / 0.11);
+  color: rgb(180 83 9);
+}
+
 html[data-platform="android"] .android-upstream-hint,
 html[data-platform="android"] .android-upstream-save-hint,
 html[data-platform="android"] .android-upstream-error {
@@ -875,6 +907,8 @@ html[data-platform="android"] .android-fhl-pool-summary span {
 
 html[data-platform="android"] .android-fhl-pool-summary button,
 html[data-platform="android"] .android-fhl-pool-save,
+html[data-platform="android"] .android-fhl-pool-model-controls button,
+html[data-platform="android"] .android-fhl-pool-model-actions button,
 html[data-platform="android"] .android-fhl-slot-actions button {
   display: inline-flex;
   min-height: 40px;
@@ -892,6 +926,126 @@ html[data-platform="android"] .android-fhl-slot-actions button {
 
 html[data-platform="android"] .android-fhl-pool-summary-actions button {
   min-width: 116px;
+}
+
+html[data-platform="android"] .android-fhl-pool-model-config {
+  display: grid;
+  box-sizing: border-box;
+  height: 190px;
+  min-height: 190px;
+  max-height: 190px;
+  min-width: 0;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: 6px;
+  overflow: hidden;
+  border: 1px solid rgb(0 106 96 / 0.16);
+  border-radius: 8px;
+  background: rgb(0 106 96 / 0.05);
+  padding: 10px;
+}
+
+html[data-platform="android"] .android-fhl-pool-model-config-header {
+  display: flex;
+  min-width: 0;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+html[data-platform="android"] .android-fhl-pool-model-config > label,
+html[data-platform="android"] .android-fhl-pool-model-title {
+  min-width: 0;
+  overflow: hidden;
+  color: rgb(39 39 42);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-platform="android"] .android-fhl-pool-model-refresh {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(0 106 96 / 0.16);
+  border-radius: 10px;
+  background: rgb(0 106 96 / 0.06);
+  color: var(--accent);
+}
+
+html[data-platform="android"] .android-fhl-pool-model-status {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  color: rgb(82 82 91);
+  font-size: 11px;
+  line-height: 1.4;
+  scrollbar-width: thin;
+}
+
+html[data-platform="android"] .android-fhl-pool-model-status[data-state="error"],
+html[data-platform="android"] .android-fhl-pool-model-status.error {
+  color: rgb(185 28 28);
+}
+
+html[data-platform="android"] .android-fhl-pool-model-status[data-state="ready"],
+html[data-platform="android"] .android-fhl-pool-model-status.success {
+  color: rgb(4 120 87);
+}
+
+html[data-platform="android"] .android-fhl-pool-model-config > span,
+html[data-platform="android"] .android-fhl-pool-model-save-hint {
+  min-width: 0;
+  overflow: hidden;
+  color: rgb(39 39 42);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+html[data-platform="android"] .android-fhl-pool-model-controls {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+html[data-platform="android"] .android-fhl-pool-model-controls select,
+html[data-platform="android"] .android-fhl-pool-model-controls button {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 40px;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-platform="android"] .android-fhl-pool-model-actions {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+
+html[data-platform="android"] .android-fhl-pool-model-actions button {
+  box-sizing: border-box;
+  min-height: 40px;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-platform="android"] .android-fhl-pool-model-actions button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
 }
 
 html[data-platform="android"] .android-fhl-slot-list {
@@ -990,6 +1144,15 @@ html[data-platform="android"] .android-fhl-slot-secret input {
   padding: 0 12px;
   color: rgb(24 24 27);
   font-size: 12px;
+}
+
+/* Chromium WebView inherits the app shell's user-select:none into form fields.
+   Restore native long-press selection so Android's Paste action can appear. */
+html[data-platform="android"] .android-upstream-secret input,
+html[data-platform="android"] .android-fhl-slot-secret input,
+html[data-platform="android"] .android-fhl-bulk-secret-input {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 html[data-platform="android"] .android-fhl-slot-secret button {
@@ -1257,12 +1420,15 @@ html[data-platform="android"] .android-fhl-bulk-actions button.primary {
 
 html.dark[data-platform="android"] .android-fhl-pool,
 html.dark[data-platform="android"] .android-fhl-slot,
+html.dark[data-platform="android"] .android-fhl-pool-model-config,
 html.dark[data-platform="android"] .android-fhl-bulk-preview {
   border-color: rgb(255 255 255 / 0.08);
   background: rgb(255 255 255 / 0.04);
 }
 
 html.dark[data-platform="android"] .android-fhl-pool-summary strong,
+html.dark[data-platform="android"] .android-fhl-pool-model-config > label,
+html.dark[data-platform="android"] .android-fhl-pool-model-title,
 html.dark[data-platform="android"] .android-fhl-slot-name,
 html.dark[data-platform="android"] .android-fhl-slot-secret input,
 html.dark[data-platform="android"] .android-fhl-bulk-dialog-intro strong,
@@ -1270,6 +1436,28 @@ html.dark[data-platform="android"] .android-fhl-bulk-input-block > label,
 html.dark[data-platform="android"] .android-fhl-bulk-preview-row strong,
 html.dark[data-platform="android"] .android-fhl-bulk-secret-input {
   color: rgb(244 244 245);
+}
+
+html.dark[data-platform="android"] .android-fhl-pool-model-status,
+html.dark[data-platform="android"] .android-fhl-pool-model-config > span,
+html.dark[data-platform="android"] .android-fhl-pool-model-save-hint {
+  color: rgb(212 212 216);
+}
+
+html.dark[data-platform="android"] .android-fhl-pool-model-status[data-state="error"],
+html.dark[data-platform="android"] .android-fhl-pool-model-status.error {
+  color: rgb(252 165 165);
+}
+
+html.dark[data-platform="android"] .android-fhl-pool-model-status[data-state="ready"],
+html.dark[data-platform="android"] .android-fhl-pool-model-status.success {
+  color: rgb(110 231 183);
+}
+
+html.dark[data-platform="android"] .android-fhl-pool-model-refresh {
+  border-color: rgb(123 218 207 / 0.18);
+  background: rgb(123 218 207 / 0.08);
+  color: rgb(153 246 228);
 }
 
 html.dark[data-platform="android"] .android-fhl-slot-secret input,
@@ -1309,6 +1497,20 @@ html.dark[data-platform="android"] .android-fhl-bulk-actions {
 
   html[data-platform="android"] .android-fhl-pool-summary-actions button {
     min-width: 0;
+  }
+
+  html[data-platform="android"] .android-fhl-pool-model-controls {
+    grid-template-columns: 1fr;
+  }
+
+  html[data-platform="android"] .android-fhl-pool-model-config {
+    height: 236px;
+    min-height: 236px;
+    max-height: 236px;
+  }
+
+  html[data-platform="android"] .android-fhl-pool-model-actions {
+    grid-template-columns: 1fr;
   }
 
   html[data-platform="android"] .android-fhl-slot-actions {

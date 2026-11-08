@@ -108,6 +108,7 @@ export function AndroidUpstreamConfigModal({
                   canSave={upstream.canSave}
                   draft={upstream.draft}
                   draftKey={upstream.draftKey}
+                  imageModelValidated={upstream.imageModelValidated}
                   isTestingKey={upstream.isTestingKey}
                   textModels={upstream.textModels}
                   textModelsLoading={upstream.textModelsLoading}

@@ -27,6 +27,20 @@ import {
 import { isOfficialFHLGenerationProfile } from "../lib/providerPolicy.ts";
 import { normalizeAPIKeyInput } from "../lib/apiKey";
 import { cleanBaseURL } from "../lib/security";
+import {
+  imageModelCatalogBaseUrl,
+  imageModelCatalogEntry,
+  imageModelCatalogProvider,
+  isSupportedFHLImageModelID,
+  normalizeImageModelCatalog,
+  persistImageModelCatalog,
+  type StoredImageModelCatalog,
+} from "../lib/fhlImageModels.ts";
+import {
+  resolveImageModelCatalogBaseUrl,
+  resolveImageModelCatalogProvider,
+  resolveImageModelValidatedAt,
+} from "../lib/profileImageModelValidation.ts";
 import { normalizeConcurrencyLimit } from "./workspaceRuntime";
 import { persistActiveProfileId, persistProfiles } from "./studioStore.shared";
 import { readRuntimePlatformState } from "../platform";
@@ -35,6 +49,46 @@ type StateAdapter = {
   getState: () => StudioState;
   setState: (patch: Partial<StudioState> | ((state: StudioState) => Partial<StudioState>)) => void;
 };
+
+let activeProfileSelectionEpoch = 0;
+
+// Credential reads happen asynchronously on Android. Keep a process-local
+// revision and a small pending-write set so bootstrap can reject a read that
+// raced with a profile/key mutation instead of restoring stale state.
+let credentialMutationRevision = 0;
+const pendingCredentialMutations = new Set<Promise<unknown>>();
+
+export function markCredentialMutation(): number {
+  credentialMutationRevision += 1;
+  return credentialMutationRevision;
+}
+
+export function currentCredentialMutationRevision(): number {
+  return credentialMutationRevision;
+}
+
+export function trackCredentialMutation<T>(operation: () => Promise<T>): Promise<T> {
+  markCredentialMutation();
+  const pending = (async () => {
+    try {
+      return await operation();
+    } finally {
+      markCredentialMutation();
+    }
+  })();
+  pendingCredentialMutations.add(pending);
+  pending.then(
+    () => pendingCredentialMutations.delete(pending),
+    () => pendingCredentialMutations.delete(pending),
+  );
+  return pending;
+}
+
+export async function waitForCredentialMutations(): Promise<void> {
+  while (pendingCredentialMutations.size > 0) {
+    await Promise.allSettled([...pendingCredentialMutations]);
+  }
+}
 
 type ActiveProfileRuntimePatch = Pick<
   StudioState,
@@ -60,9 +114,219 @@ export function activeProfileRuntimePatch(
     requestPolicy: "openai",
     baseURL: FHL_BASE_URL,
     textModelID: fhlTransportMode === "responses" ? FHL_TEXT_MODEL_ID : profile.textModelID,
-    imageModelID: FHL_IMAGE_MODEL_ID,
+    // Keep the exact model selected for this FHL Images slot. The transport
+    // mode may switch between Images and Responses, but it must not silently
+    // replace a validated model with the legacy default.
+    imageModelID: profile.imageModelID || FHL_IMAGE_MODEL_ID,
     imagesNewAPICompat: fhlTransportMode === "images" && profile.imagesNewAPICompat === true,
   };
+}
+
+export type FHLPoolImageModelSelection = {
+  imageModelID: string;
+  imageModelValidatedAt: number;
+  imageModelCatalogBaseUrl: string;
+  imageModelCatalogProvider: string;
+  validatedProfileId: string;
+};
+
+export type ValidatedFHLPoolImageModelCommit = {
+  catalog: StoredImageModelCatalog;
+  imageModelID: string;
+  /** Profiles whose own Keystore credentials completed this validation batch. */
+  targetProfileIds: readonly string[];
+};
+
+function commitFHLPoolImageModelSelection(
+  store: StateAdapter,
+  metadata: FHLPoolImageModelSelection,
+): number {
+  const state = store.getState();
+  const targetIds = new Set(
+    state.profiles.filter(isOfficialFHLPoolProfile).map((profile) => profile.id),
+  );
+  if (targetIds.size === 0) return 0;
+  if (!targetIds.has(metadata.validatedProfileId)) {
+    throw new Error("完成目录验证的 FHL Images 槽位不存在。");
+  }
+
+  const nextProfiles = state.profiles.map((profile) => {
+    if (!targetIds.has(profile.id)) return profile;
+    if (profile.id !== metadata.validatedProfileId) {
+      if (profile.imageModelID === metadata.imageModelID) return profile;
+      return {
+        ...profile,
+        imageModelID: metadata.imageModelID,
+        imageModelValidatedAt: undefined,
+        imageModelCatalogBaseUrl: undefined,
+        imageModelCatalogProvider: undefined,
+      };
+    }
+    return {
+      ...profile,
+      imageModelID: metadata.imageModelID,
+      imageModelValidatedAt: metadata.imageModelValidatedAt,
+      imageModelCatalogBaseUrl: metadata.imageModelCatalogBaseUrl,
+      imageModelCatalogProvider: metadata.imageModelCatalogProvider,
+    };
+  });
+  const active = nextProfiles.find((profile) => profile.id === state.activeProfileId);
+  persistProfiles(nextProfiles);
+  store.setState({
+    profiles: nextProfiles,
+    ...(active && targetIds.has(active.id)
+      ? activeProfileRuntimePatch(active, state.fhlTransportMode)
+      : {}),
+  });
+  return targetIds.size;
+}
+
+/** Atomically applies one provider-confirmed exact model to every FHL Images
+ * pool slot without touching credentials, slot URLs, or enabled state. */
+export function applyFHLPoolImageModelSelection(
+  store: StateAdapter,
+  selection: FHLPoolImageModelSelection,
+): number {
+  const modelID = selection.imageModelID.trim();
+  const validatedAt = Number(selection.imageModelValidatedAt);
+  const catalogBaseURL = imageModelCatalogBaseUrl(selection.imageModelCatalogBaseUrl);
+  const catalogProvider = imageModelCatalogProvider(selection.imageModelCatalogProvider);
+  if (!isSupportedFHLImageModelID(modelID)) {
+    throw new Error("生图模型必须是 provider 返回的产品精确模型 ID。");
+  }
+  if (!Number.isFinite(validatedAt) || validatedAt <= 0 || !catalogBaseURL || !catalogProvider) {
+    throw new Error("生图模型目录验证元数据不完整。");
+  }
+  return commitFHLPoolImageModelSelection(store, {
+    imageModelID: modelID,
+    imageModelValidatedAt: Math.floor(validatedAt),
+    imageModelCatalogBaseUrl: catalogBaseURL,
+    imageModelCatalogProvider: catalogProvider,
+    validatedProfileId: selection.validatedProfileId,
+  });
+}
+
+/**
+ * Commits one shared catalog and its matching profile validation metadata.
+ * Every validation and next-state calculation happens before the catalog
+ * write. If catalog persistence fails, profiles and in-memory state remain
+ * untouched. Credential presence is intentionally not inferred from key
+ * hints; the Android UI owns the authoritative Keystore reads.
+ */
+export function commitValidatedFHLPoolImageModelSelection(
+  store: StateAdapter,
+  selection: ValidatedFHLPoolImageModelCommit,
+): number {
+  const modelID = selection.imageModelID.trim();
+  const validatedAt = Number(selection.catalog.fetchedAt);
+  if (!isSupportedFHLImageModelID(modelID)) {
+    throw new Error("生图模型必须是所有目标槽位共同返回的产品精确模型 ID。");
+  }
+  if (!Number.isFinite(validatedAt) || validatedAt <= 0) {
+    throw new Error("统一生图模型目录验证元数据不完整。");
+  }
+  const catalog = normalizeImageModelCatalog(
+    selection.catalog.models,
+    selection.catalog.baseUrl,
+    selection.catalog.provider,
+    validatedAt,
+  );
+  const catalogBaseURL = imageModelCatalogBaseUrl(catalog.baseUrl);
+  const catalogProvider = imageModelCatalogProvider(catalog.provider);
+  if (!catalogBaseURL || !catalogProvider) {
+    throw new Error("统一生图模型目录验证元数据不完整。");
+  }
+  if (!imageModelCatalogEntry(catalog, modelID)) {
+    throw new Error("所选生图模型不在所有目标槽位共同返回的目录中。");
+  }
+
+  const rawTargetIds = selection.targetProfileIds.map((value) => String(value || "").trim());
+  if (rawTargetIds.length === 0 || rawTargetIds.some((value) => !value)) {
+    throw new Error("没有已配置且启用的 FHL Images 槽位可更新。");
+  }
+  const targetIds = new Set(rawTargetIds);
+  if (targetIds.size !== rawTargetIds.length) {
+    throw new Error("统一生图模型目标槽位存在重复项。");
+  }
+
+  const state = store.getState();
+  const profilesById = new Map(state.profiles.map((profile) => [profile.id, profile]));
+  for (const profileId of targetIds) {
+    const profile = profilesById.get(profileId);
+    if (!profile || !isOfficialFHLPoolProfile(profile)) {
+      throw new Error("统一生图模型目标包含无效的 FHL Images 槽位。");
+    }
+    if (profile.continuousPoolEnabled === false) {
+      throw new Error("统一生图模型目标包含未启用的 FHL Images 槽位。");
+    }
+    const profileBaseURL = imageModelCatalogBaseUrl(profile.baseURL);
+    const profileProvider = imageModelCatalogProvider(profile.provider || "fhl");
+    if (profileBaseURL !== catalogBaseURL || profileProvider !== catalogProvider) {
+      throw new Error("已配置且启用的 FHL Images 槽位必须使用同一 Base URL 和 provider。");
+    }
+  }
+
+  const officialPoolIds = new Set(
+    state.profiles.filter(isOfficialFHLPoolProfile).map((profile) => profile.id),
+  );
+  const nextProfiles = state.profiles.map((profile) => {
+    if (!officialPoolIds.has(profile.id)) return profile;
+    if (!targetIds.has(profile.id)) {
+      return {
+        ...profile,
+        imageModelValidatedAt: undefined,
+        imageModelCatalogBaseUrl: undefined,
+        imageModelCatalogProvider: undefined,
+      };
+    }
+    return {
+      ...profile,
+      imageModelID: modelID,
+      imageModelValidatedAt: Math.floor(validatedAt),
+      imageModelCatalogBaseUrl: catalogBaseURL,
+      imageModelCatalogProvider: catalogProvider,
+    };
+  });
+  const active = nextProfiles.find((profile) => profile.id === state.activeProfileId);
+  if (!persistImageModelCatalog(catalog)) {
+    throw new Error("统一生图模型目录保存失败，原配置未改变。");
+  }
+  persistProfiles(nextProfiles);
+  store.setState({
+    profiles: nextProfiles,
+    ...(active && officialPoolIds.has(active.id)
+      ? activeProfileRuntimePatch(active, state.fhlTransportMode)
+      : {}),
+  });
+  return targetIds.size;
+}
+
+/** Invalidates one slot, or all slots when no profile is specified, while
+ * retaining each exact prior model ID as migration evidence. */
+export function invalidateFHLPoolImageModelValidation(
+  store: StateAdapter,
+  profileId?: string,
+): number {
+  const state = store.getState();
+  const targetIds = new Set(
+    state.profiles
+      .filter((profile) => isOfficialFHLPoolProfile(profile) && (!profileId || profile.id === profileId))
+      .map((profile) => profile.id),
+  );
+  if (targetIds.size === 0) return 0;
+  const nextProfiles = state.profiles.map((profile) => (
+    targetIds.has(profile.id)
+      ? {
+          ...profile,
+          imageModelValidatedAt: undefined,
+          imageModelCatalogBaseUrl: undefined,
+          imageModelCatalogProvider: undefined,
+        }
+      : profile
+  ));
+  persistProfiles(nextProfiles);
+  store.setState({ profiles: nextProfiles });
+  return targetIds.size;
 }
 
 export function createProfileActions(store: StateAdapter) {
@@ -74,6 +338,10 @@ export function createProfileActions(store: StateAdapter) {
       requestPolicy?: RequestPolicy;
       textModelID?: string;
       imageModelID?: string;
+      imageModelValidatedAt?: number;
+      imageModelCatalogBaseUrl?: string;
+      imageModelCatalogProvider?: string;
+      provider?: string;
       concurrencyLimit?: number;
       continuousPoolEnabled?: boolean;
       fhlImagesPoolSlot?: number;
@@ -83,6 +351,7 @@ export function createProfileActions(store: StateAdapter) {
       setActive?: boolean;
     }) {
       const list = store.getState().profiles;
+      markCredentialMutation();
       const id = genProfileId();
       const defaults = defaultProfileValuesForAPIMode(input.apiMode);
       const baseURL = cleanBaseURL(input.baseURL ?? defaults.baseURL);
@@ -104,6 +373,18 @@ export function createProfileActions(store: StateAdapter) {
         baseURL,
         textModelID: (input.textModelID ?? defaults.textModelID).trim(),
         imageModelID: (input.imageModelID ?? defaults.imageModelID).trim(),
+        imageModelValidatedAt: Number.isFinite(Number(input.imageModelValidatedAt)) && Number(input.imageModelValidatedAt) > 0
+          ? Math.floor(Number(input.imageModelValidatedAt))
+          : undefined,
+        imageModelCatalogBaseUrl: input.imageModelCatalogBaseUrl
+          ? imageModelCatalogBaseUrl(input.imageModelCatalogBaseUrl)
+          : undefined,
+        imageModelCatalogProvider: input.imageModelCatalogProvider
+          ? imageModelCatalogProvider(input.imageModelCatalogProvider)
+          : undefined,
+        provider: input.provider?.trim()
+          ? imageModelCatalogProvider(input.provider)
+          : undefined,
         concurrencyLimit: fhlImagesPoolSlot !== undefined
           ? FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT
           : normalizeConcurrencyLimit(input.concurrencyLimit ?? 0),
@@ -117,7 +398,7 @@ export function createProfileActions(store: StateAdapter) {
       };
       const inputAPIKey = normalizeAPIKeyInput(input.apiKey ?? "");
       if (inputAPIKey) {
-        try { await SetStoredAPIKey(keyringUserFor(id), inputAPIKey); }
+        try { await trackCredentialMutation(() => SetStoredAPIKey(keyringUserFor(id), inputAPIKey)); }
         catch (e: any) {
           if (readRuntimePlatformState().isAndroid) {
             throw new Error(e?.message ?? "API 凭据安全保存失败，请重新配置该 API");
@@ -138,6 +419,7 @@ export function createProfileActions(store: StateAdapter) {
       const list = store.getState().profiles;
       const index = list.findIndex((profile) => profile.id === id);
       if (index < 0) return false;
+      markCredentialMutation();
       const current = list[index];
       const nextAPIMode = patch.apiMode ?? current.apiMode;
       const defaults = defaultProfileValuesForAPIMode(nextAPIMode);
@@ -165,6 +447,68 @@ export function createProfileActions(store: StateAdapter) {
           : patch.apiKey !== undefined
             ? normalizeFHLImagesPoolKeyHint(patch.apiKey)
             : normalizeFHLImagesPoolKeyHint(current.fhlImagesPoolKeyHint);
+      const nextImageModelID = patch.imageModelID !== undefined
+        ? patch.imageModelID.trim()
+        : shouldApplyModeDefaults ? current.imageModelID || defaults.imageModelID : current.imageModelID;
+      const currentProvider = current.provider?.trim()
+        ? imageModelCatalogProvider(current.provider)
+        : undefined;
+      const nextProvider = patch.provider !== undefined
+        ? (patch.provider.trim() ? imageModelCatalogProvider(patch.provider) : undefined)
+        : currentProvider;
+      const modelChanged = nextImageModelID !== current.imageModelID;
+      const baseURLChanged = nextBaseURL !== current.baseURL;
+      const apiModeChanged = nextAPIMode !== current.apiMode;
+      const providerChanged = nextProvider !== currentProvider;
+      // A slot that leaves and later re-enters the active pool must fetch a
+      // fresh directory with its own credential before it can submit again.
+      // Compare normalized pool-enabled state so legacy undefined values do
+      // not invalidate unrelated edits on every update.
+      const currentPoolEnabled = current.fhlImagesPoolSlot !== undefined
+        && current.continuousPoolEnabled !== false;
+      const nextPoolEnabled = nextFHLImagesPoolSlot !== undefined
+        && (patch.continuousPoolEnabled ?? current.continuousPoolEnabled ?? true);
+      const poolEnabledChanged = currentPoolEnabled !== nextPoolEnabled;
+      const metadataBaseURL = patch.imageModelCatalogBaseUrl !== undefined
+        ? imageModelCatalogBaseUrl(patch.imageModelCatalogBaseUrl)
+        : current.imageModelCatalogBaseUrl;
+      const metadataProvider = patch.imageModelCatalogProvider !== undefined
+        ? imageModelCatalogProvider(patch.imageModelCatalogProvider)
+        : current.imageModelCatalogProvider;
+      const catalogProviderChanged = patch.imageModelCatalogProvider !== undefined
+        && metadataProvider !== imageModelCatalogProvider(current.imageModelCatalogProvider || "");
+      const catalogBaseURLChanged = patch.imageModelCatalogBaseUrl !== undefined
+        && metadataBaseURL !== imageModelCatalogBaseUrl(current.imageModelCatalogBaseUrl || "");
+      let keyChanged = false;
+      let normalizedPatchKey = "";
+      if (patch.apiKey !== undefined) {
+        normalizedPatchKey = normalizeAPIKeyInput(patch.apiKey);
+        const existingKey = await GetStoredAPIKey(keyringUserFor(id)).catch(() => "");
+        keyChanged = normalizeAPIKeyInput(existingKey) !== normalizedPatchKey;
+      }
+      const invalidated = modelChanged || baseURLChanged || apiModeChanged || providerChanged || catalogProviderChanged || catalogBaseURLChanged || keyChanged;
+      // A catalog selection may intentionally change model/provider/base URL;
+      // it is valid only when the caller supplies a fresh validation timestamp
+      // together with the complete catalog identity. Credential changes always
+      // invalidate, because the catalog may have been fetched with the old key.
+      const explicitCatalogValidation = !keyChanged
+        && patch.imageModelValidatedAt !== undefined
+        && patch.imageModelCatalogBaseUrl !== undefined
+        && patch.imageModelCatalogProvider !== undefined
+        && metadataBaseURL === imageModelCatalogBaseUrl(nextBaseURL)
+        && (!nextProvider || metadataProvider === nextProvider);
+      // Pool enablement changes always invalidate, even if a caller attempts
+      // to carry validation metadata in the same patch. The slot may have
+      // been disabled while its credential or provider state changed.
+      const validationInvalidated = poolEnabledChanged || (invalidated && !explicitCatalogValidation);
+      const validationPatch = validationInvalidated
+        ? {
+            ...patch,
+            imageModelValidatedAt: undefined,
+            imageModelCatalogBaseUrl: undefined,
+            imageModelCatalogProvider: undefined,
+          }
+        : patch;
       const next: UpstreamProfile = {
         ...current,
         name: patch.name !== undefined ? patch.name.trim() : current.name,
@@ -174,9 +518,23 @@ export function createProfileActions(store: StateAdapter) {
         textModelID: patch.textModelID !== undefined
           ? patch.textModelID.trim()
           : shouldApplyModeDefaults ? current.textModelID || defaults.textModelID : current.textModelID,
-        imageModelID: patch.imageModelID !== undefined
-          ? patch.imageModelID.trim()
-          : shouldApplyModeDefaults ? current.imageModelID || defaults.imageModelID : current.imageModelID,
+        imageModelID: nextImageModelID,
+        provider: nextProvider,
+        imageModelValidatedAt: resolveImageModelValidatedAt(
+          validationPatch,
+          current.imageModelValidatedAt,
+          validationInvalidated,
+        ),
+        imageModelCatalogBaseUrl: resolveImageModelCatalogBaseUrl(
+          validationPatch,
+          current.imageModelCatalogBaseUrl,
+          validationInvalidated,
+        ),
+        imageModelCatalogProvider: resolveImageModelCatalogProvider(
+          validationPatch,
+          current.imageModelCatalogProvider,
+          validationInvalidated,
+        ),
         concurrencyLimit: nextFHLImagesPoolSlot !== undefined
           ? FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT
           : patch.concurrencyLimit !== undefined
@@ -192,7 +550,7 @@ export function createProfileActions(store: StateAdapter) {
       };
       const nextList = list.map((profile, idx) => (idx === index ? next : profile));
       if (patch.apiKey !== undefined) {
-        try { await SetStoredAPIKey(keyringUserFor(id), normalizeAPIKeyInput(patch.apiKey)); }
+        try { await trackCredentialMutation(() => SetStoredAPIKey(keyringUserFor(id), normalizedPatchKey)); }
         catch (e: any) {
           if (readRuntimePlatformState().isAndroid) {
             throw new Error(e?.message ?? "API 凭据安全保存失败，请重新配置该 API");
@@ -215,6 +573,7 @@ export function createProfileActions(store: StateAdapter) {
             store.setState({
               activeProfileId: "",
               apiKey: "",
+              activeCredentialStatus: "missing",
               baseURL: "",
               textModelID: "",
               imageModelID: "",
@@ -226,7 +585,13 @@ export function createProfileActions(store: StateAdapter) {
           return true;
         }
         const apiKey = patch.apiKey !== undefined ? normalizeAPIKeyInput(patch.apiKey) : store.getState().apiKey;
-        store.setState({ ...activeProfileRuntimePatch(next, store.getState().fhlTransportMode), apiKey });
+        store.setState({
+          ...activeProfileRuntimePatch(next, store.getState().fhlTransportMode),
+          apiKey,
+          ...(patch.apiKey !== undefined
+            ? { activeCredentialStatus: apiKey ? "present" as const : "missing" as const }
+            : {}),
+        });
       }
       return true;
     },
@@ -235,9 +600,10 @@ export function createProfileActions(store: StateAdapter) {
       const list = store.getState().profiles;
       const index = list.findIndex((profile) => profile.id === id);
       if (index < 0) return;
+      markCredentialMutation();
       const nextList = list.filter((_, i) => i !== index);
       persistProfiles(nextList);
-      try { await DeleteStoredAPIKey(keyringUserFor(id)); }
+      try { await trackCredentialMutation(() => DeleteStoredAPIKey(keyringUserFor(id))); }
       catch (e: any) {
         if (typeof console !== "undefined") console.warn("删 keyring 项失败(继续)", e);
       }
@@ -255,6 +621,7 @@ export function createProfileActions(store: StateAdapter) {
             profiles: nextList,
             activeProfileId: "",
             apiKey: "",
+            activeCredentialStatus: "missing",
             baseURL: "",
             textModelID: "",
             imageModelID: "",
@@ -272,11 +639,12 @@ export function createProfileActions(store: StateAdapter) {
     async duplicateProfile(id: string) {
       const current = store.getState().profiles.find((profile) => profile.id === id);
       if (!current) return null;
+      markCredentialMutation();
       const cloned = cloneProfile(current);
       try {
         const existingKey = await GetStoredAPIKey(keyringUserFor(id)).catch(() => "");
         if (existingKey) {
-          await SetStoredAPIKey(keyringUserFor(cloned.id), existingKey);
+          await trackCredentialMutation(() => SetStoredAPIKey(keyringUserFor(cloned.id), existingKey));
         }
       } catch {}
       const next = [...store.getState().profiles, cloned];
@@ -292,8 +660,9 @@ export function createProfileActions(store: StateAdapter) {
         store.getState().pushToast("FHL Responses 文本配置仅用于提示词工具，不能设为当前生图 API。", "warn", 4200);
         return;
       }
+      markCredentialMutation();
+      const selectionEpoch = ++activeProfileSelectionEpoch;
       persistActiveProfileId(id);
-      const apiKey = await GetStoredAPIKey(keyringUserFor(id)).catch(() => "");
       const refreshed: UpstreamProfile = { ...profile, lastUsedAt: Date.now() };
       const nextProfiles = store.getState().profiles.map((p) => p.id === id ? refreshed : p);
       persistProfiles(nextProfiles);
@@ -301,8 +670,21 @@ export function createProfileActions(store: StateAdapter) {
         profiles: nextProfiles,
         activeProfileId: id,
         ...activeProfileRuntimePatch(profile, store.getState().fhlTransportMode),
-        apiKey,
+        apiKey: "",
+        activeCredentialStatus: profile.apiMode === "runninghub" ? "present" : "checking",
       });
+      if (profile.apiMode === "runninghub") return;
+      try {
+        const apiKey = await GetStoredAPIKey(keyringUserFor(id));
+        if (selectionEpoch !== activeProfileSelectionEpoch || store.getState().activeProfileId !== id) return;
+        store.setState({
+          apiKey,
+          activeCredentialStatus: apiKey.trim() ? "present" : "missing",
+        });
+      } catch {
+        if (selectionEpoch !== activeProfileSelectionEpoch || store.getState().activeProfileId !== id) return;
+        store.setState({ apiKey: "", activeCredentialStatus: "error" });
+      }
     },
   };
 }

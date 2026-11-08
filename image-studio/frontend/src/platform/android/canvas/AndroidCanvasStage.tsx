@@ -304,11 +304,16 @@ export function AndroidCanvasStage() {
   const showingLiveBatchGrid = isRunning && visibleBatchSlotCount > 1;
   const showingCompletedBatchGrid = !isRunning && (resultGridOpen || activeJobGroupHasFailedSlot) && visibleBatchSlotCount > 1;
   const showingResultGrid = showingLiveBatchGrid || showingCompletedBatchGrid;
-  const showingSingleLivePlaceholder = isRunning && visibleBatchSlotCount === 1 && !showingResultGrid && !currentImage;
+  const showingSingleLivePlaceholder = isRunning
+    && visibleBatchSlotCount === 1
+    && !showingResultGrid
+    && streamPreviewItems.length === 0;
 
   const stageRef = useRef<Konva.Stage | null>(null);
   const roRef = useRef<ResizeObserver | null>(null);
   const pinchRef = useRef<PinchState | null>(null);
+  const pinchingRef = useRef(false);
+  const ignoreDragEndRef = useRef(false);
   const [pinching, setPinching] = useState(false);
   const effectiveTool = pinching ? "pan" : tool;
 
@@ -357,6 +362,8 @@ export function AndroidCanvasStage() {
   const fit = computeFit(image, hostSize.w, hostSize.h);
   const [userView, setUserView] = useState<ViewState | null>(null);
   const view = userView ?? { scale: fit.scale, x: fit.x, y: fit.y };
+  const viewRef = useRef<ViewState>(view);
+  viewRef.current = view;
   const streamPreviewImageBounds = isCurrentStreamPreview && image
     ? {
         left: view.x,
@@ -380,18 +387,21 @@ export function AndroidCanvasStage() {
   }, [view.x, view.y, view.scale, image, hostSize.w, hostSize.h, setField]);
 
   function resetView() {
+    viewRef.current = { scale: fit.scale, x: fit.x, y: fit.y };
     setUserView(null);
   }
 
   function setView(next: ViewState) {
+    viewRef.current = next;
     setUserView(next);
   }
 
   function cycleZoom() {
     if (!image || hostSize.w === 0) return;
     vibrateForPlatform(10);
-    if (!userView || Math.abs(userView.scale - 1) > 0.001) {
-      setUserView({
+    const latestView = viewRef.current;
+    if (Math.abs(latestView.scale - 1) > 0.001) {
+      setView({
         scale: 1,
         x: (hostSize.w - image.width) / 2,
         y: (hostSize.h - image.height) / 2,
@@ -407,11 +417,12 @@ export function AndroidCanvasStage() {
 
   function zoomAround(point: { x: number; y: number }, nextScaleValue: number) {
     if (!image || hostSize.w === 0 || hostSize.h === 0) return;
-    const oldScale = Math.max(MIN_VIEW_SCALE, view.scale);
+    const latestView = viewRef.current;
+    const oldScale = Math.max(MIN_VIEW_SCALE, latestView.scale);
     const nextScale = clampScale(nextScaleValue);
     const imagePoint = {
-      x: (point.x - view.x) / oldScale,
-      y: (point.y - view.y) / oldScale,
+      x: (point.x - latestView.x) / oldScale,
+      y: (point.y - latestView.y) / oldScale,
     };
     setView({
       scale: nextScale,
@@ -421,7 +432,7 @@ export function AndroidCanvasStage() {
   }
 
   function zoomBy(factor: number) {
-    zoomAround({ x: hostSize.w / 2, y: hostSize.h / 2 }, view.scale * factor);
+    zoomAround({ x: hostSize.w / 2, y: hostSize.h / 2 }, viewRef.current.scale * factor);
   }
 
   function stagePointerToImageCoord(): { x: number; y: number } | null {
@@ -429,9 +440,10 @@ export function AndroidCanvasStage() {
     if (!stage || !image) return null;
     const p = stage.getPointerPosition();
     if (!p) return null;
+    const latestView = viewRef.current;
     return {
-      x: (p.x - view.x) / view.scale,
-      y: (p.y - view.y) / view.scale,
+      x: (p.x - latestView.x) / latestView.scale,
+      y: (p.y - latestView.y) / latestView.scale,
     };
   }
 
@@ -441,17 +453,20 @@ export function AndroidCanvasStage() {
   const [drag, setDrag] = useState<null | { kind: "rect" | "arrow" | "freehand" | "text"; sx: number; sy: number; x: number; y: number }>(null);
 
   useEffect(() => {
+    viewRef.current = { scale: fit.scale, x: fit.x, y: fit.y };
     setUserView(null);
     setMaskDataURL(null);
     drawingRef.current = { active: false, current: null };
     freehandRef.current = null;
     setDrag(null);
     pinchRef.current = null;
+    ignoreDragEndRef.current = false;
     setPinching(false);
   }, [currentImage?.id, canvasViewResetTick, setMaskDataURL]);
 
   function beginPointer(e: Konva.KonvaEventObject<PointerEvent>) {
     if (!image || pinching) return;
+    ignoreDragEndRef.current = false;
     const local = stagePointerToImageCoord();
     if (!local) return;
     if (effectiveTool === "mask") {
@@ -566,6 +581,8 @@ export function AndroidCanvasStage() {
   function beginPinch(e: Konva.KonvaEventObject<TouchEvent>) {
     if (e.evt.touches.length < 2) return;
     e.evt.preventDefault();
+    pinchingRef.current = true;
+    stageRef.current?.stopDrag();
     const a = touchPoint(e.evt.touches[0]);
     const b = touchPoint(e.evt.touches[1]);
     drawingRef.current = { active: false, current: null };
@@ -574,7 +591,7 @@ export function AndroidCanvasStage() {
     pinchRef.current = {
       distance: distance(a, b),
       center: center(a, b),
-      view,
+      view: viewRef.current,
     };
     setPinching(true);
   }
@@ -600,15 +617,29 @@ export function AndroidCanvasStage() {
 
   function endPinch(e: Konva.KonvaEventObject<TouchEvent>) {
     if (e.evt.touches.length >= 2) return;
+    if (!pinchingRef.current && !pinchRef.current) return;
     pinchRef.current = null;
+    pinchingRef.current = false;
+    ignoreDragEndRef.current = true;
+    stageRef.current?.stopDrag();
     setPinching(false);
+  }
+
+  function endStageDrag(e: Konva.KonvaEventObject<DragEvent>) {
+    if (pinchingRef.current || ignoreDragEndRef.current) {
+      e.target.stopDrag();
+      ignoreDragEndRef.current = false;
+      return;
+    }
+    const latestView = viewRef.current;
+    setView({ ...latestView, x: e.target.x(), y: e.target.y() });
   }
 
   function onWheel(e: Konva.KonvaEventObject<WheelEvent>) {
     e.evt.preventDefault();
     const stage = stageRef.current;
     if (!stage) return;
-    const oldScale = view.scale;
+    const oldScale = viewRef.current.scale;
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
     const direction = e.evt.deltaY > 0 ? -1 : 1;
@@ -732,7 +763,7 @@ export function AndroidCanvasStage() {
             scaleX={view.scale}
             scaleY={view.scale}
             draggable={effectiveTool === "pan" && !pinching}
-            onDragEnd={(e) => setView({ ...view, x: e.target.x(), y: e.target.y() })}
+            onDragEnd={endStageDrag}
             onWheel={onWheel}
             onPointerDown={beginPointer}
             onPointerMove={movePointer}

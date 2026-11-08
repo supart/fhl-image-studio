@@ -165,6 +165,11 @@ export function cryptoIDFallback(): string {
 
 export function saveActiveWorkspaceSnapshot(s: StudioState): Workspace[] {
   if (!s.activeWorkspaceId) return s.workspaces;
+  // During the first deferred history read, the top-level canvas and batch
+  // arrays are intentionally empty. Persist the workspace-owned selection
+  // until hydration finishes so the first state subscription cannot erase the
+  // previous canvas when the app is closed during startup.
+  const historyHydrationPending = s.historyLoading && s.history.length === 0 && s.batchResults.length === 0;
   return s.workspaces.map((w) => {
     if (w.id !== s.activeWorkspaceId) return w;
     let name = w.name;
@@ -184,13 +189,18 @@ export function saveActiveWorkspaceSnapshot(s: StudioState): Workspace[] {
       size: s.size,
       quality: s.quality,
       outputFormat: s.outputFormat,
+      imageBackgroundMode: s.imageBackgroundMode,
       seed: s.seed,
       batchCount: s.batchCount,
       continuousGenerateTest: s.continuousGenerateTest,
       styleTag: s.styleTag,
       sources: s.sources,
-      currentImageId: currentImageIdForWorkspaceSnapshot(s.currentImage, s.streamPreview, s.streamPreviews, w.currentImageId),
-      batchResultIds: s.batchResults.map((item) => item.id),
+      currentImageId: historyHydrationPending
+        ? (w.currentImageId ?? null)
+        : currentImageIdForWorkspaceSnapshot(s.currentImage, s.streamPreview, s.streamPreviews, w.currentImageId),
+      batchResultIds: historyHydrationPending
+        ? [...(w.batchResultIds ?? [])]
+        : s.batchResults.map((item) => item.id),
       resultGridOpen: s.resultGridOpen,
       runningJobIds: s.runningJobs,
       jobsTotal: s.jobsTotal,

@@ -21,6 +21,7 @@ import {
 import { apiModeLabel, isSelectableGenerationProfile } from "../../../lib/profiles";
 import { effectiveProviderMode, type FHLTransportMode } from "../../../lib/providerPolicy";
 import type { APIMode, KernelRuntimeMode, ProxyMode, ThemeMode, UpstreamProfile } from "../../../types/domain";
+import type { ActiveCredentialStatus } from "../../../state/studioStore.types";
 import { androidSaveHint } from "../bridge";
 import { AndroidSettingsPresetsRow } from "./AndroidSettingsPresetsRow";
 
@@ -29,6 +30,7 @@ export type AndroidSettingsSurface = "phone" | "pad";
 export type AndroidSettingsPanelProps = {
   activeProfile: UpstreamProfile | undefined;
   activeProfileId: string;
+  activeCredentialStatus: ActiveCredentialStatus;
   apiMode: APIMode;
   canTestUpstream: boolean;
   clearAPIKey: () => void;
@@ -89,6 +91,7 @@ function proxyLabel(mode: ProxyMode) {
 export function AndroidSettingsPanel({
   activeProfile,
   activeProfileId,
+  activeCredentialStatus,
   apiMode,
   canTestUpstream,
   clearAPIKey,
@@ -122,10 +125,18 @@ export function AndroidSettingsPanel({
   upstreamReady,
 }: AndroidSettingsPanelProps) {
   const generationProfiles = profiles.filter(isSelectableGenerationProfile);
+  const credentialChecking = activeCredentialStatus === "checking";
+  const credentialPending = activeCredentialStatus === "unknown" || credentialChecking;
+  const credentialError = activeCredentialStatus === "error";
+  const upstreamStatusLabel = credentialPending
+    ? "确认中"
+    : credentialError
+      ? "凭据异常"
+      : upstreamReady ? "已配置" : "未配置";
   const upstreamModeLabel = apiModeLabel(apiMode);
   const historyCountLabel = `${historyCount} 条`;
   const currentSummary = [
-    upstreamReady ? "上游已配置" : "上游未配置",
+    credentialPending ? "上游凭据确认中" : credentialError ? "上游凭据异常" : upstreamReady ? "上游已配置" : "上游未配置",
     `代理 ${proxyLabel(proxyMode)}`,
     `主题 ${themeLabel(theme)}`,
     `字号 ${Math.round(fontScale * 100)}%`,
@@ -162,8 +173,8 @@ export function AndroidSettingsPanel({
               {activeProfile ? `${activeProfile.name} · ${upstreamModeLabel}` : "还没有可用上游配置"}
             </span>
           </span>
-          <span className={`android-settings-status-pill ${upstreamReady ? "ready" : "missing"}`}>
-            {upstreamReady ? "已配置" : "未配置"}
+          <span className={`android-settings-status-pill ${credentialPending ? "checking" : upstreamReady ? "ready" : "missing"}`}>
+            {upstreamStatusLabel}
           </span>
         </div>
         {generationProfiles.length > 0 ? (

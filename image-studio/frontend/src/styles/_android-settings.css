@@ -335,6 +335,12 @@ html[data-target-platform="android-pad"] .android-settings-status-pill.ready {
   color: var(--accent);
 }
 
+html[data-target-platform="android"] .android-settings-status-pill.checking,
+html[data-target-platform="android-pad"] .android-settings-status-pill.checking {
+  background: rgb(14 116 144 / 0.12);
+  color: rgb(14 116 144);
+}
+
 html[data-target-platform="android"] .android-settings-status-pill.missing,
 html[data-target-platform="android-pad"] .android-settings-status-pill.missing {
   background: rgb(239 68 68 / 0.1);

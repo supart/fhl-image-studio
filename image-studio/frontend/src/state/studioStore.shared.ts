@@ -8,6 +8,7 @@ import type {
   Annotation,
   APIMartRecoveryTask,
   HistoryItem,
+  ImageBackgroundMode,
   OutputFormatValue,
   ProgressInfo,
   QualityValue,
@@ -250,6 +251,10 @@ function normalizeWorkspaceOutputFormat(value: unknown, fallback: OutputFormatVa
     : fallback;
 }
 
+function normalizeWorkspaceBackgroundMode(value: unknown): ImageBackgroundMode {
+  return value === "transparent" ? "transparent" : "standard";
+}
+
 function normalizeWorkspaceSeed(value: unknown): number {
   const n = Number(value);
   return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
@@ -423,6 +428,7 @@ function normalizeWorkspace(
     size: normalizeWorkspaceSize(raw.size),
     quality: normalizeWorkspaceQuality(raw.quality),
     outputFormat: normalizeWorkspaceOutputFormat(raw.outputFormat, fallbackOutputFormat),
+    imageBackgroundMode: normalizeWorkspaceBackgroundMode(raw.imageBackgroundMode),
     seed: normalizeWorkspaceSeed(raw.seed),
     batchCount: normalizeWorkspaceBatchCount(raw.batchCount),
     continuousGenerateTest: raw.continuousGenerateTest !== false,

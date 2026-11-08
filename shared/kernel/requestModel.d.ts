@@ -3,6 +3,7 @@ export const DEFAULT_IMAGE_MODEL: string;
 export const DEFAULT_SIZE: string;
 export const DEFAULT_QUALITY: string;
 export const DEFAULT_OUTPUT_FORMAT: string;
+export const TRANSPARENT_IMAGE_PROMPT_SUFFIX: string;
 export const DEFAULT_REQUEST_POLICY: string;
 export const DEFAULT_PARTIAL_IMAGES: number;
 export const MAX_ATTEMPTS: number;
@@ -38,6 +39,7 @@ export type SharedImageRequestPayload = {
   batchVariationKey?: string;
   batchIndex?: number;
   batchCount?: number;
+  imageBackgroundMode?: "standard" | "transparent";
 };
 
 export function normalizeBaseURL(raw: string): string;
@@ -45,6 +47,12 @@ export function normalizeAPIMode(apiMode: string): "responses" | "images" | "api
 export function normalizeRequestPolicy(requestPolicy: string): RequestPolicy;
 export function normalizeTextModel(modelID: string): string;
 export function normalizeImageModel(modelID: string): string;
+export function isGPTImage2Model(modelID: string): boolean;
+export function isGPTImage25Model(modelID: string): boolean;
+export function supportsNativeTransparency(modelID: string): boolean;
+export function normalizeImageBackgroundMode(value: unknown): "standard" | "transparent";
+export function isTransparentImageRequest(payload?: SharedImageRequestPayload | null): boolean;
+export function promptForImageRequest(prompt: string, payload?: SharedImageRequestPayload | null): string;
 export function normalizePromptText(prompt: string): string;
 export function normalizeNegativePrompt(negativePrompt: string): string;
 export function normalizePartialImages(value: unknown): number;

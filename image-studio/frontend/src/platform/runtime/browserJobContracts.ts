@@ -27,6 +27,7 @@ export interface BrowserJobSubmitPayload {
   size: SizeValue;
   quality: QualityValue;
   outputFormat: OutputFormatValue;
+  imageBackgroundMode?: "standard" | "transparent";
   batchCount: number;
   concurrencyLimit?: number;
   seed: number;
@@ -48,6 +49,10 @@ export interface BrowserJobSubmitPayload {
   imagesNewAPICompat?: boolean;
   textModelID: string;
   imageModelID: string;
+  provider?: string;
+  imageModelValidatedAt?: number;
+  imageModelCatalogBaseUrl?: string;
+  imageModelCatalogProvider?: string;
 }
 
 export interface BrowserJobSubmitResponse {

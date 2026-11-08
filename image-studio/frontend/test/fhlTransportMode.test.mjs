@@ -128,7 +128,7 @@ test("text profiles and FHL pool profiles remain disjoint", () => {
   assert.equal(restored?.concurrencyLimit, profiles.FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT);
 
   assert.match(fhlAPISource, /store\.profiles\.find\(isOfficialFHLTextProfile\)/);
-  assert.match(fhlAPISource, /isOfficialFHLPoolProfile\(profile\)/);
+  assert.match(fhlAPISource, /store\.profiles\.find\(isOfficialFHLPoolProfile\)/);
 });
 
 test("ensuring an Android text profile never activates it during create or reuse", async () => {
