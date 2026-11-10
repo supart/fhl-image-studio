@@ -43,7 +43,8 @@
 ### 模型选择弹层修复（2026-11-10，本地构建完成）
 
 - 统一模型面板契约测试、完整前端 `440/440`、TypeScript、`npm run build:android`、Android JVM `71/71`、强制 `assembleDebug`、包内前端资源和 v2 Debug 签名均通过。
-- 新 Debug APK：`14,851,331` 字节，SHA-256 `BB0B2659B1A08ABB6CB2663F4C320FE08B4EFA457087A6E7B4E3904765ED6DB4`；包名 `top.fangtangyuan.fhlstudio.android.debug`，`V2.0.5-debug / 1050005`。候选位于忽略目录 `release-assets/V2.0.5-Android-Device-Test-Debug-20261110-model-picker/`，不是正式发布包。
+- 本地提交：`139d7e0f9d2d83e0da54cc15fe7adaf7bb1611a2`；Debug APK 在提交后重建，包内服务身份与该提交一致。
+- 新 Debug APK：`14,851,332` 字节，SHA-256 `A219FCA84F14351FDBC4B0FDBA49A5B9BBFAC398152FED43FC1D54AD8F3C9588`；包名 `top.fangtangyuan.fhlstudio.android.debug`，`V2.0.5-debug / 1050005`。候选位于忽略目录 `release-assets/V2.0.5-Android-Device-Test-Debug-20261110-model-picker/`，不是正式发布包。
 - `codex_api36` 的 API 36、无凭据策略和 ready 状态已由 MCP 确认；因本会话未提供 `TY_ANDROID_MCP_APK`、`TY_ANDROID_MCP_INSTALL_SCRIPT`、`TY_ANDROID_MCP_PACKAGE` 映射，本批未安装 APK 或执行 UI 点击验收，lease 已释放。不得将设备交互写为通过。
 - 本批没有真实目录请求和付费生图；未读取/输入/复制/截图/记录 Key，未 push、打 Tag 或创建 Release。Gradle 强制构建触发的 `npm ci` 审计报告 7 个漏洞（1 low、1 moderate、5 high），未自动升级依赖。
 
