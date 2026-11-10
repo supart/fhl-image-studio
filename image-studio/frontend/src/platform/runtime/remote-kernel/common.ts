@@ -52,7 +52,9 @@ const FHL_IMAGES_STABLE_SIZE_OVERRIDES = new Map<string, string>([
 ]);
 
 export function isGPTImage2Model(modelID: string | undefined): boolean {
-  return normalizeSharedImageModel(modelID || "").toLowerCase().startsWith(ProviderPolicy.fhl.imageModelID);
+  const model = normalizeSharedImageModel(modelID || "").toLowerCase();
+  const familyPrefix = ProviderPolicy.fhl.imageModelID.toLowerCase();
+  return model === familyPrefix || model.startsWith(`${familyPrefix}.`) || model.startsWith(`${familyPrefix}-`);
 }
 
 type LoadedUploadImage = {

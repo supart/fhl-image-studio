@@ -104,6 +104,16 @@ html.dark .background-mode-switch-button-active {
   background: color-mix(in srgb, var(--accent-soft) 45%, transparent);
 }
 
+.background-mode-switch-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.background-mode-switch-button:disabled:hover {
+  border-color: color-mix(in srgb, var(--border) 90%, transparent);
+  background: transparent;
+}
+
 html[data-presentation-platform="windows"][data-ui-family="fluent"] .background-mode-switch-button.background-mode-switch-button-active {
   border-color: #005fb8;
   background: rgb(0 95 184 / 0.12);
@@ -392,6 +402,13 @@ html.dark .mode-switch-button[aria-pressed="true"] .mode-switch-subtitle {
 .aspect-picker-option.active {
   background: var(--accent-soft);
   color: var(--accent);
+}
+.fhl-image-model-select option {
+  color: var(--text-muted);
+}
+.fhl-image-model-select option[data-model-family="gpt-image-2"] {
+  color: var(--accent);
+  font-weight: 600;
 }
 .aspect-picker-option-main {
   display: flex;

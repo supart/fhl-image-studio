@@ -61,7 +61,7 @@ func TestStartJobRejectsTransparentGPTImage2(t *testing.T) {
 		ImageModelID:   client.ImageModelLegacy,
 		BackgroundMode: client.BackgroundTransparent,
 	})
-	if err == nil || !strings.Contains(err.Error(), "supported only") {
+	if err == nil || !strings.Contains(err.Error(), "versioned or suffixed ID") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

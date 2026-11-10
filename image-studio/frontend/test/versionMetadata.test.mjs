@@ -12,7 +12,7 @@ const sourceRoot = new URL("../../..", import.meta.url);
 
 test("active product metadata matches the canonical version manifest", async () => {
   const manifest = JSON.parse(await readFile(new URL("product-version.json", sourceRoot), "utf8"));
-  assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+  assert.match(manifest.version, /^\d+\.\d+\.\d+(?:\.\d+)?$/);
   assert.equal(manifest.displayVersion, `V${manifest.version}`);
   assert.equal(manifest.windowsTag, `windows-v${manifest.version}-release`);
 

@@ -57,3 +57,48 @@ test("shared generation request fixtures match the JavaScript kernel contract", 
     assert.deepEqual(actualBody, expected.wire.body, entry.id);
   }
 });
+
+test("future GPT Image 2.x models keep transparent output in both request routes", async () => {
+  const requestPayloads = await import(requestPayloadsURL.href);
+  const request = completePayload({
+    apiMode: "images",
+    baseURL: "https://www.fhl.mom",
+    prompt: "transparent product cutout",
+    imageModelID: "gpt-image-2.6-sunburst",
+    outputFormat: "jpeg",
+    backgroundMode: "transparent",
+    requestPolicy: "openai",
+  });
+  const imagesBody = requestPayloads.buildImagesGenerationPayload(request);
+  assert.equal(imagesBody.background, "transparent");
+  assert.equal(imagesBody.output_format, "png");
+  assert.equal(imagesBody.response_format, "b64_json");
+
+  const responsesBody = requestPayloads.buildResponsesPayload(request, []);
+  const tool = responsesBody.tools[0];
+  assert.equal(tool.background, "transparent");
+  assert.equal(tool.output_format, "png");
+});
+
+test("opaque-only and unknown models cannot emit transparent request parameters", async () => {
+  const requestPayloads = await import(requestPayloadsURL.href);
+  for (const imageModelID of ["gpt-image-2", "gpt-image-20", "custom-image-model"]) {
+    const request = completePayload({
+      apiMode: "images",
+      baseURL: "https://www.fhl.mom",
+      prompt: "opaque fallback",
+      imageModelID,
+      outputFormat: "jpeg",
+      backgroundMode: "transparent",
+      requestPolicy: "openai",
+    });
+    const imagesBody = requestPayloads.buildImagesGenerationPayload(request);
+    assert.equal(imagesBody.background, undefined, imageModelID);
+    assert.equal(imagesBody.output_format, "jpeg", imageModelID);
+
+    const responsesBody = requestPayloads.buildResponsesPayload(request, []);
+    const tool = responsesBody.tools[0];
+    assert.equal(tool.background, undefined, imageModelID);
+    assert.equal(tool.output_format, "jpeg", imageModelID);
+  }
+});

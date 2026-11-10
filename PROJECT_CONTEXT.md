@@ -1,4 +1,12 @@
-# FHL Studio V2.0.5 开发交接
+# FHL Studio V2.0.5.1 开发交接
+
+## 2026-11-09 macOS V2.0.5.1 动态生图模型（开发中）
+
+- 当前分支为 `codex/macos-v2.0.5.1-development`，基线是已发布 macOS V2.0.5 提交 `6c1da24bba49dd312fc21dc79981de6e4aed18e0`。本轮只处理 macOS 桌面能力，不修改 Android、Windows 发布分支、Photoshop 插件或独立 Bridge。
+- FHL Images 模型下拉不再使用固定白名单：所有上游返回的非空模型 ID 都可点击选择；`gpt-image-2` 系列通过动态前缀规则高亮，其他模型显示灰色但不禁用。
+- 背景选择永久显示：精确 `gpt-image-2` 和其他灰色/未知模型禁用透明；所有带版本号或后缀的 `gpt-image-2.x` / `gpt-image-2-*` 模型（包括 2.5、2.6 及未来 2.x）允许透明，透明模式固定 PNG。
+- 版本清单、macOS workflow、bundle verifier、README 和发布说明已同步到 V2.0.5.1。自动验证不读取用户 API Key，不调用真实模型列表、文本优化、图片反推或付费生图 API。
+- 详细实现记录见 `docs/changes/2026-11-09-macos-v2.0.5.1-dynamic-image-models.md`。
 
 ## 2026-11-06 macOS V2.0.5 GPT Image 2.5 与透明 PNG（开发收口中）
 

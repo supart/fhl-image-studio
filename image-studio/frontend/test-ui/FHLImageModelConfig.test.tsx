@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
     "gpt-image-2.5-flare",
     "gpt-image-2.5-sunburst",
     "gpt-image-2",
+    "gpt-image-2.6-sunburst",
+    "gpt-image-20",
   ]),
   getStoredAPIKey: vi.fn(async () => "sk-images-saved"),
   setFHLImageModelID: vi.fn(async () => undefined),
@@ -63,6 +65,8 @@ describe("FHLImageModelConfig", () => {
       "gpt-image-2.5-flare",
       "gpt-image-2.5-sunburst",
       "gpt-image-2",
+      "gpt-image-2.6-sunburst",
+      "gpt-image-20",
     ]);
     mocks.getStoredAPIKey.mockResolvedValue("sk-images-saved");
     mocks.state.imageModelID = "gpt-image-2";
@@ -79,20 +83,32 @@ describe("FHLImageModelConfig", () => {
     expect(mocks.getStoredAPIKey).toHaveBeenCalledOnce();
     const select = screen.getByTestId("fhl-image-model-select");
     expect(select).toHaveValue("gpt-image-2");
-    expect(screen.getByRole("option", { name: /gpt-5\.7/ })).toBeDisabled();
+    expect(screen.getByRole("option", { name: /gpt-5\.7/ })).toBeEnabled();
     expect(screen.getByRole("option", { name: /gpt-image-2\.5-flare/ })).toBeEnabled();
-    expect(screen.getByRole("option", { name: /gpt-5\.7/ })).toHaveTextContent("当前版本不可选");
+    expect(screen.getByRole("option", { name: /gpt-5\.7/ })).toHaveTextContent("上游模型，可选");
+    expect(screen.getByRole("option", { name: /gpt-image-2\.6-sunburst/ })).toHaveAttribute("data-model-family", "gpt-image-2");
+    expect(screen.getByRole("option", { name: /gpt-5\.7/ })).toHaveAttribute("data-model-family", "other");
+    expect(screen.getByRole("option", { name: /gpt-image-20/ })).toHaveAttribute("data-model-family", "other");
     expect(screen.getByTestId("fhl-image-model-controls")).toContainElement(select);
     expect(screen.queryByTestId("fhl-image-model-list")).not.toBeInTheDocument();
   });
 
-  it("persists an allowed selection through the global model action", async () => {
+  it("persists a newly published GPT Image 2 model through the global model action", async () => {
     render(<FHLImageModelConfig active />);
     fireEvent.click(screen.getByTestId("fhl-image-fetch-models"));
     const select = await screen.findByTestId("fhl-image-model-select");
-    fireEvent.change(select, { target: { value: "gpt-image-2.5-sunburst" } });
+    fireEvent.change(select, { target: { value: "gpt-image-2.6-sunburst" } });
 
-    await waitFor(() => expect(mocks.setFHLImageModelID).toHaveBeenCalledWith("gpt-image-2.5-sunburst"));
+    await waitFor(() => expect(mocks.setFHLImageModelID).toHaveBeenCalledWith("gpt-image-2.6-sunburst"));
+  });
+
+  it("allows a grey non-2-series upstream model to be selected", async () => {
+    render(<FHLImageModelConfig active />);
+    fireEvent.click(screen.getByTestId("fhl-image-fetch-models"));
+    const select = await screen.findByTestId("fhl-image-model-select");
+    fireEvent.change(select, { target: { value: "gpt-5.7" } });
+
+    await waitFor(() => expect(mocks.setFHLImageModelID).toHaveBeenCalledWith("gpt-5.7"));
   });
 
   it("shows only the saved selection before model discovery", () => {

@@ -1,4 +1,4 @@
-# FHL Image Studio 方汤圆修改版 V2.0.5
+# FHL Image Studio 方汤圆修改版 V2.0.5.1
 
 > 开源致谢：Image-Studio 原作者 RoseKhlifa
 >
@@ -6,7 +6,7 @@
 >
 > 方汤圆修改版项目地址：https://github.com/supart/fhl-image-studio
 
-FHL Image Studio 方汤圆修改版是基于 Image-Studio 的独立修改发行版，面向桌面端图片生成、图生图、编辑和提示词工作流。本仓库当前开发版本为桌面版 `V2.0.5`，采用 AGPLv3 发布，不内置任何 API Key、测试图片或个人本机配置。
+FHL Image Studio 方汤圆修改版是基于 Image-Studio 的独立修改发行版，面向桌面端图片生成、图生图、编辑和提示词工作流。本仓库当前开发版本为桌面版 `V2.0.5.1`，采用 AGPLv3 发布，不内置任何 API Key、测试图片或个人本机配置。
 
 本项目与上游原项目无隶属、背书或维护关系。请在二次分发、公开部署或网络服务使用时遵守 AGPLv3 的源码提供义务。
 
@@ -17,8 +17,8 @@ FHL Image Studio 方汤圆修改版是基于 Image-Studio 的独立修改发行�
 - 反推提示词：导入图片后上传给支持视觉输入的文本模型，返回中文文生图 prompt。
 - FHL 文本与生图凭据彻底分离：独立 Responses 文本 API（新安装默认 `gpt-5.6-sol`，兼容 `gpt-5.5` 和自定义模型）服务于 AI 优化和图片反推，Images Key 不参与文本请求。
 - FHL Images 连续池：固定 10 个独立 Key 槽，按每 API `1–5` 并发计算总容量，批量任务保留独立任务、API 来源、取消和结果。
-- FHL 生图模型：使用 Images Key 手动拉取模型并全局选择 `gpt-image-2.5-flare`、`gpt-image-2.5-sunburst` 或 `gpt-image-2`；10 个槽共享选择结果。
-- 透明 PNG：仅 Flare/Sunburst 显示普通/透明选择，透明结果必须通过真实 Alpha 像素校验；Image 2 保持普通图像模式。
+- FHL 生图模型：使用 Images Key 手动拉取模型并全局选择上游返回的任意非空模型 ID；`gpt-image-2` 系列动态高亮，其他模型仍可点击，10 个槽共享选择结果。
+- 透明 PNG：背景选择永久显示；精确 Image 2 保持普通图像模式，带版本号或后缀的 GPT Image 2.x 模型（包括 2.5、2.6 及未来模型）可选择透明 PNG，其他模型禁用透明；透明结果必须通过真实 Alpha 像素校验。
 - 工作区：多标签工作区分别保存 prompt、参数、源图、当前结果和运行状态。
 - 历史记录：本地 IndexedDB 保存，支持搜索、筛选、复用参数、设置源图和导入导出。
 - 大批量预览：结果网格、历史相册和批量输入队列使用虚拟滚动；列表加载 AVIF 缩略图，打开大图时才读取原图。
@@ -60,16 +60,17 @@ Photoshop UXP 插件是与桌面版、安卓版并列的独立销售项目。它
 - [功能说明](./docs/features.md)
 - [数据位置与故障排除](./docs/troubleshooting.md)
 - [构建与发布](./docs/build.md)
-- [V2.0.5 开发工作流](./docs/development-workflow.md)
+- [V2.0.5.1 开发工作流](./docs/development-workflow.md)
 - [项目结构](./docs/project-structure.md)
 - [V2.0.4 开发发布说明](./RELEASE_NOTES_DESKTOP_V2.0.4.md)
 - [macOS V2.0.5 发布说明](./RELEASE_NOTES_MACOS_V2.0.5.md)
+- [macOS V2.0.5.1 发布说明](./RELEASE_NOTES_MACOS_V2.0.5.1.md)
 - [V2.0.3 历史发布说明](./RELEASE_NOTES_DESKTOP_V2.0.3.md)
 - [V2.0.3 历史验收报告](./V2.0.3_ACCEPTANCE_REPORT.md)
 
 单批实现和排错过程记录在 [`docs/changes/`](./docs/changes/)；`PROJECT_CONTEXT.md` 只用于当前开发断点和接手恢复，不作为长期产品说明。
 
-V2.0.5 的本地 Git、分层检查、批次记录和里程碑归档遵循 [开发工作流](./docs/development-workflow.md)。历史版本目录保持只读。
+V2.0.5.1 的本地 Git、分层检查、批次记录和里程碑归档遵循 [开发工作流](./docs/development-workflow.md)。历史版本目录保持只读。
 
 ## 运行源码版
 

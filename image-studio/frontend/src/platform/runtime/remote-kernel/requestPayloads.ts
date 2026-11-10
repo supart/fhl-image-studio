@@ -2,6 +2,7 @@ import {
   detectImageMimeTypeFromBase64,
   imageExtensionForMimeType,
 } from "../../../lib/images.ts";
+import { supportsTransparentBackground } from "../../../lib/fhlImageModels.ts";
 import {
   buildResponsesPayload as buildSharedResponsesPayload,
   normalizePartialImages,
@@ -17,10 +18,14 @@ export function buildResponsesPayload(
   payload: RemoteGeneratePayload,
   sourceDataURLs: string[],
 ): Record<string, unknown> {
+  const imageModel = normalizeImageModel(payload.imageModelID);
+  const safePayload = payload.backgroundMode === "transparent" && !supportsTransparentBackground(imageModel)
+    ? { ...payload, backgroundMode: "opaque" as const }
+    : payload;
   const maskMimeType = payload.maskB64
     ? (detectImageMimeTypeFromBase64(payload.maskB64) || "image/png")
     : "image/png";
-  return buildSharedResponsesPayload(payload, sourceDataURLs, { maskMimeType });
+  return buildSharedResponsesPayload(safePayload, sourceDataURLs, { maskMimeType });
 }
 
 export function buildImagesGenerationPayload(
@@ -29,7 +34,7 @@ export function buildImagesGenerationPayload(
   const imageModel = normalizeImageModel(payload.imageModelID);
   const rawSize = payload.size || "1024x1024";
   const repairedPayload = repairSizeForOpenAI({ size: rawSize });
-  const transparent = payload.backgroundMode === "transparent";
+  const transparent = payload.backgroundMode === "transparent" && supportsTransparentBackground(imageModel);
   const body: Record<string, unknown> = {
     model: imageModel,
     prompt: payload.prompt,
@@ -68,7 +73,7 @@ export async function buildImagesRequestBody(
   const repairedPayload = repairSizeForOpenAI({ size: rawSize });
   const size = repairedPayload?.size || rawSize;
   const quality = request.payload.quality || "auto";
-  const transparent = request.payload.backgroundMode === "transparent";
+  const transparent = request.payload.backgroundMode === "transparent" && supportsTransparentBackground(imageModel);
   const outputFormat = transparent ? "png" : (request.payload.outputFormat || "png");
   const includeExtended = shouldSendExtendedImageParameters(request.payload.requestPolicy);
   const useNewAPICompat = shouldUseImagesNewAPICompat(request.payload);

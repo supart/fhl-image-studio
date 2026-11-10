@@ -1,4 +1,4 @@
-# FHL Studio V2.0.5 for macOS
+# FHL Studio V2.0.5.1 for macOS
 
 ## 系统要求
 
@@ -10,8 +10,8 @@
 
 GitHub Release 提供以下三个文件：
 
-- `FHL-Image-Studio-Desktop-V2.0.5-macOS-Universal.dmg`
-- `FHL-Image-Studio-Desktop-V2.0.5-Source.zip`
+- `FHL-Image-Studio-Desktop-V2.0.5.1-macOS-Universal.dmg`
+- `FHL-Image-Studio-Desktop-V2.0.5.1-Source.zip`
 - `SHA256SUMS.txt`
 
 将三个文件下载到同一目录后，可以在终端中校验：
@@ -26,7 +26,7 @@ shasum -a 256 -c SHA256SUMS.txt
 
 1. 打开 DMG，将 `FHL Studio.app` 拖入 `Applications`。
 2. 本版使用 ad-hoc 签名和 hardened runtime，未使用 Developer ID 签名，也未进行 Apple 公证。首次启动请在 Finder 中右键 `FHL Studio.app`，选择“打开”，再确认系统提示。
-3. 进入应用内的 FHL 配置，保存自己的 Images API Key，点击“拉取模型”并选择 Flare、Sunburst 或 Image 2。新安装不会自带可用 API，也不会预选生图模型。
+3. 进入应用内的 FHL 配置，保存自己的 Images API Key，点击“拉取模型”并选择上游返回的任意模型。`gpt-image-2` 系列会高亮显示，其他模型仍可点击选择。新安装不会自带可用 API，也不会预选生图模型。
 
 如果直接双击被 Gatekeeper 阻止，请不要修改应用包内容；回到 Finder 使用右键“打开”完成首次授权。替换安装新版本后，macOS 可能会再次要求确认。
 
@@ -41,11 +41,11 @@ shasum -a 256 -c SHA256SUMS.txt
 
 因此，同一 macOS 账户升级后可能继续读取该账户原有的配置、历史和 Keychain 凭据。这不表示 DMG 内含这些数据；在新 Mac 或新用户账户中启动时，应用会保持默认未配置状态。
 
-## V2.0.5 重点
+## V2.0.5.1 重点
 
 - 保留 V2.0.4 已恢复的完整工作区和 V2.0.3 紧凑蓝灰 Fluent 视觉，macOS 原生宿主能力不变。
-- FHL 配置新增 Images Key 模型拉取和全局手动选择，仅允许 `gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`、`gpt-image-2`。
-- Flare 和 Sunburst 支持普通图像或透明 PNG；Image 2 不提供透明选项。透明结果必须通过真实 Alpha 像素校验。
+- FHL 配置新增 Images Key 模型拉取和全局手动选择：模型列表不再写死，所有上游返回的非空模型 ID 都可点击选择；`gpt-image-2` 系列按动态前缀规则高亮，其他模型保持灰色提示但不禁用。
+- 背景选择永久显示：精确 `gpt-image-2` 显示但禁用透明，所有带版本号或后缀的 `gpt-image-2.x` / `gpt-image-2-*` 模型（包括 2.5、2.6 及未来 2.x）支持普通图像或透明 PNG；其他模型仍可选普通图像但透明控件禁用。透明结果必须通过真实 Alpha 像素校验。
 - 新配置必须先选择模型；旧 V2.0.4 配置缺少模型字段时兼容迁移到 `gpt-image-2`。
 - 恢复一键配置、完整 FHL 配置、Images/Responses 模式切换、文生图/图生图切换、输出目录入口、状态栏与完整历史面板。
 - 保留 10 个 FHL Images API 槽、连续生成、批量任务、动态模型、标注、本地编辑和 360 工作台。
@@ -74,4 +74,4 @@ DMG 只包含 `FHL Studio.app`、Applications 快捷入口和本说明。正式�
 
 ## 开源
 
-与 DMG 对应的干净源码位于同一 GitHub Release 的 `FHL-Image-Studio-Desktop-V2.0.5-Source.zip`。本项目按 GNU AGPLv3 提供对应源码。
+与 DMG 对应的干净源码位于同一 GitHub Release 的 `FHL-Image-Studio-Desktop-V2.0.5.1-Source.zip`。本项目按 GNU AGPLv3 提供对应源码。

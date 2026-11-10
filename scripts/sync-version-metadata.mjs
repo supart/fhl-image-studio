@@ -15,8 +15,8 @@ const displayVersion = String(manifest.displayVersion ?? "").trim();
 const windowsTag = String(manifest.windowsTag ?? "").trim();
 const macosTag = String(manifest.macosTag ?? "").trim();
 
-if (!/^\d+\.\d+\.\d+$/.test(version)) {
-  throw new Error(`product-version.json version must be semver core, got: ${version || "<empty>"}`);
+if (!/^\d+\.\d+\.\d+(?:\.\d+)?$/.test(version)) {
+  throw new Error(`product-version.json version must be numeric x.y.z or x.y.z.n, got: ${version || "<empty>"}`);
 }
 if (displayVersion !== `V${version}`) {
   throw new Error(`displayVersion must equal V${version}, got: ${displayVersion || "<empty>"}`);

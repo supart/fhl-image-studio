@@ -68,7 +68,7 @@ const wailsVersion = String(config.info?.productVersion || "").trim();
 const comments = String(config.info?.comments || "").replace(/[\r\n]+/g, " ").trim();
 const copyright = String(config.info?.copyright || "").replace(/[\r\n]+/g, " ").trim();
 
-if (!/^\d+\.\d+\.\d+$/.test(version)) {
+if (!/^\d+\.\d+\.\d+(?:\.\d+)?$/.test(version)) {
   throw new Error(`invalid product-version.json version: ${version || "<empty>"}`);
 }
 if (!productName || !outputFilename) {

@@ -362,7 +362,8 @@ func isGPTImage2Model(modelID string) bool {
 	if model == "" {
 		model = ImageModel
 	}
-	return strings.HasPrefix(strings.ToLower(model), "gpt-image-2")
+	model = strings.ToLower(model)
+	return model == "gpt-image-2" || strings.HasPrefix(model, "gpt-image-2.") || strings.HasPrefix(model, "gpt-image-2-")
 }
 
 func stableResponsesRetrySize(size string) string {

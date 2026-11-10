@@ -31,7 +31,7 @@ var (
 	RetryBackoffSeconds  = 15
 	StatusIntervalSecond = 10
 	// Version 在构建时通过 ldflags 注入;本地未注入时回退到开发标识。
-	Version = "2.0.5"
+	Version = "2.0.5.1"
 )
 
 // UserAgent 返回所有上游请求统一使用的客户端标识。
@@ -209,13 +209,16 @@ type Options struct {
 }
 
 func SupportsTransparentBackground(modelID string) bool {
-	modelID = strings.TrimSpace(modelID)
-	return modelID == ImageModelFlare || modelID == ImageModelSunburst
+	modelID = strings.ToLower(strings.TrimSpace(modelID))
+	return strings.HasPrefix(modelID, "gpt-image-2.") || strings.HasPrefix(modelID, "gpt-image-2-")
 }
 
+// IsSupportedFHLImageModel keeps its historical name for CLI compatibility.
+// FHL publishes new image model IDs independently of desktop releases, so the
+// client must accept any non-empty model selected from the current /v1/models
+// response instead of maintaining a stale allowlist.
 func IsSupportedFHLImageModel(modelID string) bool {
-	modelID = strings.TrimSpace(modelID)
-	return modelID == ImageModelFlare || modelID == ImageModelSunburst || modelID == ImageModelLegacy
+	return strings.TrimSpace(modelID) != ""
 }
 
 func ValidateBackgroundMode(backgroundMode, modelID string) error {
@@ -227,7 +230,7 @@ func ValidateBackgroundMode(backgroundMode, modelID string) error {
 		return fmt.Errorf("background must be opaque or transparent")
 	}
 	if !SupportsTransparentBackground(modelID) {
-		return fmt.Errorf("transparent PNG is supported only by %s and %s", ImageModelFlare, ImageModelSunburst)
+		return fmt.Errorf("transparent PNG requires a GPT Image 2.x model with a versioned or suffixed ID")
 	}
 	return nil
 }

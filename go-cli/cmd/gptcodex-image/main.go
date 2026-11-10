@@ -43,7 +43,7 @@ const (
 	defaultOutputFormat  = "png"
 )
 
-var packageVersion = "V2.0.5"
+var packageVersion = "V2.0.5.1"
 
 type multiFlag []string
 
@@ -472,7 +472,8 @@ func isGPTImage2Model(modelID string) bool {
 	if model == "" {
 		model = client.ImageModel
 	}
-	return strings.HasPrefix(strings.ToLower(model), "gpt-image-2")
+	model = strings.ToLower(model)
+	return model == "gpt-image-2" || strings.HasPrefix(model, "gpt-image-2.") || strings.HasPrefix(model, "gpt-image-2-")
 }
 
 func shouldPreferResponsesForExactFHLSize(opts cliOptions) bool {

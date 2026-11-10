@@ -51,13 +51,11 @@ test("portable and source packages preserve the optional editable header promoti
 });
 
 test("release workflow publishes the portable zip without an installer toolchain", async () => {
-  const [workflow, manifest] = await Promise.all([
-    readFile(new URL(".github/workflows/release.yml", sourceRoot), "utf8"),
-    readFile(new URL("product-version.json", sourceRoot), "utf8").then(JSON.parse),
-  ]);
+  const workflow = await readFile(new URL(".github/workflows/release.yml", sourceRoot), "utf8");
 
-  assert.match(workflow, new RegExp(manifest.windowsTag.replaceAll(".", "\\.")));
+  assert.match(workflow, /default:\s*windows-v2\.0\.5-release/);
   assert.match(workflow, /REQUESTED_TAG.*windowsTag/s);
+  assert.match(workflow, /\$config\.windowsTag/);
   assert.match(workflow, /package-windows-portable\.ps1/);
   assert.doesNotMatch(workflow, /nsis|package-windows-installer|Windows-Setup/i);
 });

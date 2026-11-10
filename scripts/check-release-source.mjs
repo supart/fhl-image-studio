@@ -149,7 +149,7 @@ async function readManifest() {
   const raw = await readFile(manifestPath, "utf8");
   const manifest = JSON.parse(raw);
   const version = String(manifest.version || "").trim();
-  assert(/^\d+\.\d+\.\d+$/.test(version), `invalid product version: ${version || "<empty>"}`);
+  assert(/^\d+\.\d+\.\d+(?:\.\d+)?$/.test(version), `invalid product version: ${version || "<empty>"}`);
   assert(manifest.displayVersion === `V${version}`, "displayVersion must match version");
   return { manifest, version };
 }

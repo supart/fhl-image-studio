@@ -26,7 +26,7 @@ import (
 var assets embed.FS
 
 const (
-	packageVersion = "2.0.5"
+	packageVersion = "2.0.5.1"
 	defaultE2EPort = 9230
 )
 

@@ -11,7 +11,7 @@ base_version="${1:-${BASE_VERSION:-}}"
 
 if [[ -z "${base_version}" ]]; then
   latest_tag="$(git tag --list --sort=-version:refname 'v*' | head -n 1 || true)"
-  if [[ "${latest_tag}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+  if [[ "${latest_tag}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?)$ ]]; then
     base_version="${BASH_REMATCH[1]}"
   elif [[ -f "product-version.json" ]]; then
     base_version="$(node -p 'JSON.parse(require("fs").readFileSync("product-version.json", "utf8")).version')"
@@ -21,8 +21,8 @@ if [[ -z "${base_version}" ]]; then
   fi
 fi
 
-if [[ ! "${base_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "base version must be semver core (x.y.z), got: ${base_version}" >&2
+if [[ ! "${base_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+  echo "base version must be a numeric release version (x.y.z or x.y.z.n), got: ${base_version}" >&2
   exit 1
 fi
 
@@ -37,7 +37,7 @@ app_version="${base_version}"
 android_version_name="${base_version}"
 channel="release"
 
-if [[ -n "${ref_name}" && "${ref_name}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+if [[ -n "${ref_name}" && "${ref_name}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?)$ ]]; then
   product_version="${BASH_REMATCH[1]}"
   app_version="${product_version}"
   android_version_name="${product_version}"
@@ -48,9 +48,10 @@ else
   android_version_name="${app_version}"
 fi
 
-IFS=. read -r major minor patch <<< "${product_version}"
+IFS=. read -r major minor patch revision <<< "${product_version}"
+revision="${revision:-0}"
 android_build_fragment=$(( (run_number % 100) * 10 + run_attempt ))
-android_version_code=$(( major * 10000000 + minor * 100000 + patch * 1000 + android_build_fragment ))
+android_version_code=$(( major * 10000000 + minor * 100000 + patch * 1000 + revision * 10 + android_build_fragment ))
 
 printf '%s\n' \
   "BASE_VERSION=${base_version}" \

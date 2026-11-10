@@ -82,7 +82,7 @@ process.stdin.on("end", () => {
   const manifest = JSON.parse(raw);
   const version = String(manifest.version || "").trim();
   const displayVersion = String(manifest.displayVersion || "").trim();
-  if (!/^\d+\.\d+\.\d+$/.test(version) || displayVersion !== `V${version}`) {
+  if (!/^\d+\.\d+\.\d+(?:\.\d+)?$/.test(version) || displayVersion !== `V${version}`) {
     throw new Error("invalid or inconsistent product version metadata");
   }
   process.stdout.write(version);

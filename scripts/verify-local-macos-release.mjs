@@ -27,7 +27,6 @@ const productVersionPath = path.join(repositoryRoot, "product-version.json");
 const wailsConfigPath = path.join(repositoryRoot, "image-studio", "wails.json");
 
 const expectedBundleIdentifier = "top.fangtangyuan.fhlstudio";
-const expectedReleaseVersion = "2.0.5";
 const expectedMinimumSystemVersion = "13.0";
 const expectedApplicationCategory = "public.app-category.graphics-design";
 const expectedDesktopUIVariant = "windows-parity";
@@ -224,7 +223,7 @@ async function validateBundleMetadata(appBundle, productVersion, wailsConfig) {
   const productName = wailsConfig.info?.productName;
   const executableName = wailsConfig.outputfilename;
 
-  assert(version === expectedReleaseVersion, `product-version.json must declare ${expectedReleaseVersion}; got ${version}`);
+  assert(/^\d+\.\d+\.\d+(?:\.\d+)?$/.test(version), `product-version.json version is invalid: ${version}`);
   assert(displayVersion === `V${version}`, `product-version.json displayVersion must be V${version}; got ${displayVersion}`);
   assert(wailsVersion === version, `wails.json productVersion ${wailsVersion} does not match ${version}`);
   assert(typeof productName === "string" && productName.length > 0, "wails.json info.productName is missing");

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Image, LoaderCircle, RefreshCw } from "lucide-react";
 import { fetchFHLImageAPIModels } from "../../lib/fhlImageAPI.ts";
 import {
-  FHL_IMAGE_MODEL_DESCRIPTIONS,
+  describeFHLImageModel,
+  isHighlightedFHLImageModel,
   isSelectableFHLImageModel,
 } from "../../lib/fhlImageModels.ts";
 import { keyringUserFor, mapFHLImagesProfilesToPoolSlots } from "../../lib/profiles.ts";
@@ -59,8 +60,8 @@ export function FHLImageModelConfig({ active }: { active: boolean }) {
       if (!apiKey) throw new Error("请先保存至少一个 FHL Images API Key，再拉取生图模型。");
       const next = await fetchFHLImageAPIModels(apiKey, { proxyMode, proxyURL });
       setModels(next);
-      const selectableCount = next.filter(isSelectableFHLImageModel).length;
-      setMessage(`已拉取 ${next.length} 个模型，其中 ${selectableCount} 个可用于生图。`);
+      const highlightedCount = next.filter(isHighlightedFHLImageModel).length;
+      setMessage(`已拉取 ${next.length} 个模型，其中 ${highlightedCount} 个 GPT Image 2 系列模型已高亮。`);
     } catch (reason: any) {
       setError(reason?.message || "拉取生图模型失败。");
     } finally {
@@ -110,15 +111,20 @@ export function FHLImageModelConfig({ active }: { active: boolean }) {
             aria-label="FHL 生图模型"
             title="FHL 生图模型"
             data-testid="fhl-image-model-select"
-            className={`focus-ring min-w-0 border border-black/[0.08] bg-white/80 px-2.5 py-2 text-[12px] text-zinc-900 dark:border-white/[0.08] dark:bg-zinc-900 dark:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-70 ${usesFluentUI ? "rounded-[7px]" : "rounded-[10px]"}`}
+            className={`fhl-image-model-select focus-ring min-w-0 border border-black/[0.08] bg-white/80 px-2.5 py-2 text-[12px] text-zinc-900 dark:border-white/[0.08] dark:bg-zinc-900 dark:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-70 ${usesFluentUI ? "rounded-[7px]" : "rounded-[10px]"}`}
           >
             {!imageModelID ? <option value="">请先拉取并选择模型</option> : null}
             {visibleModels.map((modelID) => {
-              const selectable = isSelectableFHLImageModel(modelID);
-              const description = selectable ? FHL_IMAGE_MODEL_DESCRIPTIONS[modelID] : "当前版本不可选";
+              const highlighted = isHighlightedFHLImageModel(modelID);
+              const description = describeFHLImageModel(modelID);
               const missingFromFetchedList = !!models && modelID === imageModelID && !models.includes(modelID);
               return (
-                <option key={modelID} value={modelID} disabled={!selectable}>
+                <option
+                  key={modelID}
+                  value={modelID}
+                  data-model-family={highlighted ? "gpt-image-2" : "other"}
+                  style={{ color: highlighted ? "var(--accent)" : "var(--text-muted)" }}
+                >
                   {modelID} · {description}{missingFromFetchedList ? "（当前已保存，列表未返回）" : ""}
                 </option>
               );

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Compass, RotateCcw } from "lucide-react";
 import { useStudioStore } from "../../state/studioStore";
 import { isRetryableBatchTask } from "../../state/batchTaskRecords";
-import { SizeValue, QualityValue, Mode, type BackgroundMode } from "../../types/domain";
+import { SizeValue, QualityValue, Mode } from "../../types/domain";
 import { supportsTransparentBackground } from "../../lib/fhlImageModels.ts";
 import { usePlatform } from "../../platform/context";
 import { AndroidPhoneComposePanel } from "../../platform/android/AndroidPhoneComposePanel";
@@ -22,6 +22,7 @@ import { PromptEditorSection } from "./PromptEditorSection";
 import { Section, Seg, SegItem } from "./panelChrome";
 import { SubmitBar } from "./SubmitBar";
 import { WindowsComposePanel } from "./WindowsComposePanel";
+import { BackgroundModeSwitch } from "./BackgroundModeSwitch";
 import {
   RESOLUTION_PRESETS,
   aspectPresetsForAPIMode,
@@ -70,37 +71,6 @@ function ModeSwitch({
           </button>
         );
       })}
-    </div>
-  );
-}
-
-function BackgroundModeSwitch({
-  value,
-  onChange,
-}: {
-  value: BackgroundMode;
-  onChange: (value: BackgroundMode) => void;
-}) {
-  return (
-    <div className="mb-3" data-testid="background-mode-control">
-      <div className="mb-1.5 text-[10px] font-medium text-zinc-500 dark:text-zinc-400">输出背景</div>
-      <div className="grid grid-cols-2 gap-1 rounded-[6px] border border-black/[0.08] bg-black/[0.025] p-1 dark:border-white/[0.08] dark:bg-white/[0.04]">
-        {([
-          ["opaque", "普通图像"],
-          ["transparent", "透明 PNG"],
-        ] as const).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            aria-pressed={value === id}
-            onClick={() => onChange(id)}
-            className={`mode-switch-button mode-switch-button-fluent background-mode-switch-button focus-ring ${value === id ? "background-mode-switch-button-active" : ""}`}
-            data-testid={`background-mode-${id}`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
     </div>
   );
 }
@@ -513,12 +483,11 @@ export function ControlPanel() {
         {usesMacDesktopUI && (
           <div className="mt-3">
             <div className="mb-2 text-[11px] uppercase tracking-[0.12em] text-zinc-400 dark:text-zinc-500">模式</div>
-            {supportsTransparentBackground(imageModelID) ? (
-              <BackgroundModeSwitch
-                value={backgroundMode}
-                onChange={(next) => setField("backgroundMode", next)}
-              />
-            ) : null}
+            <BackgroundModeSwitch
+              value={supportsTransparentBackground(imageModelID) ? backgroundMode : "opaque"}
+              onChange={(next) => setField("backgroundMode", next)}
+              disabled={!supportsTransparentBackground(imageModelID)}
+            />
             <ModeSwitch
               mode={mode}
               onChange={(nextMode) => setField("mode", nextMode)}
@@ -550,12 +519,11 @@ export function ControlPanel() {
 
       {!usesMacDesktopUI && (
         <Section label="模式">
-          {supportsTransparentBackground(imageModelID) ? (
-            <BackgroundModeSwitch
-              value={backgroundMode}
-              onChange={(next) => setField("backgroundMode", next)}
-            />
-          ) : null}
+          <BackgroundModeSwitch
+            value={supportsTransparentBackground(imageModelID) ? backgroundMode : "opaque"}
+            onChange={(next) => setField("backgroundMode", next)}
+            disabled={!supportsTransparentBackground(imageModelID)}
+          />
           <ModeSwitch
             mode={mode}
             onChange={(nextMode) => setField("mode", nextMode)}

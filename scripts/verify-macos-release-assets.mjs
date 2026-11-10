@@ -136,7 +136,7 @@ function sha256File(filePath) {
 async function readManifest() {
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   const version = String(manifest.version || "").trim();
-  assert(/^\d+\.\d+\.\d+$/.test(version), `invalid product version: ${version || "<empty>"}`);
+  assert(/^\d+\.\d+\.\d+(?:\.\d+)?$/.test(version), `invalid product version: ${version || "<empty>"}`);
   assert(manifest.displayVersion === `V${version}`, "displayVersion must match version");
   return { manifest, version };
 }
