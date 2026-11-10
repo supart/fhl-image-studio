@@ -129,7 +129,7 @@ VERSION="$(node - "$ROOT_DIR/product-version.json" <<'NODE'
 const fs = require("fs");
 const manifest = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const version = String(manifest.version || "").trim();
-if (!/^\d+\.\d+\.\d+$/.test(version)) {
+if (!/^\d+\.\d+\.\d+(?:\.\d+)?$/.test(version)) {
   throw new Error(`invalid product version: ${version || "<empty>"}`);
 }
 process.stdout.write(version);
