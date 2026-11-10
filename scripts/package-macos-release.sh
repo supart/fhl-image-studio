@@ -173,8 +173,8 @@ fi
 echo "[FHL macOS release] Creating $ASSET_NAME" >&2
 /usr/bin/hdiutil create \
   -quiet \
-  -fs HFS+ \
-  -format UDBZ \
+  -fs APFS \
+  -format UDZO \
   -imagekey zlib-level=9 \
   -ov \
   -srcfolder "$STAGE_DIR" \
