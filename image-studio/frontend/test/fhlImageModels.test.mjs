@@ -15,9 +15,11 @@ function installStorage() {
   return { values, restore: () => { globalThis.localStorage = previous; } };
 }
 
-test("image catalog accepts only the three exact provider model IDs", () => {
+test("image catalog accepts dynamic GPT Image 2.x IDs and keeps fuzzy aliases disabled", () => {
   const catalog = models.normalizeImageModelCatalog([
     { id: "gpt-image-2" },
+    { id: "gpt-image-2.6" },
+    { id: "gpt-image-2.7-sunburst" },
     { id: "gpt-image-2.5-flare" },
     { id: "gpt-image-2.5-sunburst", supportsTransparency: true },
     { id: "gpt-image-2.5" },
@@ -26,17 +28,92 @@ test("image catalog accepts only the three exact provider model IDs", () => {
     { id: "gpt-5.5" },
     { id: "gpt-image-2.5-flare" },
     { id: "bad\u0000model" },
+    { id: "gpt-image-2.6\u0085bad" },
     { id: `gpt-image-${"x".repeat(140)}` },
   ], "https://provider.invalid/v1", "fhl", 1234);
 
   assert.deepEqual(catalog.models.map((model) => model.id), [
     "gpt-image-2",
+    "gpt-image-2.6",
+    "gpt-image-2.7-sunburst",
     "gpt-image-2.5-flare",
     "gpt-image-2.5-sunburst",
+    "gpt-image-2.5",
+    "gpt-image-1",
   ]);
   assert.equal(catalog.models[0].supportsTransparency, false);
   assert.equal(catalog.models[1].supportsTransparency, true);
+  assert.equal(catalog.models[4].available, true);
+  assert.equal(catalog.models[5].available, false);
+  assert.equal(catalog.models[5].disabledReason, "不可调用的模糊模型别名");
+  assert.equal(catalog.models[6].available, false);
+  assert.equal(catalog.models[6].disabledReason, "当前 Android 实现暂不支持");
   assert.equal(catalog.fetchedAt, 1234);
+  assert.equal(models.isGPTImage2FamilyID(""), false);
+  assert.equal(models.isGPTImage2FamilyID("gpt-image-2.6\u0000spoof"), false);
+  assert.equal(models.isGPTImage2FamilyID(`gpt-image-2.6-${"x".repeat(129)}`), false);
+  assert.equal(models.gptImage2Minor(`gpt-image-2.6-${"x".repeat(129)}`), null);
+});
+
+test("catalog filters non-image models but keeps explicit image candidates as disabled diagnostics", () => {
+  const catalog = models.normalizeImageModelCatalog([
+    { id: "gpt-5.5" },
+    { id: "text-embedding-3-large" },
+    { id: "text-image-encoder", imageCapable: true },
+    { id: "chat-image-editor", imageCapable: true, supportsEdits: true },
+    { id: "vision-edit-pro", imageCapable: true, supportsGenerations: true },
+    { id: "audio-image-mix", imageCapable: true, supportsGenerations: true },
+  ], "https://provider.invalid/v1", "fhl", 1234);
+
+  assert.deepEqual(catalog.models.map((model) => model.id), [
+    "vision-edit-pro",
+  ]);
+  assert.equal(catalog.models.every((model) => model.available === false), true);
+  assert.equal(catalog.models[0].disabledReason, "当前 Android 实现暂不支持");
+});
+
+test("contradictory GPT Image family metadata remains visible but fail-closed", () => {
+  const catalog = models.normalizeImageModelCatalog([
+    { id: "gpt-image-2.6-text-route", imageCapable: false, supportsGenerations: false },
+    { id: "gpt-image-2.7-input-only", imageCapable: false, supportsEdits: false },
+  ], "https://provider.invalid/v1", "fhl", 1234);
+
+  assert.deepEqual(catalog.models.map((model) => model.id), [
+    "gpt-image-2.6-text-route",
+    "gpt-image-2.7-input-only",
+  ]);
+  assert.equal(catalog.models.every((model) => model.available === false), true);
+  assert.equal(catalog.models.every((model) => model.supportsTransparency === false), true);
+  assert.equal(catalog.models[0].disabledReason, "Provider 未声明图像生成能力");
+});
+
+test("duplicate model rows merge capabilities conservatively", () => {
+  const catalog = models.normalizeImageModelCatalog([
+    { id: "gpt-image-2.6-flare", supportsTransparency: true },
+    { id: "GPT-IMAGE-2.6-FLARE", supportsGenerations: false, supportsTransparency: false },
+  ], "https://provider.invalid/v1", "fhl", 1234);
+  assert.equal(catalog.models.length, 1);
+  assert.equal(catalog.models[0].available, false);
+  assert.equal(catalog.models[0].supportsGenerations, false);
+  assert.equal(catalog.models[0].supportsTransparency, false);
+});
+
+test("catalog lookup and pool intersection treat model IDs case-insensitively", () => {
+  const first = models.normalizeImageModelCatalog(
+    [{ id: "GPT-IMAGE-2.6-FLARE" }],
+    "https://provider.invalid/v1",
+    "fhl",
+    1000,
+  );
+  const second = models.normalizeImageModelCatalog(
+    [{ id: "gpt-image-2.6-flare" }],
+    "https://provider.invalid/v1",
+    "fhl",
+    1001,
+  );
+  const intersection = models.intersectFHLImageModelCatalogs([first, second], 1002);
+  assert.equal(intersection.models.length, 1);
+  assert.ok(models.imageModelCatalogEntry(intersection, "gPt-ImAgE-2.6-FlAre"));
 });
 test("catalog persistence strips URL credentials and keeps no provider response secrets", () => {
   const storage = installStorage();
@@ -59,6 +136,22 @@ test("catalog persistence strips URL credentials and keeps no provider response 
     storage.restore();
   }
 });
+test("v2 catalog cache ignores the legacy v1 snapshot", () => {
+  const storage = installStorage();
+  try {
+    const legacyKey = models.IMAGE_MODEL_CATALOG_LS_KEY.replace(/\.v2$/, ".v1");
+    storage.values.set(legacyKey, JSON.stringify({
+      version: 1,
+      baseUrl: "https://provider.invalid",
+      provider: "fhl",
+      fetchedAt: 100,
+      models: [{ id: "gpt-image-2" }],
+    }));
+    assert.equal(models.loadImageModelCatalog("https://provider.invalid", "fhl"), null);
+  } finally {
+    storage.restore();
+  }
+});
 test("legacy profiles remain unvalidated until model, timestamp, URL and provider all match", () => {
   const catalog = models.normalizeImageModelCatalog(
     [{ id: "gpt-image-2.5-sunburst" }],
@@ -71,6 +164,11 @@ test("legacy profiles remain unvalidated until model, timestamp, URL and provide
     imageModelValidatedAt: 9000,
     imageModelCatalogBaseUrl: profiles.FHL_BASE_URL,
     imageModelCatalogProvider: "fhl",
+    imageModelAvailable: true,
+    imageModelSupportsGenerations: true,
+    imageModelSupportsEdits: true,
+    imageModelSupportsTransparency: true,
+    imageModelCatalogValidationId: "batch-proof-9000",
   };
 
   assert.equal(models.imageModelIsValidated(complete, catalog), true);
@@ -78,6 +176,9 @@ test("legacy profiles remain unvalidated until model, timestamp, URL and provide
   assert.equal(models.imageModelIsValidated({ ...complete, imageModelCatalogBaseUrl: undefined }, catalog), false);
   assert.equal(models.imageModelIsValidated({ ...complete, imageModelCatalogProvider: "other" }, catalog), false);
   assert.equal(models.imageModelIsValidated({ ...complete, imageModelID: "gpt-image-2.5" }, catalog), false);
+  assert.equal(models.imageModelIsValidated({ ...complete, imageModelCatalogValidationId: undefined }, catalog), false);
+  assert.equal(models.imageModelIsValidated({ ...complete, imageModelSupportsEdits: false }, catalog), false);
+  assert.equal(models.imageModelIsValidated({ ...complete, imageModelSupportsTransparency: false }, catalog), false);
 });
 
 test("configured provider identity never comes from previous catalog metadata", () => {

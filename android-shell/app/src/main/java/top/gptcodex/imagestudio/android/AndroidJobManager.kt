@@ -51,20 +51,439 @@ internal const val transparentImagePromptInstruction =
     "Output on a fully transparent background with real alpha transparency and clean edges. Do not add a solid backdrop, drawn checkerboard, scenery, or watermark."
 internal const val invalidTransparentOutputErrorCode = "invalid_transparent_output"
 
-private val supportedFHLImageModels = setOf(
-    "gpt-image-2",
-    "gpt-image-2.5-flare",
-    "gpt-image-2.5-sunburst",
-)
-private val transparentFHLImageModels = setOf(
-    "gpt-image-2.5-flare",
-    "gpt-image-2.5-sunburst",
+private val nativeGPTImage2FamilyPattern = Regex(
+    "^gpt-image-2(?:\\.(\\d+))?(?:-[a-z0-9][a-z0-9._-]*)?$",
+    RegexOption.IGNORE_CASE,
 )
 private val safeMetadataIdentifierPattern = Regex("^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 private val safeProviderIdentifierPattern = Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$")
 private val secretLikeMetadataPattern = Regex(
     "(?i)(?:bearer\\s+|(?:^|[^a-z0-9])(?:sk|msk)-[a-z0-9_-]{8,}|ghp_[a-z0-9]{20,}|github_pat_[a-z0-9_]{20,})",
 )
+
+internal data class NativeImageModelCapabilities(
+    val available: Boolean,
+    val supportsGenerations: Boolean,
+    val supportsEdits: Boolean,
+    val supportsTransparency: Boolean,
+)
+
+private data class NativeImageModelSlotReceipt(
+    val id: String,
+    val profileId: String,
+    val slotNumber: Int,
+    val baseURL: String,
+    val provider: String,
+    val fetchedAt: Long,
+    val models: Map<String, NativeImageModelCapabilities>,
+)
+
+private data class NativeImageModelBatchProof(
+    val id: String,
+    val modelID: String,
+    val baseURL: String,
+    val provider: String,
+    val fetchedAt: Long,
+    val capabilities: NativeImageModelCapabilities,
+    val targets: Map<String, Int>,
+)
+
+/** Application-private, restart-safe proof store containing only normalized
+ * catalog identities and capability booleans. Credentials and raw provider
+ * payloads never enter this store. */
+internal object AndroidImageModelValidationRegistry {
+    private const val maxProofs = 128
+    private const val prefsName = "image_model_validation_proofs_v1"
+    private const val prefsKey = "proofs"
+    private val lock = Any()
+    private val slotReceipts = LinkedHashMap<String, NativeImageModelSlotReceipt>()
+    private val batchProofs = LinkedHashMap<String, NativeImageModelBatchProof>()
+    private var loaded = false
+
+    fun issueSlotReceipt(
+        context: Context,
+        profileId: String,
+        slotNumber: Int,
+        baseURL: String,
+        provider: String,
+        fetchedAt: Long,
+        models: List<FHLImageModelCatalogEntry>,
+    ): String = synchronized(lock) {
+        ensureLoadedLocked(context)
+        val safeProfileId = safeJobMetadataIdentifier(profileId, "profileId")
+        require(safeProfileId.isNotBlank()) { "生图模型目录缺少 Profile 身份。" }
+        require(slotNumber in 1..10) { "生图模型目录槽位无效。" }
+        require(fetchedAt > 0L) { "生图模型目录验证时间无效。" }
+        val safeBaseURL = normalizedSafeImageCatalogBaseURL(baseURL)
+        val safeProvider = safeImageProviderIdentifier(provider)
+        require(safeBaseURL.isNotBlank() && safeProvider.isNotBlank()) { "生图模型目录身份无效。" }
+        val capabilities = linkedMapOf<String, NativeImageModelCapabilities>()
+        for (model in models) {
+            val key = model.id.trim().lowercase(Locale.US)
+            if (key.isBlank()) continue
+            capabilities[key] = NativeImageModelCapabilities(
+                available = model.available,
+                supportsGenerations = model.supportsGenerations,
+                supportsEdits = model.supportsEdits,
+                supportsTransparency = model.supportsTransparency,
+            )
+        }
+        val id = "catalog-${UUID.randomUUID()}"
+        // A refresh may fail after another slot has already returned. Replace
+        // only this slot's uncommitted receipt so the last committed batch
+        // remains usable until the actual Profile configuration changes.
+        removeSlotReceiptsForProfileLocked(safeProfileId)
+        slotReceipts[id] = NativeImageModelSlotReceipt(
+            id = id,
+            profileId = safeProfileId,
+            slotNumber = slotNumber,
+            baseURL = safeBaseURL,
+            provider = safeProvider,
+            fetchedAt = fetchedAt,
+            models = capabilities,
+        )
+        trimLocked()
+        persistLocked(context)
+        id
+    }
+
+    fun issueBatchProof(
+        context: Context,
+        modelID: String,
+        baseURL: String,
+        provider: String,
+        fetchedAt: Long,
+        capabilities: NativeImageModelCapabilities,
+        targets: List<Triple<String, Int, String>>,
+    ): String = synchronized(lock) {
+        ensureLoadedLocked(context)
+        val safeModelID = safeJobMetadataIdentifier(modelID, "imageModelID")
+        require(isExactGPTImage2Model(safeModelID) && !safeModelID.equals("gpt-image-2.5", ignoreCase = true)) {
+            "所选生图模型不是可调用的精确 GPT Image 2.x 模型。"
+        }
+        val safeBaseURL = normalizedSafeImageCatalogBaseURL(baseURL)
+        val safeProvider = safeImageProviderIdentifier(provider)
+        require(fetchedAt > 0L && targets.isNotEmpty() && targets.size <= 10) {
+            "统一生图模型验证元数据不完整。"
+        }
+        require(capabilities.available && capabilities.supportsGenerations) { "所选生图模型当前不可调用。" }
+        val validatedTargets = linkedMapOf<String, Int>()
+        val validatedSlots = linkedSetOf<Int>()
+        for ((rawProfileId, slotNumber, receiptId) in targets) {
+            val profileId = safeJobMetadataIdentifier(rawProfileId, "profileId")
+            val receipt = slotReceipts[receiptId]
+                ?: throw IllegalArgumentException("模型目录槽位证明已失效，请重新获取模型列表。")
+            require(receipt.profileId == profileId && receipt.slotNumber == slotNumber) {
+                "模型目录槽位证明与当前配置不匹配。"
+            }
+            require(receipt.baseURL == safeBaseURL && receipt.provider == safeProvider && receipt.fetchedAt == fetchedAt) {
+                "模型目录槽位证明的目录身份已失效。"
+            }
+            val native = receipt.models[safeModelID.lowercase(Locale.US)]
+                ?: throw IllegalArgumentException("所选模型并非所有已启用槽位共同可用。")
+            require(native.available && native.supportsGenerations) { "所选模型在部分槽位不可调用。" }
+            // The pool capability may narrow a slot capability, but it may
+            // never claim a capability that the native slot receipt denied.
+            require(nativeImageModelAggregateIsNoWiderThanSlot(capabilities, native)) { "模型能力证明不匹配。" }
+            require(validatedTargets.put(profileId, slotNumber) == null) { "统一生图模型目标槽位重复。" }
+            require(validatedSlots.add(slotNumber)) { "统一生图模型槽位编号重复。" }
+        }
+        val id = "batch-${UUID.randomUUID()}"
+        val supersededProofIds = batchProofs.values
+            .filter { proof -> proof.targets.keys.any(validatedTargets::containsKey) }
+            .map { it.id }
+        supersededProofIds.forEach(batchProofs::remove)
+        batchProofs[id] = NativeImageModelBatchProof(
+            id = id,
+            modelID = safeModelID,
+            baseURL = safeBaseURL,
+            provider = safeProvider,
+            fetchedAt = fetchedAt,
+            capabilities = capabilities,
+            targets = validatedTargets,
+        )
+        trimLocked()
+        persistLocked(context)
+        id
+    }
+
+    fun validateSubmission(
+        context: Context,
+        proofId: String,
+        profileId: String,
+        slotNumber: Int,
+        modelID: String,
+        baseURL: String,
+        provider: String,
+        fetchedAt: Long,
+        submitted: NativeImageModelCapabilities,
+    ) = synchronized(lock) {
+        ensureLoadedLocked(context)
+        val proof = batchProofs[proofId]
+            ?: throw IllegalArgumentException("当前 FHL 生图模型的原生验证证明已失效，请重新获取模型目录。")
+        val safeProfileId = safeJobMetadataIdentifier(profileId, "profileId")
+        val mismatch = nativeImageModelProofMismatch(
+            proofTargets = proof.targets,
+            proofModelID = proof.modelID,
+            proofBaseURL = proof.baseURL,
+            proofProvider = proof.provider,
+            proofFetchedAt = proof.fetchedAt,
+            proofCapabilities = proof.capabilities,
+            submittedProfileId = safeProfileId,
+            submittedSlotNumber = slotNumber,
+            submittedModelID = modelID,
+            submittedBaseURL = baseURL,
+            submittedProvider = provider,
+            submittedFetchedAt = fetchedAt,
+            submittedCapabilities = submitted,
+        )
+        require(mismatch == null) { mismatch!! }
+    }
+
+    fun invalidateProfiles(context: Context, profileIds: Collection<String>) = synchronized(lock) {
+        ensureLoadedLocked(context)
+        val safeProfileIds = profileIds.map { safeJobMetadataIdentifier(it, "profileId") }
+            .filter(String::isNotBlank)
+            .toSet()
+        if (safeProfileIds.isEmpty()) return@synchronized
+        safeProfileIds.forEach(::invalidateProfileLocked)
+        persistLocked(context)
+    }
+
+    fun invalidateBatchProofs(context: Context, profileIds: Collection<String>) = synchronized(lock) {
+        ensureLoadedLocked(context)
+        val safeProfileIds = profileIds.map { safeJobMetadataIdentifier(it, "profileId") }
+            .filter(String::isNotBlank)
+            .toSet()
+        if (safeProfileIds.isEmpty()) return@synchronized
+        val staleProofs = batchProofs.values
+            .filter { proof -> safeProfileIds.any(proof.targets::containsKey) }
+            .map { it.id }
+        staleProofs.forEach(batchProofs::remove)
+        persistLocked(context)
+    }
+
+    fun invalidateCredentialUser(context: Context, user: String) = synchronized(lock) {
+        ensureLoadedLocked(context)
+        val profileId = user.takeIf { it.startsWith("profile:") }
+            ?.substringAfterLast(':')
+            ?.trim()
+            .orEmpty()
+        if (profileId.isNotBlank()) {
+            invalidateProfileLocked(profileId)
+            persistLocked(context)
+        }
+    }
+
+    internal fun clearForTest(context: Context? = null) = synchronized(lock) {
+        slotReceipts.clear()
+        batchProofs.clear()
+        loaded = true
+        context?.getSharedPreferences(prefsName, Context.MODE_PRIVATE)?.edit()?.remove(prefsKey)?.apply()
+    }
+
+    private fun invalidateProfileLocked(profileId: String) {
+        removeSlotReceiptsForProfileLocked(profileId)
+        val batches = batchProofs.values.filter { it.targets.containsKey(profileId) }.map { it.id }
+        batches.forEach(batchProofs::remove)
+    }
+
+    private fun removeSlotReceiptsForProfileLocked(profileId: String) {
+        val receipts = slotReceipts.values.filter { it.profileId == profileId }.map { it.id }
+        receipts.forEach(slotReceipts::remove)
+    }
+
+    private fun trimLocked() {
+        while (slotReceipts.size > maxProofs) slotReceipts.remove(slotReceipts.keys.first())
+        while (batchProofs.size > maxProofs) batchProofs.remove(batchProofs.keys.first())
+    }
+
+    private fun ensureLoadedLocked(context: Context) {
+        if (loaded) return
+        loaded = true
+        val raw = context.applicationContext
+            .getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+            .getString(prefsKey, null)
+            .orEmpty()
+        if (raw.isBlank()) return
+        try {
+            val root = JSONObject(raw)
+            if (root.optInt("version", 0) != 1) return
+            val slots = root.optJSONArray("slots") ?: JSONArray()
+            for (index in 0 until slots.length()) {
+                val item = slots.optJSONObject(index) ?: continue
+                val id = safeJobMetadataIdentifier(item.optString("id"), "catalogReceiptId")
+                val profileId = safeJobMetadataIdentifier(item.optString("profileId"), "profileId")
+                val slotNumber = item.optInt("slotNumber", 0)
+                val baseURL = normalizedSafeImageCatalogBaseURL(item.optString("baseURL"))
+                val provider = safeImageProviderIdentifier(item.optString("provider"))
+                val fetchedAt = item.optLong("fetchedAt", 0L)
+                if (id.isBlank() || profileId.isBlank() || slotNumber !in 1..10 || fetchedAt <= 0L) continue
+                val models = linkedMapOf<String, NativeImageModelCapabilities>()
+                val storedModels = item.optJSONArray("models") ?: JSONArray()
+                for (modelIndex in 0 until storedModels.length()) {
+                    val model = storedModels.optJSONObject(modelIndex) ?: continue
+                    val modelID = safeJobMetadataIdentifier(model.optString("id"), "imageModelID")
+                    if (!isExactGPTImage2Model(modelID)) continue
+                    models[modelID.lowercase(Locale.US)] = NativeImageModelCapabilities(
+                        available = strictStoredBoolean(model, "available"),
+                        supportsGenerations = strictStoredBoolean(model, "supportsGenerations"),
+                        supportsEdits = strictStoredBoolean(model, "supportsEdits"),
+                        supportsTransparency = strictStoredBoolean(model, "supportsTransparency"),
+                    )
+                }
+                slotReceipts[id] = NativeImageModelSlotReceipt(
+                    id, profileId, slotNumber, baseURL, provider, fetchedAt, models,
+                )
+            }
+            val batches = root.optJSONArray("batches") ?: JSONArray()
+            for (index in 0 until batches.length()) {
+                val item = batches.optJSONObject(index) ?: continue
+                val id = safeJobMetadataIdentifier(item.optString("id"), "batchProofId")
+                val modelID = safeJobMetadataIdentifier(item.optString("modelID"), "imageModelID")
+                val baseURL = normalizedSafeImageCatalogBaseURL(item.optString("baseURL"))
+                val provider = safeImageProviderIdentifier(item.optString("provider"))
+                val fetchedAt = item.optLong("fetchedAt", 0L)
+                if (id.isBlank()
+                    || !isExactGPTImage2Model(modelID)
+                    || modelID.equals("gpt-image-2.5", ignoreCase = true)
+                    || fetchedAt <= 0L
+                ) continue
+                val capabilitiesJSON = item.optJSONObject("capabilities") ?: continue
+                val capabilities = NativeImageModelCapabilities(
+                    available = strictStoredBoolean(capabilitiesJSON, "available"),
+                    supportsGenerations = strictStoredBoolean(capabilitiesJSON, "supportsGenerations"),
+                    supportsEdits = strictStoredBoolean(capabilitiesJSON, "supportsEdits"),
+                    supportsTransparency = strictStoredBoolean(capabilitiesJSON, "supportsTransparency"),
+                )
+                val targets = linkedMapOf<String, Int>()
+                val storedTargets = item.optJSONArray("targets") ?: JSONArray()
+                if (storedTargets.length() !in 1..10) continue
+                val targetSlots = linkedSetOf<Int>()
+                var malformedTargets = false
+                for (targetIndex in 0 until storedTargets.length()) {
+                    val target = storedTargets.optJSONObject(targetIndex) ?: continue
+                    val profileId = safeJobMetadataIdentifier(target.optString("profileId"), "profileId")
+                    val slotNumber = target.optInt("slotNumber", 0)
+                    if (profileId.isBlank()
+                        || slotNumber !in 1..10
+                        || targets.containsKey(profileId)
+                        || !targetSlots.add(slotNumber)
+                    ) {
+                        malformedTargets = true
+                        break
+                    }
+                    targets[profileId] = slotNumber
+                }
+                if (malformedTargets || targets.isEmpty() || !capabilities.available || !capabilities.supportsGenerations) continue
+                batchProofs[id] = NativeImageModelBatchProof(
+                    id, modelID, baseURL, provider, fetchedAt, capabilities, targets,
+                )
+            }
+            trimLocked()
+        } catch (_: Exception) {
+            slotReceipts.clear()
+            batchProofs.clear()
+            context.applicationContext.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+                .edit().remove(prefsKey).apply()
+        }
+    }
+
+    private fun persistLocked(context: Context) {
+        val slots = JSONArray()
+        for (receipt in slotReceipts.values) {
+            val models = JSONArray()
+            for ((id, capabilities) in receipt.models) {
+                models.put(JSONObject().put("id", id).putCapabilities(capabilities))
+            }
+            slots.put(
+                JSONObject()
+                    .put("id", receipt.id)
+                    .put("profileId", receipt.profileId)
+                    .put("slotNumber", receipt.slotNumber)
+                    .put("baseURL", receipt.baseURL)
+                    .put("provider", receipt.provider)
+                    .put("fetchedAt", receipt.fetchedAt)
+                    .put("models", models),
+            )
+        }
+        val batches = JSONArray()
+        for (proof in batchProofs.values) {
+            val targets = JSONArray()
+            for ((profileId, slotNumber) in proof.targets) {
+                targets.put(JSONObject().put("profileId", profileId).put("slotNumber", slotNumber))
+            }
+            batches.put(
+                JSONObject()
+                    .put("id", proof.id)
+                    .put("modelID", proof.modelID)
+                    .put("baseURL", proof.baseURL)
+                    .put("provider", proof.provider)
+                    .put("fetchedAt", proof.fetchedAt)
+                    .put("capabilities", JSONObject().putCapabilities(proof.capabilities))
+                    .put("targets", targets),
+            )
+        }
+        val root = JSONObject().put("version", 1).put("slots", slots).put("batches", batches)
+        context.applicationContext.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+            .edit().putString(prefsKey, root.toString()).apply()
+    }
+
+    private fun strictStoredBoolean(value: JSONObject, field: String): Boolean {
+        return value.opt(field) as? Boolean ?: false
+    }
+
+    private fun JSONObject.putCapabilities(capabilities: NativeImageModelCapabilities): JSONObject {
+        return put("available", capabilities.available)
+            .put("supportsGenerations", capabilities.supportsGenerations)
+            .put("supportsEdits", capabilities.supportsEdits)
+            .put("supportsTransparency", capabilities.supportsTransparency)
+    }
+}
+
+internal fun nativeImageModelAggregateIsNoWiderThanSlot(
+    aggregate: NativeImageModelCapabilities,
+    slot: NativeImageModelCapabilities,
+): Boolean {
+    return (!aggregate.available || slot.available)
+        && (!aggregate.supportsGenerations || slot.supportsGenerations)
+        && (!aggregate.supportsEdits || slot.supportsEdits)
+        && (!aggregate.supportsTransparency || slot.supportsTransparency)
+}
+
+internal fun nativeImageModelProofMismatch(
+    proofTargets: Map<String, Int>,
+    proofModelID: String,
+    proofBaseURL: String,
+    proofProvider: String,
+    proofFetchedAt: Long,
+    proofCapabilities: NativeImageModelCapabilities,
+    submittedProfileId: String,
+    submittedSlotNumber: Int,
+    submittedModelID: String,
+    submittedBaseURL: String,
+    submittedProvider: String,
+    submittedFetchedAt: Long,
+    submittedCapabilities: NativeImageModelCapabilities,
+): String? {
+    if (submittedProfileId.isBlank() || proofTargets[submittedProfileId] != submittedSlotNumber) {
+        return "当前任务与模型验证槽位不匹配。"
+    }
+    if (proofModelID != submittedModelID
+        || proofBaseURL != submittedBaseURL
+        || proofProvider != submittedProvider
+        || proofFetchedAt != submittedFetchedAt
+    ) {
+        return "当前任务与模型目录验证身份不匹配。"
+    }
+    if (!submittedCapabilities.available || !submittedCapabilities.supportsGenerations) {
+        return "当前模型不可调用。"
+    }
+    if (submittedCapabilities != proofCapabilities) {
+        return "当前任务的模型能力快照与原生证明不匹配。"
+    }
+    return null
+}
 
 internal fun requestedAndroidJobIdSet(jobIds: JSONArray): Set<String> {
     val requestedIds = LinkedHashSet<String>()
@@ -73,6 +492,18 @@ internal fun requestedAndroidJobIdSet(jobIds: JSONArray): Set<String> {
         if (jobId.isNotBlank()) requestedIds.add(jobId)
     }
     return requestedIds
+}
+
+internal fun findAndroidJobGroupByClientSubmissionId(
+    groups: JSONArray,
+    clientSubmissionId: String,
+): JSONObject? {
+    if (clientSubmissionId.isBlank()) return null
+    for (index in 0 until groups.length()) {
+        val group = groups.optJSONObject(index) ?: continue
+        if (group.optString("clientSubmissionId") == clientSubmissionId) return group
+    }
+    return null
 }
 
 internal fun shouldReplayAttachedJob(requestedIds: Set<String>, jobId: String): Boolean {
@@ -87,6 +518,11 @@ internal data class AndroidImageSubmissionMetadata(
     val imageModelCatalogBaseUrl: String,
     val imageModelCatalogProvider: String,
     val provider: String,
+    val imageModelAvailable: Boolean,
+    val imageModelSupportsGenerations: Boolean,
+    val imageModelSupportsEdits: Boolean,
+    val imageModelSupportsTransparency: Boolean,
+    val imageModelCatalogValidationId: String,
 )
 
 internal fun safeJobMetadataIdentifier(raw: String, fieldName: String): String {
@@ -159,6 +595,12 @@ internal fun validateAndroidImageSubmissionMetadata(
     imageModelCatalogBaseUrl: String,
     imageModelCatalogProvider: String,
     provider: String,
+    imageModelAvailable: Boolean = false,
+    imageModelSupportsGenerations: Boolean = false,
+    imageModelSupportsEdits: Boolean = false,
+    imageModelSupportsTransparency: Boolean = false,
+    imageModelCatalogValidationId: String = "",
+    requestMode: String = "generate",
 ): AndroidImageSubmissionMetadata {
     val normalizedMode = apiMode.trim().lowercase(Locale.US)
     val background = normalizedImageBackgroundMode(imageBackgroundMode)
@@ -167,12 +609,18 @@ internal fun validateAndroidImageSubmissionMetadata(
     val catalogBase = normalizedSafeImageCatalogBaseURL(imageModelCatalogBaseUrl)
     val catalogProvider = safeImageProviderIdentifier(imageModelCatalogProvider)
     val currentProvider = safeImageProviderIdentifier(provider)
+    val validationId = imageModelCatalogValidationId.trim().let {
+        if (it.isBlank()) "" else safeJobMetadataIdentifier(it, "imageModelCatalogValidationId")
+    }
     val officialFHLBase = normalizedOfficialFHLBaseURL(baseURL)
     val officialFHLRequest = normalizedMode in setOf("images", "responses") && officialFHLBase != null
 
     if (officialFHLRequest) {
-        if (model !in supportedFHLImageModels) {
+        if (!isExactGPTImage2Model(model) || model.equals("gpt-image-2.5", ignoreCase = true)) {
             throw IllegalArgumentException("官方 FHL 生图必须选择 provider 目录返回的精确模型。")
+        }
+        if (validationId.isBlank()) {
+            throw IllegalArgumentException("当前 FHL 生图模型缺少目录验证证明，请重新获取并保存统一模型。")
         }
         if (imageModelValidatedAt <= 0L || catalogBase != officialFHLBase) {
             throw IllegalArgumentException("当前 FHL 生图模型尚未通过此 Base URL 的目录验证。")
@@ -180,13 +628,23 @@ internal fun validateAndroidImageSubmissionMetadata(
         if (currentProvider.isBlank() || catalogProvider.isBlank() || currentProvider != catalogProvider) {
             throw IllegalArgumentException("当前 FHL provider 与模型目录验证身份不匹配。")
         }
+        if (!imageModelAvailable || !imageModelSupportsGenerations) {
+            throw IllegalArgumentException("当前 FHL 生图模型不可用或不支持图像生成。")
+        }
+        if (requestMode.trim().equals("edit", ignoreCase = true) && !imageModelSupportsEdits) {
+            throw IllegalArgumentException("当前 FHL 生图模型不支持图像编辑。")
+        }
     }
 
     if (background == "transparent") {
         if (!officialFHLRequest) {
             throw IllegalArgumentException("透明 PNG 仅支持已验证的官方 FHL Images 或 Responses 路由。")
         }
-        if (model !in transparentFHLImageModels) {
+        if (!isExactGPTImage2Model(model)
+            || model.equals("gpt-image-2.5", ignoreCase = true)
+            || gptImage2Minor(model) < 5
+            || !imageModelSupportsTransparency
+        ) {
             throw IllegalArgumentException("当前精确生图模型不支持透明 PNG。")
         }
         if (format != "png") {
@@ -202,7 +660,21 @@ internal fun validateAndroidImageSubmissionMetadata(
         imageModelCatalogBaseUrl = catalogBase,
         imageModelCatalogProvider = catalogProvider,
         provider = currentProvider,
+        imageModelAvailable = imageModelAvailable,
+        imageModelSupportsGenerations = imageModelSupportsGenerations,
+        imageModelSupportsEdits = imageModelSupportsEdits,
+        imageModelSupportsTransparency = imageModelSupportsTransparency,
+        imageModelCatalogValidationId = validationId,
     )
+}
+
+internal fun isExactGPTImage2Model(modelID: String): Boolean {
+    return nativeGPTImage2FamilyPattern.matches(modelID.trim())
+}
+
+private fun gptImage2Minor(modelID: String): Int {
+    val match = nativeGPTImage2FamilyPattern.matchEntire(modelID.trim()) ?: return -1
+    return match.groupValues.getOrNull(1).orEmpty().ifBlank { "0" }.toIntOrNull() ?: -1
 }
 
 internal fun putStructuredJobErrorCode(target: JSONObject, errorCode: String?) {
@@ -212,6 +684,14 @@ internal fun putStructuredJobErrorCode(target: JSONObject, errorCode: String?) {
 
 internal fun normalizedImageBackgroundMode(raw: String): String {
     return if (raw.trim().equals("transparent", ignoreCase = true)) "transparent" else "standard"
+}
+
+private fun requiredCapabilityBoolean(payload: JSONObject, fieldName: String): Boolean {
+    if (!payload.has(fieldName) || payload.isNull(fieldName)) {
+        throw IllegalArgumentException("Android 提交缺少已验证的 $fieldName 能力。")
+    }
+    return payload.opt(fieldName) as? Boolean
+        ?: throw IllegalArgumentException("Android 提交的 $fieldName 能力无效。")
 }
 
 internal fun isTransparentImageBackgroundMode(payload: JSONObject): Boolean {
@@ -403,9 +883,28 @@ object AndroidJobManager {
         val appContext = context.applicationContext
         val submittedAPIMode = payload.optString("apiMode", "responses")
         val apiMode = normalizeSubmissionAPIMode(submittedAPIMode)
-        val clientSubmissionId = payload.optString("clientSubmissionId").trim()
+        val clientSubmissionId = safeJobMetadataIdentifier(
+            payload.optString("clientSubmissionId"),
+            "clientSubmissionId",
+        )
         if (clientSubmissionId.isBlank()) {
             throw IllegalArgumentException("Android 提交缺少 clientSubmissionId，已阻止可能的重复任务。")
+        }
+        // Idempotency is checked before credentials and current catalog proof.
+        // A WebView retry of an already-created group must still receive the
+        // original identity after the Profile or its proof has been revoked.
+        var duplicateShouldWake = false
+        val duplicateResponse = synchronized(lock) {
+            val registry = loadRegistry(appContext)
+            val groups = registry.optJSONArray("groups") ?: JSONArray()
+            val existing = findAndroidJobGroupByClientSubmissionId(groups, clientSubmissionId)
+                ?: return@synchronized null
+            duplicateShouldWake = hasPendingSlots(existing.optJSONArray("slots"))
+            buildSubmitResponse(existing, deduplicated = true)
+        }
+        if (duplicateResponse != null) {
+            if (duplicateShouldWake) startService(appContext)
+            return duplicateResponse
         }
         val submittedCredential = payload.optString("apiKey").trim()
         if (apiModeRequiresCredential(apiMode) && submittedCredential.isBlank()) {
@@ -432,6 +931,10 @@ object AndroidJobManager {
             payload.optString("apiLabel", "FHL"),
             rawFHLImagesPoolSlot,
         )
+        val apiProfileId = payload.optString("apiProfileId").trim()
+        val apiProfileName = payload.optString("apiProfileName").trim()
+        val officialFHLImageRequest = apiMode.trim().lowercase(Locale.US) in setOf("images", "responses")
+            && normalizedOfficialFHLBaseURL(baseURL) != null
         val imageMetadata = validateAndroidImageSubmissionMetadata(
             apiMode = apiMode,
             baseURL = baseURL,
@@ -442,6 +945,12 @@ object AndroidJobManager {
             imageModelCatalogBaseUrl = payload.optString("imageModelCatalogBaseUrl"),
             imageModelCatalogProvider = payload.optString("imageModelCatalogProvider"),
             provider = payload.optString("provider"),
+            imageModelAvailable = if (officialFHLImageRequest) requiredCapabilityBoolean(payload, "imageModelAvailable") else true,
+            imageModelSupportsGenerations = if (officialFHLImageRequest) requiredCapabilityBoolean(payload, "imageModelSupportsGenerations") else true,
+            imageModelSupportsEdits = if (officialFHLImageRequest) requiredCapabilityBoolean(payload, "imageModelSupportsEdits") else true,
+            imageModelSupportsTransparency = if (officialFHLImageRequest) requiredCapabilityBoolean(payload, "imageModelSupportsTransparency") else false,
+            imageModelCatalogValidationId = payload.optString("imageModelCatalogValidationId").trim(),
+            requestMode = payload.optString("mode", "generate"),
         )
         val imageBackgroundMode = imageMetadata.imageBackgroundMode
         val imageModelID = imageMetadata.imageModelID
@@ -450,23 +959,42 @@ object AndroidJobManager {
         val imageModelCatalogProvider = imageMetadata.imageModelCatalogProvider
         val provider = imageMetadata.provider
         val outputFormat = imageMetadata.outputFormat
+        val imageModelAvailable = imageMetadata.imageModelAvailable
+        val imageModelSupportsGenerations = imageMetadata.imageModelSupportsGenerations
+        val imageModelSupportsEdits = imageMetadata.imageModelSupportsEdits
+        val imageModelSupportsTransparency = imageMetadata.imageModelSupportsTransparency
+        val imageModelCatalogValidationId = imageMetadata.imageModelCatalogValidationId
+        if (officialFHLImageRequest) {
+            AndroidImageModelValidationRegistry.validateSubmission(
+                context = appContext,
+                proofId = imageModelCatalogValidationId,
+                profileId = apiProfileId,
+                slotNumber = fhlImagesPoolSlot ?: 0,
+                modelID = imageModelID,
+                baseURL = imageModelCatalogBaseUrl,
+                provider = imageModelCatalogProvider,
+                fetchedAt = imageModelValidatedAt,
+                submitted = NativeImageModelCapabilities(
+                    available = imageModelAvailable,
+                    supportsGenerations = imageModelSupportsGenerations,
+                    supportsEdits = imageModelSupportsEdits,
+                    supportsTransparency = imageModelSupportsTransparency,
+                ),
+            )
+        }
         val submittedRequestRunId = safeJobMetadataIdentifier(payload.optString("requestRunId"), "requestRunId")
-        val apiProfileId = payload.optString("apiProfileId").trim()
-        val apiProfileName = payload.optString("apiProfileName").trim()
         var createdGroup: JSONObject? = null
         var createdPayload: JSONObject? = null
         var shouldWakeService = false
         val response = synchronized(lock) {
             val registry = loadRegistry(appContext)
             val groups = registry.optJSONArray("groups") ?: JSONArray()
-            for (i in 0 until groups.length()) {
-                val existing = groups.optJSONObject(i) ?: continue
-                if (existing.optString("clientSubmissionId") == clientSubmissionId) {
-                    // A duplicate event must be idempotent, but it can arrive after a
-                    // service restart or while the original worker wake-up was lost.
-                    shouldWakeService = hasPendingSlots(existing.optJSONArray("slots"))
-                    return@synchronized buildSubmitResponse(existing, deduplicated = true)
-                }
+            val existing = findAndroidJobGroupByClientSubmissionId(groups, clientSubmissionId)
+            if (existing != null) {
+                // Preserve the second check for concurrent duplicate callers
+                // that both passed the early read before either persisted.
+                shouldWakeService = hasPendingSlots(existing.optJSONArray("slots"))
+                return@synchronized buildSubmitResponse(existing, deduplicated = true)
             }
 
             val pendingSlotCount = countNonTerminalSlots(groups)
@@ -513,6 +1041,11 @@ object AndroidJobManager {
                 if (imageModelValidatedAt > 0L) slot.put("imageModelValidatedAt", imageModelValidatedAt)
                 if (imageModelCatalogBaseUrl.isNotBlank()) slot.put("imageModelCatalogBaseUrl", imageModelCatalogBaseUrl)
                 if (imageModelCatalogProvider.isNotBlank()) slot.put("imageModelCatalogProvider", imageModelCatalogProvider)
+                slot.put("imageModelAvailable", imageModelAvailable)
+                slot.put("imageModelSupportsGenerations", imageModelSupportsGenerations)
+                slot.put("imageModelSupportsEdits", imageModelSupportsEdits)
+                slot.put("imageModelSupportsTransparency", imageModelSupportsTransparency)
+                if (imageModelCatalogValidationId.isNotBlank()) slot.put("imageModelCatalogValidationId", imageModelCatalogValidationId)
                 if (fhlImagesPoolSlot != null) slot.put("fhlImagesPoolSlot", fhlImagesPoolSlot)
                 slots.put(slot)
             }
@@ -550,6 +1083,11 @@ object AndroidJobManager {
             if (imageModelValidatedAt > 0L) group.put("imageModelValidatedAt", imageModelValidatedAt)
             if (imageModelCatalogBaseUrl.isNotBlank()) group.put("imageModelCatalogBaseUrl", imageModelCatalogBaseUrl)
             if (imageModelCatalogProvider.isNotBlank()) group.put("imageModelCatalogProvider", imageModelCatalogProvider)
+            group.put("imageModelAvailable", imageModelAvailable)
+            group.put("imageModelSupportsGenerations", imageModelSupportsGenerations)
+            group.put("imageModelSupportsEdits", imageModelSupportsEdits)
+            group.put("imageModelSupportsTransparency", imageModelSupportsTransparency)
+            if (imageModelCatalogValidationId.isNotBlank()) group.put("imageModelCatalogValidationId", imageModelCatalogValidationId)
             if (fhlImagesPoolSlot != null) group.put("fhlImagesPoolSlot", fhlImagesPoolSlot)
             if (apiMode == "apimart") {
                 val originalBaseURL = payload.optString("baseURL").trim()
@@ -566,6 +1104,11 @@ object AndroidJobManager {
             if (imageModelValidatedAt > 0L) storedPayload.put("imageModelValidatedAt", imageModelValidatedAt) else storedPayload.remove("imageModelValidatedAt")
             if (imageModelCatalogBaseUrl.isNotBlank()) storedPayload.put("imageModelCatalogBaseUrl", imageModelCatalogBaseUrl) else storedPayload.remove("imageModelCatalogBaseUrl")
             if (imageModelCatalogProvider.isNotBlank()) storedPayload.put("imageModelCatalogProvider", imageModelCatalogProvider) else storedPayload.remove("imageModelCatalogProvider")
+            storedPayload.put("imageModelAvailable", imageModelAvailable)
+            storedPayload.put("imageModelSupportsGenerations", imageModelSupportsGenerations)
+            storedPayload.put("imageModelSupportsEdits", imageModelSupportsEdits)
+            storedPayload.put("imageModelSupportsTransparency", imageModelSupportsTransparency)
+            if (imageModelCatalogValidationId.isNotBlank()) storedPayload.put("imageModelCatalogValidationId", imageModelCatalogValidationId) else storedPayload.remove("imageModelCatalogValidationId")
             if (fhlImagesPoolSlot != null) {
                 storedPayload.put("fhlImagesPoolSlot", fhlImagesPoolSlot)
             } else {
@@ -919,6 +1462,17 @@ object AndroidJobManager {
             }
             if (!slotPayload.has("imageModelCatalogProvider") && group.optString("imageModelCatalogProvider").isNotBlank()) {
                 slotPayload.put("imageModelCatalogProvider", group.optString("imageModelCatalogProvider"))
+            }
+            for (capabilityField in listOf(
+                "imageModelAvailable",
+                "imageModelSupportsGenerations",
+                "imageModelSupportsEdits",
+                "imageModelSupportsTransparency",
+                "imageModelCatalogValidationId",
+            )) {
+                if (!slotPayload.has(capabilityField) && group.has(capabilityField)) {
+                    slotPayload.put(capabilityField, group.opt(capabilityField))
+                }
             }
             val existingAPIMartTaskId = slot.optString("apimartTaskId").trim()
             if (existingAPIMartTaskId.isNotBlank()) {
@@ -2622,6 +3176,25 @@ object AndroidJobManager {
         if (catalogBaseURL.isBlank()) stored.remove("imageModelCatalogBaseUrl") else stored.put("imageModelCatalogBaseUrl", catalogBaseURL)
         if (requestRunId.isBlank()) stored.remove("requestRunId") else stored.put("requestRunId", requestRunId)
         if (payload.optLong("imageModelValidatedAt", 0L) <= 0L) stored.remove("imageModelValidatedAt")
+        for (capabilityField in listOf(
+            "imageModelAvailable",
+            "imageModelSupportsGenerations",
+            "imageModelSupportsEdits",
+            "imageModelSupportsTransparency",
+            "imageModelCatalogValidationId",
+        )) {
+            val value = payload.opt(capabilityField)
+            when (value) {
+                is Boolean -> stored.put(capabilityField, value)
+                is String -> {
+                    if (capabilityField == "imageModelCatalogValidationId") {
+                        val safe = safeJobMetadataIdentifier(value, capabilityField)
+                        if (safe.isBlank()) stored.remove(capabilityField) else stored.put(capabilityField, safe)
+                    } else stored.remove(capabilityField)
+                }
+                else -> stored.remove(capabilityField)
+            }
+        }
         return stored
             .put("groupId", groupId)
             .put("apiMode", normalizeAPIMode(payload.optString("apiMode", "responses")))
@@ -3540,6 +4113,11 @@ object AndroidJobManager {
             .put("imageBackgroundMode", group.optString("imageBackgroundMode", "standard"))
             .put("imageModelValidatedAt", group.optLong("imageModelValidatedAt", 0L))
             .put("imageModelCatalogProvider", group.optString("imageModelCatalogProvider"))
+            .put("imageModelAvailable", group.optBoolean("imageModelAvailable", false))
+            .put("imageModelSupportsGenerations", group.optBoolean("imageModelSupportsGenerations", false))
+            .put("imageModelSupportsEdits", group.optBoolean("imageModelSupportsEdits", false))
+            .put("imageModelSupportsTransparency", group.optBoolean("imageModelSupportsTransparency", false))
+            .put("imageModelCatalogValidationId", group.optString("imageModelCatalogValidationId"))
             .put("fhlImagesPoolSlot", group.optInt("fhlImagesPoolSlot", 0))
             .put("baseURLHost", hostForURL(payload.optString("baseURL")))
             .put("size", group.optString("size"))
@@ -3634,6 +4212,11 @@ object AndroidJobManager {
             .put("imageBackgroundMode", group.optString("imageBackgroundMode", "standard"))
             .put("imageModelValidatedAt", group.optLong("imageModelValidatedAt", 0L))
             .put("imageModelCatalogProvider", group.optString("imageModelCatalogProvider"))
+            .put("imageModelAvailable", slot.optBoolean("imageModelAvailable", group.optBoolean("imageModelAvailable", false)))
+            .put("imageModelSupportsGenerations", slot.optBoolean("imageModelSupportsGenerations", group.optBoolean("imageModelSupportsGenerations", false)))
+            .put("imageModelSupportsEdits", slot.optBoolean("imageModelSupportsEdits", group.optBoolean("imageModelSupportsEdits", false)))
+            .put("imageModelSupportsTransparency", slot.optBoolean("imageModelSupportsTransparency", group.optBoolean("imageModelSupportsTransparency", false)))
+            .put("imageModelCatalogValidationId", slot.optString("imageModelCatalogValidationId").ifBlank { group.optString("imageModelCatalogValidationId") })
             .put("size", group.optString("size"))
             .put("quality", group.optString("quality"))
             .put("outputFormat", group.optString("outputFormat"))
@@ -3901,7 +4484,7 @@ object AndroidJobManager {
     }
 
     private fun isGPTImage2Model(modelID: String): Boolean {
-        return modelID.trim().ifBlank { defaultImageModel }.lowercase(Locale.US).startsWith("gpt-image-2")
+        return isExactGPTImage2Model(modelID.trim().ifBlank { defaultImageModel })
     }
 
     private fun stableSizeForRetry(size: String): String = when (size) {

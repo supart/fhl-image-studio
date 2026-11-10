@@ -71,6 +71,8 @@ import type {
   ImageModelDescriptorLike,
   ListImageModelsOptionsLike,
   ListImageModelsResultLike,
+  CommitImageModelValidationBatchLike,
+  CommitImageModelValidationBatchResultLike,
   PromptOptimizeOptionsLike,
   PromptReverseOptionsLike,
   SelectFileResponseLike,
@@ -223,41 +225,164 @@ async function probeUpstreamFromBrowser(
   return { modelCount: models.length, models };
 }
 
+const hostGPTImage2FamilyPattern = /^gpt-image-2(?:\.\d+)?(?:-[a-z0-9][a-z0-9._-]*)?$/i;
+const hostNonImageNamePattern = /^(?:text-|embedding|text_embedding|whisper|audio|speech|transcri(?:be|ption)|tts-|moderation|omni-moderation|rerank)/i;
+
+function nestedCapabilityBoolean(item: Record<string, unknown>, ...keys: string[]): boolean | undefined {
+  const capabilities = item.capabilities && typeof item.capabilities === "object"
+    ? item.capabilities as Record<string, unknown>
+    : null;
+  for (const key of keys) {
+    if (typeof item[key] === "boolean") return item[key] as boolean;
+    if (capabilities && typeof capabilities[key] === "boolean") return capabilities[key] as boolean;
+  }
+  return undefined;
+}
+
+function imageGenerationMarker(value: string): boolean {
+  const text = value.toLowerCase();
+  return [
+    "image_generation", "image-generation", "image generation",
+    "image_edit", "image-edit", "image editing",
+    "images/generations", "images/edits",
+  ].some((marker) => text.includes(marker));
+}
+
+function imageGenerationCapabilityValue(value: unknown): boolean {
+  if (typeof value === "string") return imageGenerationMarker(value);
+  if (Array.isArray(value)) return value.some(imageGenerationCapabilityValue);
+  if (!value || typeof value !== "object") return false;
+  return Object.entries(value as Record<string, unknown>).some(([key, child]) => (
+    (imageGenerationMarker(key) && child !== false) || imageGenerationCapabilityValue(child)
+  ));
+}
+
+function imageOutputCapabilityValue(value: unknown): boolean {
+  if (imageGenerationCapabilityValue(value)) return true;
+  if (typeof value === "string") return /^(?:image|images)$/i.test(value.trim());
+  if (Array.isArray(value)) return value.some(imageOutputCapabilityValue);
+  if (!value || typeof value !== "object") return false;
+  return Object.entries(value as Record<string, unknown>).some(([key, child]) => (
+    (/^(?:image|images)$/i.test(key) && child !== false) || imageOutputCapabilityValue(child)
+  ));
+}
+
+function imageTypeCapabilityValue(value: unknown): boolean {
+  if (imageGenerationCapabilityValue(value)) return true;
+  return typeof value === "string" && /^(?:image|image_model|image-model)$/i.test(value.trim());
+}
+
+function explicitImageOutputCapability(item: Record<string, unknown>): boolean {
+  if (item.supportsGenerations === true || item.supports_generations === true
+    || item.supportsEdits === true || item.supports_edits === true) return true;
+  if (["type", "model_type"].some((key) => imageTypeCapabilityValue(item[key]))) return true;
+  if (["output_modalities", "output_types", "output_type"].some((key) => imageOutputCapabilityValue(item[key]))) return true;
+  return ["modality", "modalities", "capabilities", "endpoints", "supported_endpoints"]
+    .some((key) => imageGenerationCapabilityValue(item[key]));
+}
+
+function declaresImageInput(item: Record<string, unknown>): boolean {
+  return ["input_modality", "input_modalities", "input_types", "input_type"]
+    .some((key) => imageOutputCapabilityValue(item[key]));
+}
+
+function knownNonImageModel(id: string, item: Record<string, unknown>): boolean {
+  if (hostNonImageNamePattern.test(id)) return true;
+  return ["type", "model_type", "object"].some((key) => {
+    const value = typeof item[key] === "string" ? item[key].trim().toLowerCase() : "";
+    return value === "text" || value === "text_model" || value === "text-model"
+      || value === "language_model" || value === "language-model" || value === "chat"
+      || /embedding|moderation|audio|speech|rerank/.test(value);
+  });
+}
+
+function fixedProviderDisabledReason(value: unknown): string | undefined {
+  const reason = typeof value === "string" ? value.trim() : "";
+  if (!reason) return undefined;
+  if (/模糊|alias/i.test(reason)) return "不可调用的模糊模型别名";
+  if (/透明|transparen/i.test(reason)) return "Provider 明确禁止当前能力";
+  if (/生成|generation/i.test(reason) && /不|未|禁止|unsupported|disable/i.test(reason)) {
+    return "Provider 不支持图像生成";
+  }
+  return "Provider 标记为不可用";
+}
+
 function normalizeImageModelDescriptor(value: unknown): ImageModelDescriptorLike | null {
   const item = (typeof value === "string"
     ? { id: value }
     : value && typeof value === "object" ? value : {}) as Record<string, unknown>;
   const id = typeof item.id === "string" ? item.id.trim() : "";
-  if (!id || id.length > 128 || /[\u0000-\u001f\u007f]/.test(id)) return null;
-  const description = typeof item.description === "string" && item.description.length <= 400
-    ? item.description.replace(/[\u0000-\u001f\u007f]/g, "").trim()
-    : undefined;
-  const bool = (key: string) => typeof item[key] === "boolean" ? item[key] as boolean : undefined;
+  if (!id || Array.from(id).length > 128 || /\p{Cc}/u.test(id)) return null;
+  const family = hostGPTImage2FamilyPattern.test(id);
+  const explicitOutput = explicitImageOutputCapability(item);
+  const knownNonImage = knownNonImageModel(id, item);
+  const hasImageInput = declaresImageInput(item);
+  const inputOnly = hasImageInput && !explicitOutput;
+  const contradictoryMetadata = !explicitOutput && (knownNonImage || hasImageInput);
+  if (!family && knownNonImage) return null;
+  if (!family && inputOnly) return null;
+  if (!family && !explicitOutput && !/(?:image|dall|imagen|vision|paint|diffusion|flux|sdxl)/i.test(id)) return null;
+  const imageCapable = contradictoryMetadata
+    ? false
+    : nestedCapabilityBoolean(item, "imageCapable", "image_capable") ?? (explicitOutput ? true : undefined);
+  const supportsGenerations = contradictoryMetadata
+    ? false
+    : nestedCapabilityBoolean(item, "supportsGenerations", "supports_generations") ?? (explicitOutput ? true : undefined);
+  const supportsEdits = nestedCapabilityBoolean(item, "supportsEdits", "supports_edits");
+  const supportsTransparency = nestedCapabilityBoolean(item, "supportsTransparency", "supports_transparency");
+  const available = nestedCapabilityBoolean(item, "available", "isAvailable", "is_available");
+  const disabledReason = fixedProviderDisabledReason(item.disabledReason);
   return {
     id,
-    ...(description ? { description } : {}),
-    ...(bool("imageCapable") !== undefined ? { imageCapable: bool("imageCapable") } : {}),
-    ...(bool("supportsGenerations") !== undefined ? { supportsGenerations: bool("supportsGenerations") } : {}),
-    ...(bool("supportsEdits") !== undefined ? { supportsEdits: bool("supportsEdits") } : {}),
-    ...(bool("supportsTransparency") !== undefined ? { supportsTransparency: bool("supportsTransparency") } : {}),
+    ...(imageCapable !== undefined ? { imageCapable } : {}),
+    ...(supportsGenerations !== undefined ? { supportsGenerations } : {}),
+    ...(supportsEdits !== undefined ? { supportsEdits } : {}),
+    ...(supportsTransparency !== undefined ? { supportsTransparency } : {}),
+    ...(available !== undefined ? { available } : {}),
+    ...(disabledReason ? { disabledReason } : {}),
   };
 }
 
 function normalizeImageModelResult(value: ListImageModelsResultLike | null | undefined): ListImageModelsResultLike {
   const models: ImageModelDescriptorLike[] = [];
-  const seen = new Set<string>();
+  const byID = new Map<string, ImageModelDescriptorLike>();
   for (const raw of Array.isArray(value?.models) ? value.models : []) {
     const model = normalizeImageModelDescriptor(raw);
-    if (!model || seen.has(model.id)) continue;
-    seen.add(model.id);
-    models.push(model);
+    const key = model?.id.toLowerCase();
+    if (!model || !key) continue;
+    const previous = byID.get(key);
+    if (!previous) {
+      byID.set(key, model);
+      continue;
+    }
+    const andOptional = (left: boolean | undefined, right: boolean | undefined): boolean | undefined => (
+      left === undefined ? right : right === undefined ? left : left && right
+    );
+    byID.set(key, {
+      ...previous,
+      imageCapable: andOptional(previous.imageCapable, model.imageCapable),
+      supportsGenerations: andOptional(previous.supportsGenerations, model.supportsGenerations),
+      supportsEdits: andOptional(previous.supportsEdits, model.supportsEdits),
+      supportsTransparency: andOptional(previous.supportsTransparency, model.supportsTransparency),
+      available: andOptional(previous.available, model.available),
+      ...(previous.disabledReason || model.disabledReason
+        ? { disabledReason: previous.disabledReason || model.disabledReason }
+        : {}),
+    });
   }
+  models.push(...byID.values());
   const provider = typeof value?.provider === "string" ? value.provider.trim().slice(0, 80) : undefined;
   const baseURL = typeof value?.baseURL === "string" ? value.baseURL.trim().replace(/\/+$/, "") : undefined;
+  const fetchedAt = Number(value?.fetchedAt);
+  const validationId = typeof value?.validationId === "string"
+    ? value.validationId.trim().slice(0, 128)
+    : "";
   return {
-    modelCount: Number.isFinite(Number(value?.modelCount)) ? Math.max(0, Math.floor(Number(value?.modelCount))) : models.length,
+    modelCount: models.length,
     ...(provider ? { provider } : {}),
     ...(baseURL ? { baseURL } : {}),
+    ...(Number.isFinite(fetchedAt) && fetchedAt > 0 ? { fetchedAt: Math.floor(fetchedAt) } : {}),
+    ...(validationId ? { validationId } : {}),
     models,
   };
 }
@@ -497,6 +622,11 @@ async function submitSingleAndroidJob(options: GenerateOptionsLike): Promise<Job
     imageModelValidatedAt: options.imageModelValidatedAt,
     imageModelCatalogBaseUrl: options.imageModelCatalogBaseUrl,
     imageModelCatalogProvider: options.imageModelCatalogProvider,
+    imageModelAvailable: options.imageModelAvailable,
+    imageModelSupportsGenerations: options.imageModelSupportsGenerations,
+    imageModelSupportsEdits: options.imageModelSupportsEdits,
+    imageModelSupportsTransparency: options.imageModelSupportsTransparency,
+    imageModelCatalogValidationId: options.imageModelCatalogValidationId,
   });
   return { jobId: response.jobIds[0] || options.requestedJobId || "" };
 }
@@ -1063,6 +1193,7 @@ export async function listImageModelsFromUpstream(
   proxyMode = "system",
   proxyURL = "",
   signal?: AbortSignal,
+  validation?: { profileId: string; slotNumber: number; fetchedAt: number },
 ): Promise<ListImageModelsResultLike> {
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
   const options: ListImageModelsOptionsLike = {
@@ -1071,6 +1202,7 @@ export async function listImageModelsFromUpstream(
     provider,
     proxyMode,
     proxyURL,
+    ...(validation ? validation : {}),
   };
   const normalizeResult = (value: ListImageModelsResultLike | null | undefined) => {
     const normalized = normalizeImageModelResult(value);
@@ -1105,6 +1237,46 @@ export async function listImageModelsFromUpstream(
     ));
   }
   throw new Error(unsupportedMessage("ListImageModels"));
+}
+
+export async function commitAndroidImageModelValidationBatch(
+  payload: CommitImageModelValidationBatchLike,
+): Promise<string> {
+  if (!canInvokeAndroidMethod("CommitImageModelValidationBatch")) {
+    throw new Error(unsupportedMessage("CommitImageModelValidationBatch"));
+  }
+  const result = await invokeAndroid<CommitImageModelValidationBatchResultLike>(
+    unsupportedMessage,
+    "CommitImageModelValidationBatch",
+    payload,
+  );
+  const validationId = String(result?.validationId || "").trim();
+  if (!validationId) throw new Error("原生统一模型验证未返回有效证明。");
+  return validationId;
+}
+
+export async function invalidateAndroidImageModelValidationProfiles(
+  profileIds: readonly string[],
+): Promise<void> {
+  const normalized = Array.from(new Set(profileIds.map((value) => String(value || "").trim()).filter(Boolean)));
+  if (normalized.length === 0 || !canInvokeAndroidMethod("InvalidateImageModelValidationProfiles")) return;
+  await invokeAndroid<void>(
+    unsupportedMessage,
+    "InvalidateImageModelValidationProfiles",
+    normalized,
+  );
+}
+
+export async function invalidateAndroidImageModelValidationBatches(
+  profileIds: readonly string[],
+): Promise<void> {
+  const normalized = Array.from(new Set(profileIds.map((value) => String(value || "").trim()).filter(Boolean)));
+  if (normalized.length === 0 || !canInvokeAndroidMethod("InvalidateImageModelValidationBatches")) return;
+  await invokeAndroid<void>(
+    unsupportedMessage,
+    "InvalidateImageModelValidationBatches",
+    normalized,
+  );
 }
 
 export function registerEphemeralLog(text: string, suggestedName = "raw-response.txt"): string {

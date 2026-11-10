@@ -53,6 +53,11 @@ export interface BrowserJobSubmitPayload {
   imageModelValidatedAt?: number;
   imageModelCatalogBaseUrl?: string;
   imageModelCatalogProvider?: string;
+  imageModelAvailable?: boolean;
+  imageModelSupportsGenerations?: boolean;
+  imageModelSupportsEdits?: boolean;
+  imageModelSupportsTransparency?: boolean;
+  imageModelCatalogValidationId?: string;
 }
 
 export interface BrowserJobSubmitResponse {

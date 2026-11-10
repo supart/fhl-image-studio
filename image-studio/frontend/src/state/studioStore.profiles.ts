@@ -2,6 +2,7 @@ import {
   DeleteStoredAPIKey,
   GetStoredAPIKey,
   SetStoredAPIKey,
+  invalidateAndroidImageModelValidationProfiles,
 } from "../platform/runtime/host";
 import type { APIMode, RequestPolicy, UpstreamProfile } from "../types/domain";
 import type { StudioState } from "./studioStore.types";
@@ -93,6 +94,8 @@ export async function waitForCredentialMutations(): Promise<void> {
 type ActiveProfileRuntimePatch = Pick<
   StudioState,
   "apiMode" | "requestPolicy" | "baseURL" | "textModelID" | "imageModelID" | "imagesNewAPICompat"
+    | "imageModelAvailable" | "imageModelSupportsGenerations" | "imageModelSupportsEdits"
+    | "imageModelSupportsTransparency" | "imageModelCatalogValidationId"
 >;
 
 export function activeProfileRuntimePatch(
@@ -107,6 +110,11 @@ export function activeProfileRuntimePatch(
       textModelID: profile.textModelID,
       imageModelID: profile.imageModelID,
       imagesNewAPICompat: profile.imagesNewAPICompat ?? false,
+      imageModelAvailable: profile.imageModelAvailable,
+      imageModelSupportsGenerations: profile.imageModelSupportsGenerations,
+      imageModelSupportsEdits: profile.imageModelSupportsEdits,
+      imageModelSupportsTransparency: profile.imageModelSupportsTransparency,
+      imageModelCatalogValidationId: profile.imageModelCatalogValidationId,
     };
   }
   return {
@@ -119,6 +127,11 @@ export function activeProfileRuntimePatch(
     // replace a validated model with the legacy default.
     imageModelID: profile.imageModelID || FHL_IMAGE_MODEL_ID,
     imagesNewAPICompat: fhlTransportMode === "images" && profile.imagesNewAPICompat === true,
+    imageModelAvailable: profile.imageModelAvailable,
+    imageModelSupportsGenerations: profile.imageModelSupportsGenerations,
+    imageModelSupportsEdits: profile.imageModelSupportsEdits,
+    imageModelSupportsTransparency: profile.imageModelSupportsTransparency,
+    imageModelCatalogValidationId: profile.imageModelCatalogValidationId,
   };
 }
 
@@ -127,12 +140,18 @@ export type FHLPoolImageModelSelection = {
   imageModelValidatedAt: number;
   imageModelCatalogBaseUrl: string;
   imageModelCatalogProvider: string;
+  imageModelAvailable?: boolean;
+  imageModelSupportsGenerations?: boolean;
+  imageModelSupportsEdits?: boolean;
+  imageModelSupportsTransparency?: boolean;
+  imageModelCatalogValidationId?: string;
   validatedProfileId: string;
 };
 
 export type ValidatedFHLPoolImageModelCommit = {
   catalog: StoredImageModelCatalog;
   imageModelID: string;
+  imageModelCatalogValidationId: string;
   /** Profiles whose own Keystore credentials completed this validation batch. */
   targetProfileIds: readonly string[];
 };
@@ -160,6 +179,11 @@ function commitFHLPoolImageModelSelection(
         imageModelValidatedAt: undefined,
         imageModelCatalogBaseUrl: undefined,
         imageModelCatalogProvider: undefined,
+        imageModelAvailable: undefined,
+        imageModelSupportsGenerations: undefined,
+        imageModelSupportsEdits: undefined,
+        imageModelSupportsTransparency: undefined,
+        imageModelCatalogValidationId: undefined,
       };
     }
     return {
@@ -168,6 +192,13 @@ function commitFHLPoolImageModelSelection(
       imageModelValidatedAt: metadata.imageModelValidatedAt,
       imageModelCatalogBaseUrl: metadata.imageModelCatalogBaseUrl,
       imageModelCatalogProvider: metadata.imageModelCatalogProvider,
+      imageModelAvailable: metadata.imageModelAvailable,
+      imageModelSupportsGenerations: metadata.imageModelSupportsGenerations,
+      imageModelSupportsEdits: metadata.imageModelSupportsEdits,
+      imageModelSupportsTransparency: metadata.imageModelSupportsTransparency,
+      // Legacy/migration helper: only the native unified validation flow may
+      // attach a submission-capable batch proof.
+      imageModelCatalogValidationId: undefined,
     };
   });
   const active = nextProfiles.find((profile) => profile.id === state.activeProfileId);
@@ -236,8 +267,13 @@ export function commitValidatedFHLPoolImageModelSelection(
   if (!catalogBaseURL || !catalogProvider) {
     throw new Error("统一生图模型目录验证元数据不完整。");
   }
-  if (!imageModelCatalogEntry(catalog, modelID)) {
+  const selectedEntry = imageModelCatalogEntry(catalog, modelID);
+  if (!selectedEntry || selectedEntry.available !== true || selectedEntry.supportsGenerations !== true) {
     throw new Error("所选生图模型不在所有目标槽位共同返回的目录中。");
+  }
+  const validationId = selection.imageModelCatalogValidationId.trim();
+  if (!validationId) {
+    throw new Error("统一生图模型缺少原生目录验证证明。");
   }
 
   const rawTargetIds = selection.targetProfileIds.map((value) => String(value || "").trim());
@@ -277,6 +313,11 @@ export function commitValidatedFHLPoolImageModelSelection(
         imageModelValidatedAt: undefined,
         imageModelCatalogBaseUrl: undefined,
         imageModelCatalogProvider: undefined,
+        imageModelAvailable: undefined,
+        imageModelSupportsGenerations: undefined,
+        imageModelSupportsEdits: undefined,
+        imageModelSupportsTransparency: undefined,
+        imageModelCatalogValidationId: undefined,
       };
     }
     return {
@@ -285,6 +326,11 @@ export function commitValidatedFHLPoolImageModelSelection(
       imageModelValidatedAt: Math.floor(validatedAt),
       imageModelCatalogBaseUrl: catalogBaseURL,
       imageModelCatalogProvider: catalogProvider,
+      imageModelAvailable: selectedEntry.available,
+      imageModelSupportsGenerations: selectedEntry.supportsGenerations,
+      imageModelSupportsEdits: selectedEntry.supportsEdits,
+      imageModelSupportsTransparency: selectedEntry.supportsTransparency,
+      imageModelCatalogValidationId: validationId,
     };
   });
   const active = nextProfiles.find((profile) => profile.id === state.activeProfileId);
@@ -321,11 +367,22 @@ export function invalidateFHLPoolImageModelValidation(
           imageModelValidatedAt: undefined,
           imageModelCatalogBaseUrl: undefined,
           imageModelCatalogProvider: undefined,
+          imageModelAvailable: undefined,
+          imageModelSupportsGenerations: undefined,
+          imageModelSupportsEdits: undefined,
+          imageModelSupportsTransparency: undefined,
+          imageModelCatalogValidationId: undefined,
         }
       : profile
   ));
+  const active = nextProfiles.find((profile) => profile.id === state.activeProfileId);
   persistProfiles(nextProfiles);
-  store.setState({ profiles: nextProfiles });
+  store.setState({
+    profiles: nextProfiles,
+    ...(active && targetIds.has(active.id)
+      ? activeProfileRuntimePatch(active, state.fhlTransportMode)
+      : {}),
+  });
   return targetIds.size;
 }
 
@@ -341,6 +398,11 @@ export function createProfileActions(store: StateAdapter) {
       imageModelValidatedAt?: number;
       imageModelCatalogBaseUrl?: string;
       imageModelCatalogProvider?: string;
+      imageModelAvailable?: boolean;
+      imageModelSupportsGenerations?: boolean;
+      imageModelSupportsEdits?: boolean;
+      imageModelSupportsTransparency?: boolean;
+      imageModelCatalogValidationId?: string;
       provider?: string;
       concurrencyLimit?: number;
       continuousPoolEnabled?: boolean;
@@ -382,6 +444,11 @@ export function createProfileActions(store: StateAdapter) {
         imageModelCatalogProvider: input.imageModelCatalogProvider
           ? imageModelCatalogProvider(input.imageModelCatalogProvider)
           : undefined,
+        imageModelAvailable: input.imageModelAvailable === true ? true : undefined,
+        imageModelSupportsGenerations: input.imageModelSupportsGenerations === true ? true : undefined,
+        imageModelSupportsEdits: input.imageModelSupportsEdits === true ? true : undefined,
+        imageModelSupportsTransparency: input.imageModelSupportsTransparency === true ? true : undefined,
+        imageModelCatalogValidationId: input.imageModelCatalogValidationId?.trim() || undefined,
         provider: input.provider?.trim()
           ? imageModelCatalogProvider(input.provider)
           : undefined,
@@ -479,6 +546,25 @@ export function createProfileActions(store: StateAdapter) {
         && metadataProvider !== imageModelCatalogProvider(current.imageModelCatalogProvider || "");
       const catalogBaseURLChanged = patch.imageModelCatalogBaseUrl !== undefined
         && metadataBaseURL !== imageModelCatalogBaseUrl(current.imageModelCatalogBaseUrl || "");
+      const validationMetadataChanged = (
+        patch.imageModelValidatedAt !== undefined
+          && patch.imageModelValidatedAt !== current.imageModelValidatedAt
+      ) || (
+        patch.imageModelAvailable !== undefined
+          && patch.imageModelAvailable !== current.imageModelAvailable
+      ) || (
+        patch.imageModelSupportsGenerations !== undefined
+          && patch.imageModelSupportsGenerations !== current.imageModelSupportsGenerations
+      ) || (
+        patch.imageModelSupportsEdits !== undefined
+          && patch.imageModelSupportsEdits !== current.imageModelSupportsEdits
+      ) || (
+        patch.imageModelSupportsTransparency !== undefined
+          && patch.imageModelSupportsTransparency !== current.imageModelSupportsTransparency
+      ) || (
+        patch.imageModelCatalogValidationId !== undefined
+          && patch.imageModelCatalogValidationId.trim() !== (current.imageModelCatalogValidationId || "")
+      );
       let keyChanged = false;
       let normalizedPatchKey = "";
       if (patch.apiKey !== undefined) {
@@ -486,27 +572,29 @@ export function createProfileActions(store: StateAdapter) {
         const existingKey = await GetStoredAPIKey(keyringUserFor(id)).catch(() => "");
         keyChanged = normalizeAPIKeyInput(existingKey) !== normalizedPatchKey;
       }
-      const invalidated = modelChanged || baseURLChanged || apiModeChanged || providerChanged || catalogProviderChanged || catalogBaseURLChanged || keyChanged;
-      // A catalog selection may intentionally change model/provider/base URL;
-      // it is valid only when the caller supplies a fresh validation timestamp
-      // together with the complete catalog identity. Credential changes always
-      // invalidate, because the catalog may have been fetched with the old key.
-      const explicitCatalogValidation = !keyChanged
-        && patch.imageModelValidatedAt !== undefined
-        && patch.imageModelCatalogBaseUrl !== undefined
-        && patch.imageModelCatalogProvider !== undefined
-        && metadataBaseURL === imageModelCatalogBaseUrl(nextBaseURL)
-        && (!nextProvider || metadataProvider === nextProvider);
-      // Pool enablement changes always invalidate, even if a caller attempts
-      // to carry validation metadata in the same patch. The slot may have
-      // been disabled while its credential or provider state changed.
-      const validationInvalidated = poolEnabledChanged || (invalidated && !explicitCatalogValidation);
+      // The native batch commit is the only path allowed to establish model
+      // validation. Ordinary profile edits may preserve identical metadata,
+      // but cannot migrate or manufacture a proof for a changed configuration.
+      const validationInvalidated = poolEnabledChanged
+        || modelChanged
+        || baseURLChanged
+        || apiModeChanged
+        || providerChanged
+        || catalogProviderChanged
+        || catalogBaseURLChanged
+        || validationMetadataChanged
+        || keyChanged;
       const validationPatch = validationInvalidated
         ? {
             ...patch,
             imageModelValidatedAt: undefined,
             imageModelCatalogBaseUrl: undefined,
             imageModelCatalogProvider: undefined,
+            imageModelAvailable: undefined,
+            imageModelSupportsGenerations: undefined,
+            imageModelSupportsEdits: undefined,
+            imageModelSupportsTransparency: undefined,
+            imageModelCatalogValidationId: undefined,
           }
         : patch;
       const next: UpstreamProfile = {
@@ -535,6 +623,29 @@ export function createProfileActions(store: StateAdapter) {
           current.imageModelCatalogProvider,
           validationInvalidated,
         ),
+        imageModelAvailable: validationInvalidated
+          ? undefined
+          : patch.imageModelAvailable !== undefined
+            ? patch.imageModelAvailable === true
+            : current.imageModelAvailable,
+        imageModelSupportsGenerations: validationInvalidated
+          ? undefined
+          : patch.imageModelSupportsGenerations !== undefined
+            ? patch.imageModelSupportsGenerations === true
+            : current.imageModelSupportsGenerations,
+        imageModelSupportsEdits: validationInvalidated
+          ? undefined
+          : patch.imageModelSupportsEdits !== undefined
+            ? patch.imageModelSupportsEdits === true
+            : current.imageModelSupportsEdits,
+        imageModelSupportsTransparency: validationInvalidated
+          ? undefined
+          : patch.imageModelSupportsTransparency !== undefined
+            ? patch.imageModelSupportsTransparency === true
+            : current.imageModelSupportsTransparency,
+        imageModelCatalogValidationId: validationInvalidated
+          ? undefined
+          : patch.imageModelCatalogValidationId?.trim() || current.imageModelCatalogValidationId,
         concurrencyLimit: nextFHLImagesPoolSlot !== undefined
           ? FHL_IMAGES_POOL_SLOT_CONCURRENCY_LIMIT
           : patch.concurrencyLimit !== undefined
@@ -549,7 +660,7 @@ export function createProfileActions(store: StateAdapter) {
         lastUsedAt: patch.lastUsedAt ?? current.lastUsedAt,
       };
       const nextList = list.map((profile, idx) => (idx === index ? next : profile));
-      if (patch.apiKey !== undefined) {
+      if (patch.apiKey !== undefined && keyChanged) {
         try { await trackCredentialMutation(() => SetStoredAPIKey(keyringUserFor(id), normalizedPatchKey)); }
         catch (e: any) {
           if (readRuntimePlatformState().isAndroid) {
@@ -557,6 +668,14 @@ export function createProfileActions(store: StateAdapter) {
           }
           if (typeof console !== "undefined") console.error("写 keyring 失败", e);
         }
+      }
+      if (
+        validationInvalidated
+        && !keyChanged
+        && readRuntimePlatformState().isAndroid
+        && (isOfficialFHLPoolProfile(current) || nextFHLImagesPoolSlot !== undefined)
+      ) {
+        await invalidateAndroidImageModelValidationProfiles([id]);
       }
       persistProfiles(nextList);
       store.setState({ profiles: nextList });
@@ -580,6 +699,11 @@ export function createProfileActions(store: StateAdapter) {
               apiMode: store.getState().fhlTransportMode,
               requestPolicy: "openai",
               imagesNewAPICompat: false,
+              imageModelAvailable: undefined,
+              imageModelSupportsGenerations: undefined,
+              imageModelSupportsEdits: undefined,
+              imageModelSupportsTransparency: undefined,
+              imageModelCatalogValidationId: undefined,
             });
           }
           return true;
@@ -602,6 +726,9 @@ export function createProfileActions(store: StateAdapter) {
       if (index < 0) return;
       markCredentialMutation();
       const nextList = list.filter((_, i) => i !== index);
+      if (readRuntimePlatformState().isAndroid) {
+        await invalidateAndroidImageModelValidationProfiles([id]);
+      }
       persistProfiles(nextList);
       try { await trackCredentialMutation(() => DeleteStoredAPIKey(keyringUserFor(id))); }
       catch (e: any) {
@@ -628,6 +755,11 @@ export function createProfileActions(store: StateAdapter) {
             apiMode: store.getState().fhlTransportMode,
             requestPolicy: "openai",
             imagesNewAPICompat: false,
+            imageModelAvailable: undefined,
+            imageModelSupportsGenerations: undefined,
+            imageModelSupportsEdits: undefined,
+            imageModelSupportsTransparency: undefined,
+            imageModelCatalogValidationId: undefined,
             upstreamModalOpen: false,
             settingsOpen: true,
             upstreamReturnTarget: "settings",

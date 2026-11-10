@@ -36,11 +36,14 @@ import {
   DeleteStoredAPIKey,
   GetStoredAPIKey,
   ReadClipboardText,
+  commitAndroidImageModelValidationBatch,
+  invalidateAndroidImageModelValidationBatches,
 } from "../../runtime/host";
 import { useStudioStore } from "../../../state/studioStore";
 import {
   commitValidatedFHLPoolImageModelSelection,
   currentCredentialMutationRevision,
+  invalidateFHLPoolImageModelValidation,
 } from "../../../state/studioStore.profiles";
 import type { UpstreamProfile } from "../../../types/domain";
 import {
@@ -138,6 +141,7 @@ export function AndroidFHLImagesPoolConfig({
     profiles,
     pushToast,
     setActiveProfile,
+    setField,
     testProfileConnection,
     updateProfile,
     fhlTransportMode,
@@ -662,22 +666,28 @@ export function AndroidFHLImagesPoolConfig({
     modelAbortController.current = controller;
     const credentialRevision = currentCredentialMutationRevision();
     setModelConfigBusy(true);
-    setModelSnapshot(null);
-    setSelectedImageModelID("");
+    // Keep the last successful snapshot visible while a refresh is running.
+    // A failed refresh must not erase a validated directory or the user's
+    // current selection; the error state disables saving until a new success.
     setModelErrorMessage(null);
     setModelSuccessMessage(null);
     try {
       const prepared = await prepareFHLPoolImageModelConfig({
         profiles: useStudioStore.getState().profiles,
         readCredential: (profileId) => GetStoredAPIKey(keyringUserFor(profileId)),
-        fetchCatalog: (profile, apiKey) => fetchFHLImageModelCatalog(
+        fetchCatalog: (profile, apiKey, slotNumber, sharedFetchedAt) => fetchFHLImageModelCatalog(
           profile.baseURL,
           apiKey,
           imageModelProviderForProfile(profile),
           proxyMode,
           proxyURL,
           controller.signal,
-          { persist: false },
+          {
+            persist: false,
+            fetchedAt: sharedFetchedAt,
+            validationProfileId: profile.id,
+            validationSlotNumber: slotNumber,
+          },
         ),
       });
       if (requestVersion !== modelRequestVersion.current) return;
@@ -691,17 +701,43 @@ export function AndroidFHLImagesPoolConfig({
         useStudioStore.getState().profiles,
         prepared.targetProfileIds,
       );
-      setSelectedImageModelID(imageModelCatalogEntry(prepared.catalog, currentModel) ? currentModel : "");
+      const selected = prepared.availability.find((model) => (
+        model.selectable && model.id.toLowerCase() === currentModel.toLowerCase()
+      ))?.id || "";
+      const targetProfiles = prepared.targetProfileIds
+        .map((profileId) => useStudioStore.getState().profiles.find((profile) => profile.id === profileId))
+        .filter((profile): profile is UpstreamProfile => !!profile);
+      const revokedStaleSelection = !selected && targetProfiles.some((profile) => (
+        !!profile.imageModelCatalogValidationId || !!profile.imageModelValidatedAt
+      ));
+      if (revokedStaleSelection) {
+        // Keep the just-issued slot receipts so the user can immediately pick
+        // another common model, but revoke the now-stale committed batch.
+        await invalidateAndroidImageModelValidationBatches(prepared.targetProfileIds);
+        invalidateFHLPoolImageModelValidation({
+          getState: () => useStudioStore.getState(),
+          setState: (patch) => useStudioStore.setState(patch),
+        });
+        if (useStudioStore.getState().imageBackgroundMode === "transparent") {
+          setField("imageBackgroundMode", "standard");
+        }
+      }
+      setSelectedImageModelID(selected);
       setModelSnapshot({ ...prepared, credentialRevision, validationSignature: requestSignature });
       const slots = prepared.targetSlotNumbers.map((slot) => `FHL${slot}`).join("、");
-      const message = `已验证 ${prepared.targetProfileIds.length} 个活动槽位（${slots}），请选择统一生图模型并保存。`;
+      const message = revokedStaleSelection
+        ? "当前已保存模型不再由全部活动槽位共同支持，已撤销旧验证并回退为普通图像；请选择新模型后保存。"
+        : prepared.availability.some((model) => model.selectable)
+        ? `已验证 ${prepared.targetProfileIds.length} 个活动槽位（${slots}），请选择统一生图模型并保存。`
+        : `已验证 ${prepared.targetProfileIds.length} 个活动槽位（${slots}），但没有共同可用的生图模型。`;
       setModelSuccessMessage(message);
       pushToast(message, "success", 5600);
     } catch (error) {
       if (requestVersion !== modelRequestVersion.current) return;
-      const message = safeUnifiedModelError(error);
-      setModelSnapshot(null);
-      setSelectedImageModelID("");
+      const safeMessage = safeUnifiedModelError(error);
+      const message = modelSnapshot
+        ? `刷新失败，当前显示上次成功结果；本次不能保存。${safeMessage}`
+        : safeMessage;
       setModelErrorMessage(message);
       pushToast(message, "error", 6200);
     } finally {
@@ -712,8 +748,8 @@ export function AndroidFHLImagesPoolConfig({
     }
   }
 
-  function applyUnifiedImageModel() {
-    if (!modelSnapshot || modelConfigBusy || !selectedImageModelID) return;
+  async function applyUnifiedImageModel() {
+    if (!modelSnapshot || modelConfigBusy || modelErrorMessage || !selectedImageModelID) return;
     setModelErrorMessage(null);
     if (modelSnapshot.credentialRevision !== currentCredentialMutationRevision()) {
       const message = "配置在验证后发生变化，请重新获取模型目录。";
@@ -731,14 +767,33 @@ export function AndroidFHLImagesPoolConfig({
       pushToast(message, "warn", 5200);
       return;
     }
+    const availability = modelSnapshot.availability.find((model) => (
+      model.id.toLowerCase() === selectedImageModelID.toLowerCase()
+    ));
     const entry = imageModelCatalogEntry(modelSnapshot.catalog, selectedImageModelID);
-    if (!entry) {
+    if (!entry || !availability?.selectable || entry.available === false || entry.supportsGenerations !== true) {
       const message = "所选模型不在全部活动槽位的共同目录中，请刷新模型列表。";
       setModelErrorMessage(message);
       pushToast(message, "warn", 5200);
       return;
     }
     try {
+      setModelConfigBusy(true);
+      const validationId = await commitAndroidImageModelValidationBatch({
+        modelID: entry.id,
+        baseURL: modelSnapshot.catalog.baseUrl,
+        provider: modelSnapshot.catalog.provider,
+        fetchedAt: modelSnapshot.catalog.fetchedAt,
+        available: entry.available,
+        supportsGenerations: entry.supportsGenerations,
+        supportsEdits: entry.supportsEdits,
+        supportsTransparency: entry.supportsTransparency,
+        targets: modelSnapshot.targetProfileIds.map((profileId, index) => ({
+          profileId,
+          slotNumber: modelSnapshot.targetSlotNumbers[index],
+          validationId: modelSnapshot.validationIdsByProfileId[profileId] || "",
+        })),
+      });
       suppressCredentialRescan.current = true;
       commitValidatedFHLPoolImageModelSelection({
         getState: () => useStudioStore.getState(),
@@ -746,6 +801,7 @@ export function AndroidFHLImagesPoolConfig({
       }, {
         catalog: modelSnapshot.catalog,
         imageModelID: entry.id,
+        imageModelCatalogValidationId: validationId,
         targetProfileIds: modelSnapshot.targetProfileIds,
       });
       const message = `已保存统一模型 ${entry.id}，${modelSnapshot.targetProfileIds.length} 个活动槽位可共同调度。`;
@@ -757,6 +813,8 @@ export function AndroidFHLImagesPoolConfig({
       const message = safeUnifiedModelError(error);
       setModelErrorMessage(message);
       pushToast(message, "error", 6200);
+    } finally {
+      setModelConfigBusy(false);
     }
   }
 
@@ -796,6 +854,7 @@ export function AndroidFHLImagesPoolConfig({
           : modelPanelState === "validating"
             ? "正在验证活动槽位的共同模型…"
             : "请选择全部活动槽位共同可用的精确生图模型。");
+  const modelSelectionLocked = modelPanelState !== "ready";
 
   useEffect(() => {
     if (!active || credentialScanStatus !== "ready") return;
@@ -850,6 +909,7 @@ export function AndroidFHLImagesPoolConfig({
         className="android-fhl-pool-model-config"
         data-testid="android-fhl-unified-model-panel"
         data-model-state={modelPanelState}
+        data-model-selection-locked={modelPanelState !== "ready"}
         aria-busy={modelConfigBusy}
       >
         <div className="android-fhl-pool-model-config-header">
@@ -878,27 +938,52 @@ export function AndroidFHLImagesPoolConfig({
           {modelPanelStatus}
         </div>
         <div className="android-fhl-pool-model-controls">
-          <select
+          <div
             id="android-fhl-unified-image-model"
-            value={selectedImageModelID}
-            onChange={(event) => setSelectedImageModelID(event.target.value)}
-            disabled={busy || modelPanelState !== "ready" || !modelSnapshot}
-            className="focus-ring android-upstream-input font-mono-token"
+            className="android-fhl-pool-model-list"
+            role="listbox"
+            aria-label="统一生图模型"
+            aria-busy={modelConfigBusy}
           >
-            <option value="">
-              {modelPanelState === "ready" ? "请选择精确生图模型" : "验证完成后选择共同模型"}
-            </option>
-            {modelSnapshot?.catalog.models.map((model) => (
-              <option key={model.id} value={model.id}>{model.id}</option>
-            ))}
-          </select>
+            {modelSnapshot?.availability.length ? modelSnapshot.availability.map((model) => {
+              const selectable = model.selectable && !modelSelectionLocked && !busy;
+              const selected = selectedImageModelID.toLowerCase() === model.id.toLowerCase();
+              return (
+                <button
+                  key={model.id}
+                  type="button"
+                  className={`focus-ring android-fhl-pool-model-option ${selected ? "selected" : ""} ${model.selectable ? "" : "disabled"} ${modelSelectionLocked ? "locked" : ""}`}
+                  onClick={() => { if (selectable) setSelectedImageModelID(model.id); }}
+                  onKeyDown={(event) => {
+                    if (!selectable && (event.key === "Enter" || event.key === " ")) {
+                      event.preventDefault();
+                    }
+                  }}
+                  tabIndex={0}
+                  role="option"
+                  aria-selected={selected}
+                  aria-disabled={!selectable}
+                  data-model-id={model.id}
+                >
+                  <span className="android-fhl-pool-model-option-id">{model.id}</span>
+                  <span className="android-fhl-pool-model-option-reason">
+                    {model.selectable ? "全部活动槽位共同可用" : (model.disabledReason || "当前不可用")}
+                  </span>
+                </button>
+              );
+            }) : (
+              <div className="android-fhl-pool-model-placeholder" role="status">
+                {modelPanelState === "ready" ? "没有共同可用的精确生图模型" : "验证完成后选择共同模型"}
+              </div>
+            )}
+          </div>
         </div>
         <div className="android-fhl-pool-model-actions">
           <button
             type="button"
             className="primary"
             onClick={applyUnifiedImageModel}
-            disabled={busy || modelPanelState !== "ready" || !modelSnapshot || !selectedImageModelID}
+            disabled={busy || modelSelectionLocked || !!modelErrorMessage || !modelSnapshot || !selectedImageModelID}
             data-testid="android-fhl-unified-model-apply"
           >
             <Save className="h-4 w-4" />

@@ -3,16 +3,13 @@ import type { ImageModelDescriptorLike } from "../platform/runtime/hostTypes.ts"
 import type { UpstreamProfile } from "../types/domain";
 import { storageKey } from "./storageNamespace.ts";
 
-export const IMAGE_MODEL_CATALOG_VERSION = 1;
-export const IMAGE_MODEL_CATALOG_LS_KEY = storageKey("gptcodex.fhl.image-model-catalog.v1");
+export const IMAGE_MODEL_CATALOG_VERSION = 2;
+export const IMAGE_MODEL_CATALOG_LS_KEY = storageKey("gptcodex.fhl.image-model-catalog.v2");
 export const IMAGE_MODEL_TRANSPARENT_PROMPT = "Output on a fully transparent background with real alpha transparency and clean edges. Do not add a solid backdrop, drawn checkerboard, scenery, or watermark.";
-export const SUPPORTED_FHL_IMAGE_MODEL_IDS = [
-  "gpt-image-2",
-  "gpt-image-2.5-flare",
-  "gpt-image-2.5-sunburst",
-] as const;
+export const GPT_IMAGE_2_FAMILY_PATTERN = /^gpt-image-2(?:\.(\d+))?(?:-[a-z0-9][a-z0-9._-]*)?$/i;
 
-export type SupportedFHLImageModelID = (typeof SUPPORTED_FHL_IMAGE_MODEL_IDS)[number];
+/** Kept as a compatibility alias for callers that used the old literal type. */
+export type SupportedFHLImageModelID = string;
 
 export type ImageModelDescriptor = {
   id: string;
@@ -21,6 +18,8 @@ export type ImageModelDescriptor = {
   supportsGenerations: boolean;
   supportsEdits: boolean;
   supportsTransparency: boolean;
+  available: boolean;
+  disabledReason?: string;
 };
 
 export type StoredImageModelCatalog = {
@@ -29,6 +28,8 @@ export type StoredImageModelCatalog = {
   provider: string;
   fetchedAt: number;
   models: ImageModelDescriptor[];
+  /** Process/native-private proof returned by Android; never persisted in localStorage. */
+  validationId?: string;
 };
 
 export type FetchFHLImageModelCatalogOptions = {
@@ -36,11 +37,26 @@ export type FetchFHLImageModelCatalogOptions = {
   persist?: boolean;
   /** Allows a completed validation batch to share one exact snapshot time. */
   fetchedAt?: number;
+  validationProfileId?: string;
+  validationSlotNumber?: number;
 };
 
 type ImageModelDescriptorInput = Partial<ImageModelDescriptor> & {
   id?: unknown;
 };
+
+const NON_IMAGE_HINT = /(?:^|[-_.])(?:text|chat|language|embedding|embed|audio|speech|moderation|rerank|transcri(?:be|ption)|tts|whisper)(?:$|[-_.])/i;
+const IMAGE_NAME_HINT = /(?:^|[-_.])image(?:$|[-_.])|vision|paint|diffusion|flux|sdxl|stable-diffusion/i;
+const FIXED_DISABLED_REASONS = new Set([
+  "不可调用的模糊模型别名",
+  "Provider 未声明图像生成能力",
+  "Provider 不支持图像生成",
+  "Provider 标记为不可用",
+  "当前 API 路由不支持",
+  "Provider 明确禁止当前能力",
+  "当前 Android 实现暂不支持",
+  "并非所有已启用槽位共同可用",
+]);
 
 const DESCRIPTIONS: Record<string, string> = {
   "gpt-image-2": "兼容原有 V2.0 工作方式，继续使用稳定流程。",
@@ -76,21 +92,121 @@ function normalizedBaseUrl(value: unknown): string {
 
 function safeProvider(value: unknown): string {
   const raw = String(value ?? "").trim();
-  if (!raw || raw.length > 80 || /[\u0000-\u001f\u007f]/.test(raw)) return "fhl";
+  if (!raw || raw.length > 80 || /\p{Cc}/u.test(raw)) return "fhl";
   if (/(?:bearer\s+|(?:^|[^a-z])(?:sk|msk)-[a-z0-9])/i.test(raw)) return "fhl";
   const safe = raw.replace(/[^\p{L}\p{N}._:-]+/gu, "_").slice(0, 80);
   return safe || "fhl";
 }
 
+export function isGPTImage2FamilyID(value: unknown): value is string {
+  const id = cleanExactID(value);
+  return !!id && GPT_IMAGE_2_FAMILY_PATTERN.test(id);
+}
+
+export function gptImage2Minor(value: unknown): number | null {
+  const id = cleanExactID(value);
+  if (!id || !GPT_IMAGE_2_FAMILY_PATTERN.test(id)) return null;
+  const match = GPT_IMAGE_2_FAMILY_PATTERN.exec(id);
+  if (!match?.[1]) return 0;
+  const minor = Number(match[1]);
+  return Number.isSafeInteger(minor) ? minor : null;
+}
+
+function isFuzzyImage25Alias(value: string): boolean {
+  return value.trim().toLowerCase() === "gpt-image-2.5";
+}
+
+/** Only callable exact GPT Image 2.x IDs may be committed to a profile. */
 export function isSupportedFHLImageModelID(value: unknown): value is SupportedFHLImageModelID {
-  return typeof value === "string"
-    && (SUPPORTED_FHL_IMAGE_MODEL_IDS as readonly string[]).includes(value);
+  const id = typeof value === "string" ? cleanExactID(value) : "";
+  return !!id && isGPTImage2FamilyID(id) && !isFuzzyImage25Alias(id);
 }
 
 function cleanExactID(value: unknown): string {
   const id = typeof value === "string" ? value.trim() : "";
-  if (!id || id.toLowerCase() === "gpt-image-2.5" || Array.from(id).length > 128 || /[\u0000-\u001f\u007f]/.test(id)) return "";
+  if (!id || Array.from(id).length > 128 || /\p{Cc}/u.test(id)) return "";
   return id;
+}
+
+function explicitImageCapability(item: ImageModelDescriptorInput): boolean | undefined {
+  const flags = [item.imageCapable, item.supportsGenerations, item.supportsEdits]
+    .filter((value): value is boolean => typeof value === "boolean");
+  return flags.length > 0 ? flags.some(Boolean) : undefined;
+}
+
+function isCandidateModel(id: string, item: ImageModelDescriptorInput): boolean {
+  const explicit = explicitImageCapability(item);
+  // Keep every syntactically valid GPT Image 2.x row as a diagnostic, even
+  // when provider metadata disables it. Other known text/audio model families
+  // must never enter the Android image catalog merely because a malformed row
+  // also contains an optimistic capability flag.
+  if (isGPTImage2FamilyID(id)) return true;
+  if (NON_IMAGE_HINT.test(id)) return false;
+  if (explicit === true) return true;
+  return IMAGE_NAME_HINT.test(id);
+}
+
+function safeDisabledReason(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const raw = value.trim();
+  if (FIXED_DISABLED_REASONS.has(raw)) return raw;
+  if (/模糊|alias/i.test(raw)) return "不可调用的模糊模型别名";
+  if (/透明|transparen/i.test(raw)) return "Provider 明确禁止当前能力";
+  if (/生成|generation|image/i.test(raw) && /不|未|禁止|unsupported|disable/i.test(raw)) {
+    return "Provider 不支持图像生成";
+  }
+  return raw ? "Provider 标记为不可用" : undefined;
+}
+
+function knownDescription(id: string): string {
+  return DESCRIPTIONS[id.toLowerCase()] || "Provider 返回的图像模型";
+}
+
+function normalizeDescriptor(id: string, item: ImageModelDescriptorInput): ImageModelDescriptor {
+  const gptFamily = isGPTImage2FamilyID(id);
+  const explicit = explicitImageCapability(item);
+  const imageCapable = typeof item.imageCapable === "boolean"
+    ? item.imageCapable
+    : true;
+  const supportsGenerations = typeof item.supportsGenerations === "boolean"
+    ? item.supportsGenerations
+    : true;
+  const supportsEdits = typeof item.supportsEdits === "boolean"
+    ? item.supportsEdits
+    : true;
+  let available = item.available !== false && imageCapable && supportsGenerations;
+  let disabledReason = safeDisabledReason(item.disabledReason);
+  if (isFuzzyImage25Alias(id)) {
+    available = false;
+    disabledReason = "不可调用的模糊模型别名";
+  } else if (!imageCapable) {
+    available = false;
+    disabledReason = "Provider 未声明图像生成能力";
+  } else if (!supportsGenerations) {
+    available = false;
+    disabledReason = "Provider 不支持图像生成";
+  } else if (!gptFamily) {
+    available = false;
+    disabledReason = "当前 Android 实现暂不支持";
+  } else if (item.available === false && !disabledReason) {
+    disabledReason = "Provider 标记为不可用";
+  }
+  const minor = gptImage2Minor(id);
+  const supportsTransparency = available
+    && minor !== null
+    && minor >= 5
+    && !isFuzzyImage25Alias(id)
+    && item.supportsTransparency !== false;
+  return {
+    id,
+    description: knownDescription(id),
+    imageCapable,
+    supportsGenerations,
+    supportsEdits,
+    supportsTransparency,
+    available,
+    ...(disabledReason ? { disabledReason } : {}),
+  };
 }
 
 export function normalizeImageModelCatalog(
@@ -99,25 +215,36 @@ export function normalizeImageModelCatalog(
   provider = "fhl",
   fetchedAt = Date.now(),
 ): StoredImageModelCatalog {
-  const seen = new Set<string>();
-  const normalized: ImageModelDescriptor[] = [];
+  const normalizedByID = new Map<string, ImageModelDescriptor>();
   for (const raw of models) {
     const item: ImageModelDescriptorInput = typeof raw === "string" ? { id: raw } : raw ?? {};
     const id = cleanExactID(item.id);
-    if (!isSupportedFHLImageModelID(id) || seen.has(id)) continue;
-    // A provider may explicitly mark an allow-listed ID as non-image or
-    // input-only. Do not turn that metadata into a callable model.
-    if (item.imageCapable === false) continue;
-    seen.add(id);
-    normalized.push({
-      id,
-      description: DESCRIPTIONS[id],
-      imageCapable: true,
-      supportsGenerations: item.supportsGenerations !== false,
-      supportsEdits: item.supportsEdits !== false,
-      supportsTransparency: id !== "gpt-image-2" && item.supportsTransparency !== false,
+    if (!id || !isCandidateModel(id, item)) continue;
+    const key = id.toLowerCase();
+    const descriptor = normalizeDescriptor(id, item);
+    const previous = normalizedByID.get(key);
+    if (!previous) {
+      normalizedByID.set(key, descriptor);
+      continue;
+    }
+    // Duplicate provider rows are merged conservatively instead of allowing a
+    // later optimistic capability declaration to widen the model.
+    const mergedAvailable = previous.available && descriptor.available;
+    const mergedGenerations = previous.supportsGenerations && descriptor.supportsGenerations;
+    const mergedEdits = previous.supportsEdits && descriptor.supportsEdits;
+    const mergedTransparency = previous.supportsTransparency && descriptor.supportsTransparency;
+    const mergedReason = previous.disabledReason || descriptor.disabledReason;
+    normalizedByID.set(key, {
+      ...previous,
+      imageCapable: previous.imageCapable && descriptor.imageCapable,
+      supportsGenerations: mergedGenerations,
+      supportsEdits: mergedEdits,
+      supportsTransparency: mergedTransparency,
+      available: mergedAvailable,
+      ...(mergedReason ? { disabledReason: mergedReason } : {}),
     });
   }
+  const normalized = [...normalizedByID.values()];
   const safeFetchedAt = Number.isFinite(Number(fetchedAt)) && Number(fetchedAt) > 0
     ? Math.floor(Number(fetchedAt))
     : Date.now();
@@ -158,8 +285,9 @@ export function intersectFHLImageModelCatalogs(
   }
 
   const intersectedModels = normalized[0].models.flatMap((firstModel) => {
+    const firstKey = firstModel.id.toLowerCase();
     const matches = normalized.map((catalog) => (
-      catalog.models.find((model) => model.id === firstModel.id)
+      catalog.models.find((model) => model.id.toLowerCase() === firstKey)
     ));
     if (matches.some((model) => !model)) return [];
     const models = matches as ImageModelDescriptor[];
@@ -169,6 +297,10 @@ export function intersectFHLImageModelCatalogs(
       supportsGenerations: models.every((model) => model.supportsGenerations),
       supportsEdits: models.every((model) => model.supportsEdits),
       supportsTransparency: models.every((model) => model.supportsTransparency),
+      available: models.every((model) => model.available),
+      ...(models.find((model) => model.disabledReason)?.disabledReason
+        ? { disabledReason: models.find((model) => model.disabledReason)?.disabledReason }
+        : {}),
     }];
   });
   const catalog = normalizeImageModelCatalog(
@@ -215,11 +347,22 @@ export function loadImageModelCatalog(baseUrl?: string, provider?: string): Stor
 
 export function imageModelCatalogEntry(catalog: StoredImageModelCatalog | null | undefined, modelID: string): ImageModelDescriptor | null {
   const id = cleanExactID(modelID);
-  return catalog?.models.find((model) => model.id === id) ?? null;
+  const key = id.toLowerCase();
+  return catalog?.models.find((model) => model.id.toLowerCase() === key) ?? null;
 }
 
 export function imageModelIsValidated(
-  profile: Pick<UpstreamProfile, "imageModelID" | "imageModelValidatedAt" | "imageModelCatalogBaseUrl" | "imageModelCatalogProvider"> | null | undefined,
+  profile: Pick<UpstreamProfile,
+    | "imageModelID"
+    | "imageModelValidatedAt"
+    | "imageModelCatalogBaseUrl"
+    | "imageModelCatalogProvider"
+    | "imageModelAvailable"
+    | "imageModelSupportsGenerations"
+    | "imageModelSupportsEdits"
+    | "imageModelSupportsTransparency"
+    | "imageModelCatalogValidationId"
+  > | null | undefined,
   catalog: StoredImageModelCatalog | null | undefined,
 ): boolean {
   if (!profile?.imageModelValidatedAt || !Number.isFinite(profile.imageModelValidatedAt)) return false;
@@ -227,7 +370,14 @@ export function imageModelIsValidated(
   if (!profile.imageModelCatalogBaseUrl?.trim() || !profile.imageModelCatalogProvider?.trim()) return false;
   if (normalizedBaseUrl(profile.imageModelCatalogBaseUrl) !== normalizedBaseUrl(catalog.baseUrl)) return false;
   if (safeProvider(profile.imageModelCatalogProvider) !== safeProvider(catalog.provider)) return false;
-  return !!imageModelCatalogEntry(catalog, profile.imageModelID);
+  const entry = imageModelCatalogEntry(catalog, profile.imageModelID);
+  return entry?.available === true
+    && entry.supportsGenerations === true
+    && profile.imageModelAvailable === entry.available
+    && profile.imageModelSupportsGenerations === entry.supportsGenerations
+    && profile.imageModelSupportsEdits === entry.supportsEdits
+    && profile.imageModelSupportsTransparency === entry.supportsTransparency
+    && !!profile.imageModelCatalogValidationId?.trim();
 }
 
 export function imageModelSupportsTransparency(catalog: StoredImageModelCatalog | null | undefined, modelID: string): boolean {
@@ -268,13 +418,24 @@ export async function fetchFHLImageModelCatalog(
     proxyMode,
     proxyURL,
     signal,
+    options.validationProfileId && options.validationSlotNumber && options.fetchedAt
+      ? {
+          profileId: options.validationProfileId,
+          slotNumber: options.validationSlotNumber,
+          fetchedAt: options.fetchedAt,
+        }
+      : undefined,
   );
-  const catalog = normalizeImageModelCatalog(
+  const normalized = normalizeImageModelCatalog(
     result.models ?? [],
     result.baseURL || baseUrl,
     result.provider || provider,
     options.fetchedAt ?? Date.now(),
   );
+  const catalog: StoredImageModelCatalog = {
+    ...normalized,
+    ...(result.validationId ? { validationId: result.validationId } : {}),
+  };
   if (catalog.models.length === 0) {
     throw new Error("当前 Images API 未返回可用的精确生图模型。");
   }
@@ -283,5 +444,5 @@ export async function fetchFHLImageModelCatalog(
 }
 
 export function knownImageModelDescription(modelID: string): string {
-  return DESCRIPTIONS[modelID.trim()] || "Provider 返回的图像模型";
+  return DESCRIPTIONS[modelID.trim().toLowerCase()] || "Provider 返回的图像模型";
 }

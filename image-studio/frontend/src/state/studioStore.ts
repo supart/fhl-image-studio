@@ -179,7 +179,10 @@ import {
   streamPreviewStatePatch,
   type StreamPreviewPayload,
 } from "./studioStore.streamPreview";
-import { frozenReplayFromLastPayload } from "./frozenSubmissionReplay.ts";
+import {
+  frozenReplayFromLastPayload,
+  jobSlotHasConflictingImageModelMetadata,
+} from "./frozenSubmissionReplay.ts";
 import { AndroidCanvasRecoveryRegistry } from "./androidCanvasRecovery.ts";
 import { buildEffectivePrompt } from "./promptComposition";
 import { historyPageHasMore } from "./historyRetention.ts";
@@ -197,6 +200,7 @@ import {
 } from "../lib/providerPolicy.ts";
 import {
   imageModelCatalogBaseUrl,
+  imageModelCatalogEntry,
   imageModelCatalogProvider,
   imageModelIsValidated,
   imageModelSupportsTransparency,
@@ -214,6 +218,11 @@ type RuntimeGenerateOptions = Omit<backend.GenerateOptions, "imageBackgroundMode
   batchVariationKey?: string;
   batchIndex?: number;
   batchCount?: number;
+  imageModelAvailable?: boolean;
+  imageModelSupportsGenerations?: boolean;
+  imageModelSupportsEdits?: boolean;
+  imageModelSupportsTransparency?: boolean;
+  imageModelCatalogValidationId?: string;
 };
 
 const browserJobSubscriptions = new Map<string, () => void>();
@@ -554,6 +563,20 @@ function frozenReplayProfileError(
   if (!imageModelIsValidated(profile, catalog)) {
     return "原任务的模型目录快照已失效，请重新获取目录后手动确认参数。";
   }
+  const entry = imageModelCatalogEntry(catalog, replay.imageModelID);
+  if (!entry || entry.available !== true || entry.supportsGenerations !== true) {
+    return "原任务的精确生图模型已不可用，请重新验证目录后手动确认参数。";
+  }
+  if (
+    replay.imageModelAvailable !== true
+    || replay.imageModelSupportsGenerations !== entry.supportsGenerations
+    || replay.imageModelSupportsEdits !== entry.supportsEdits
+    || replay.imageModelSupportsTransparency !== entry.supportsTransparency
+    || !replay.imageModelCatalogValidationId?.trim()
+    || profile.imageModelCatalogValidationId !== replay.imageModelCatalogValidationId
+  ) {
+    return "原任务缺少匹配的模型能力证明，请重新获取目录并保存统一模型。";
+  }
   return null;
 }
 
@@ -793,6 +816,7 @@ async function buildHistoryItemFromBrowserSlot(
   const imageB64 = previewUrl ? "" : (existing?.imageB64 || await ReadImageAsBase64(savedPath).catch(() => ""));
   if (!previewUrl && !imageB64 && !mediaRef?.imageId && !mediaRef?.fullUrl) return null;
   const seedBase = Number.isFinite(Number(group.seed)) ? Number(group.seed) : 0;
+  const modelMetadataConflict = jobSlotHasConflictingImageModelMetadata(group, slot);
   return {
     ...existing,
     id: browserHistoryId(slot.jobId),
@@ -813,6 +837,13 @@ async function buildHistoryItemFromBrowserSlot(
     imageModelValidatedAt: slot.imageModelValidatedAt ?? group.imageModelValidatedAt,
     imageModelCatalogBaseUrl: slot.imageModelCatalogBaseUrl || group.imageModelCatalogBaseUrl || undefined,
     imageModelCatalogProvider: slot.imageModelCatalogProvider || group.imageModelCatalogProvider || undefined,
+    imageModelAvailable: modelMetadataConflict ? undefined : slot.imageModelAvailable ?? group.imageModelAvailable,
+    imageModelSupportsGenerations: modelMetadataConflict ? undefined : slot.imageModelSupportsGenerations ?? group.imageModelSupportsGenerations,
+    imageModelSupportsEdits: modelMetadataConflict ? undefined : slot.imageModelSupportsEdits ?? group.imageModelSupportsEdits,
+    imageModelSupportsTransparency: modelMetadataConflict ? undefined : slot.imageModelSupportsTransparency ?? group.imageModelSupportsTransparency,
+    imageModelCatalogValidationId: modelMetadataConflict
+      ? undefined
+      : slot.imageModelCatalogValidationId || group.imageModelCatalogValidationId || undefined,
     createdAt: slot.finishedAt ?? slot.updatedAt ?? group.createdAt,
     seed: seedBase > 0 ? seedBase + slot.batchIndex : undefined,
     negativePrompt: group.negativePrompt || undefined,
@@ -1747,6 +1778,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const imageModelCatalog = isFHLImageRequest
       ? loadImageModelCatalog(cleanedBaseURL, submitProvider)
       : null;
+    const submitImageModelEntry = isFHLImageRequest
+      ? imageModelCatalogEntry(imageModelCatalog, submitImageModelID)
+      : null;
     const imageModelValidated = isFHLImageRequest
       && !!activeProfile
       && imageModelIsValidated(activeProfile, imageModelCatalog);
@@ -1757,6 +1791,27 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       });
       return;
     }
+    if (isFHLImageRequest && (!submitImageModelEntry || submitImageModelEntry.available !== true || submitImageModelEntry.supportsGenerations !== true)) {
+      set({
+        errorMessage: "当前精确生图模型不在共同可用目录中，请重新获取并保存统一模型。",
+        errorRawPath: null,
+      });
+      return;
+    }
+    const submitImageModelAvailable = isFHLImageRequest
+      ? submitImageModelEntry?.available === true
+      : activeProfile?.imageModelAvailable;
+    const submitImageModelSupportsGenerations = isFHLImageRequest
+      ? submitImageModelEntry?.supportsGenerations === true
+      : activeProfile?.imageModelSupportsGenerations;
+    const submitImageModelSupportsEdits = isFHLImageRequest
+      ? submitImageModelEntry?.supportsEdits === true
+      : activeProfile?.imageModelSupportsEdits;
+    const submitImageModelSupportsTransparency = isFHLImageRequest
+      ? submitImageModelEntry?.supportsTransparency === true
+      : activeProfile?.imageModelSupportsTransparency;
+    const submitImageModelCatalogValidationId = frozenReplay?.imageModelCatalogValidationId
+      ?? activeProfile?.imageModelCatalogValidationId;
     const requestedBackgroundMode = normalizeImageBackgroundMode(
       frozenReplay?.imageBackgroundMode ?? s.imageBackgroundMode,
     );
@@ -1987,6 +2042,11 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       imageModelValidatedAt: submitImageModelValidatedAt,
       imageModelCatalogBaseUrl: submitImageModelCatalogBaseUrl,
       imageModelCatalogProvider: submitImageModelCatalogProvider,
+      imageModelAvailable: submitImageModelAvailable,
+      imageModelSupportsGenerations: submitImageModelSupportsGenerations,
+      imageModelSupportsEdits: submitImageModelSupportsEdits,
+      imageModelSupportsTransparency: submitImageModelSupportsTransparency,
+      imageModelCatalogValidationId: submitImageModelCatalogValidationId,
       proxyMode: s.proxyMode,
       proxyURL: s.proxyURL,
       requestPolicy: submitRequestPolicy,
@@ -2056,6 +2116,11 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           imageModelValidatedAt: submitImageModelValidatedAt,
           imageModelCatalogBaseUrl: submitImageModelCatalogBaseUrl,
           imageModelCatalogProvider: submitImageModelCatalogProvider,
+          imageModelAvailable: submitImageModelAvailable,
+          imageModelSupportsGenerations: submitImageModelSupportsGenerations,
+          imageModelSupportsEdits: submitImageModelSupportsEdits,
+          imageModelSupportsTransparency: submitImageModelSupportsTransparency,
+          imageModelCatalogValidationId: submitImageModelCatalogValidationId,
         });
         const nextJobGroupsByWorkspace = isAndroidTaskProxyMode()
           ? mergeAndroidWorkspaceJobGroup(get().jobGroupsByWorkspace, response.group)
@@ -2142,6 +2207,11 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         imageModelValidatedAt: submitImageModelValidatedAt,
         imageModelCatalogBaseUrl: submitImageModelCatalogBaseUrl,
         imageModelCatalogProvider: submitImageModelCatalogProvider,
+        imageModelAvailable: submitImageModelAvailable,
+        imageModelSupportsGenerations: submitImageModelSupportsGenerations,
+        imageModelSupportsEdits: submitImageModelSupportsEdits,
+        imageModelSupportsTransparency: submitImageModelSupportsTransparency,
+        imageModelCatalogValidationId: submitImageModelCatalogValidationId,
         batchIndex,
         size: resolvedSize,
         quality: s.quality,
@@ -2647,6 +2717,11 @@ export const useStudioStore = create<StudioState>((set, get) => ({
             baseURL: "",
             textModelID: "",
             imageModelID: "",
+            imageModelAvailable: undefined,
+            imageModelSupportsGenerations: undefined,
+            imageModelSupportsEdits: undefined,
+            imageModelSupportsTransparency: undefined,
+            imageModelCatalogValidationId: undefined,
           });
         } else {
           set({
@@ -3527,6 +3602,11 @@ async function launchOneJob(
     imageModelValidatedAt?: number;
     imageModelCatalogBaseUrl?: string;
     imageModelCatalogProvider?: string;
+    imageModelAvailable?: boolean;
+    imageModelSupportsGenerations?: boolean;
+    imageModelSupportsEdits?: boolean;
+    imageModelSupportsTransparency?: boolean;
+    imageModelCatalogValidationId?: string;
     batchIndex: number;
     size: SizeValue;
     quality: QualityValue;
@@ -3715,6 +3795,11 @@ async function launchOneJob(
             imageModelValidatedAt: snapshot.imageModelValidatedAt,
             imageModelCatalogBaseUrl: snapshot.imageModelCatalogBaseUrl,
             imageModelCatalogProvider: snapshot.imageModelCatalogProvider,
+            imageModelAvailable: snapshot.imageModelAvailable,
+            imageModelSupportsGenerations: snapshot.imageModelSupportsGenerations,
+            imageModelSupportsEdits: snapshot.imageModelSupportsEdits,
+            imageModelSupportsTransparency: snapshot.imageModelSupportsTransparency,
+            imageModelCatalogValidationId: snapshot.imageModelCatalogValidationId,
             parentId,
             createdAt: Date.now(),
             seed: payload.seed || undefined,

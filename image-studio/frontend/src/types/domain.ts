@@ -28,6 +28,13 @@ export interface UpstreamProfile {
   imageModelCatalogBaseUrl?: string;
   /** Safe provider identifier associated with the catalog. */
   imageModelCatalogProvider?: string;
+  /** Frozen, provider-confirmed capability snapshot for the exact model. */
+  imageModelAvailable?: boolean;
+  imageModelSupportsGenerations?: boolean;
+  imageModelSupportsEdits?: boolean;
+  imageModelSupportsTransparency?: boolean;
+  /** Opaque native receipt binding the model to its validated catalog. */
+  imageModelCatalogValidationId?: string;
   // 0 = 不限。同一 profile 跨所有 workspace 共享并发计数。
   concurrencyLimit: number;
   // Images profile 是否参与连续生成的自动分配池。
@@ -134,6 +141,11 @@ export interface HistoryItem {
   imageModelValidatedAt?: number;
   imageModelCatalogBaseUrl?: string;
   imageModelCatalogProvider?: string;
+  imageModelAvailable?: boolean;
+  imageModelSupportsGenerations?: boolean;
+  imageModelSupportsEdits?: boolean;
+  imageModelSupportsTransparency?: boolean;
+  imageModelCatalogValidationId?: string;
   parentId?: string;       // id of the source image (when mode === "edit")
   createdAt: number;       // unix ms
 
@@ -211,6 +223,11 @@ export interface JobSlotSnapshot {
   imageModelValidatedAt?: number;
   imageModelCatalogBaseUrl?: string;
   imageModelCatalogProvider?: string;
+  imageModelAvailable?: boolean;
+  imageModelSupportsGenerations?: boolean;
+  imageModelSupportsEdits?: boolean;
+  imageModelSupportsTransparency?: boolean;
+  imageModelCatalogValidationId?: string;
   imageBackgroundMode?: ImageBackgroundMode;
   queueSequence?: number;
   reservationSlot?: number;
@@ -268,6 +285,11 @@ export interface JobGroupSnapshot {
   imageModelValidatedAt?: number;
   imageModelCatalogBaseUrl?: string;
   imageModelCatalogProvider?: string;
+  imageModelAvailable?: boolean;
+  imageModelSupportsGenerations?: boolean;
+  imageModelSupportsEdits?: boolean;
+  imageModelSupportsTransparency?: boolean;
+  imageModelCatalogValidationId?: string;
   prompt: string;
   batchCount: number;
   concurrencyLimit?: number;

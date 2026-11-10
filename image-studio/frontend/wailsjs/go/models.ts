@@ -21,6 +21,11 @@ export namespace backend {
 	    imageModelValidatedAt?: number;
 	    imageModelCatalogBaseUrl?: string;
 	    imageModelCatalogProvider?: string;
+	    imageModelAvailable?: boolean;
+	    imageModelSupportsGenerations?: boolean;
+	    imageModelSupportsEdits?: boolean;
+	    imageModelSupportsTransparency?: boolean;
+	    imageModelCatalogValidationId?: string;
 	    proxyMode: string;
 	    proxyURL: string;
 	    apiMode: string;
@@ -56,6 +61,11 @@ export namespace backend {
 	        this.imageModelValidatedAt = source["imageModelValidatedAt"];
 	        this.imageModelCatalogBaseUrl = source["imageModelCatalogBaseUrl"];
 	        this.imageModelCatalogProvider = source["imageModelCatalogProvider"];
+	        this.imageModelAvailable = source["imageModelAvailable"];
+	        this.imageModelSupportsGenerations = source["imageModelSupportsGenerations"];
+	        this.imageModelSupportsEdits = source["imageModelSupportsEdits"];
+	        this.imageModelSupportsTransparency = source["imageModelSupportsTransparency"];
+	        this.imageModelCatalogValidationId = source["imageModelCatalogValidationId"];
 	        this.proxyMode = source["proxyMode"];
 	        this.proxyURL = source["proxyURL"];
 	        this.apiMode = source["apiMode"];

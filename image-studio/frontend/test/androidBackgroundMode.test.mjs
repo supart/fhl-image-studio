@@ -14,9 +14,13 @@ const catalog = normalizeImageModelCatalog([
   "gpt-image-2",
   "gpt-image-2.5-flare",
   "gpt-image-2.5-sunburst",
+  "gpt-image-2.6",
+  "gpt-image-2.7-future",
+  "gpt-image-2.5",
 ], baseURL, "fhl", fetchedAt);
 
-function profile(imageModelID = "gpt-image-2.5-flare") {
+function profile(imageModelID = "gpt-image-2.5-flare", sourceCatalog = catalog) {
+  const entry = sourceCatalog.models.find((model) => model.id === imageModelID);
   return {
     id: "fhl-images-1",
     name: "FHL1",
@@ -28,6 +32,11 @@ function profile(imageModelID = "gpt-image-2.5-flare") {
     imageModelValidatedAt: fetchedAt,
     imageModelCatalogBaseUrl: baseURL,
     imageModelCatalogProvider: "fhl",
+    imageModelAvailable: entry?.available,
+    imageModelSupportsGenerations: entry?.supportsGenerations,
+    imageModelSupportsEdits: entry?.supportsEdits,
+    imageModelSupportsTransparency: entry?.supportsTransparency,
+    imageModelCatalogValidationId: "catalog-proof-1234",
     provider: "fhl",
     concurrencyLimit: 4,
     fhlImagesPoolSlot: 1,
@@ -35,8 +44,13 @@ function profile(imageModelID = "gpt-image-2.5-flare") {
   };
 }
 
-test("transparent PNG is available only to validated exact 2.5 image models", () => {
-  for (const imageModelID of ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]) {
+test("transparent PNG is available to validated exact GPT Image 2.5+ models", () => {
+  for (const imageModelID of [
+    "gpt-image-2.5-flare",
+    "gpt-image-2.5-sunburst",
+    "gpt-image-2.6",
+    "gpt-image-2.7-future",
+  ]) {
     assert.deepEqual(resolveAndroidTransparentEligibility({
       activeProfile: profile(imageModelID),
       apiMode: "images",
@@ -107,4 +121,37 @@ test("missing validation and a provider catalog without the selected model stay 
     catalog: missingModelCatalog,
     imageModelID: "gpt-image-2.5-flare",
   }).reason, /未提供/);
+});
+
+test("fuzzy alias and provider transparency opt-out remain disabled", () => {
+  assert.match(resolveAndroidTransparentEligibility({
+    activeProfile: profile("gpt-image-2.5"),
+    apiMode: "images",
+    baseURL,
+    catalog,
+    imageModelID: "gpt-image-2.5",
+  }).reason, /模糊模型别名/);
+
+  const optedOutCatalog = normalizeImageModelCatalog([
+    { id: "gpt-image-2.6-flare", supportsTransparency: false },
+  ], baseURL, "fhl", fetchedAt);
+  assert.match(resolveAndroidTransparentEligibility({
+    activeProfile: profile("gpt-image-2.6-flare", optedOutCatalog),
+    apiMode: "images",
+    baseURL,
+    catalog: optedOutCatalog,
+    imageModelID: "gpt-image-2.6-flare",
+  }).reason, /Provider.*透明/);
+});
+
+test("legacy profile without a capability proof must revalidate", () => {
+  const legacy = profile("gpt-image-2.6");
+  delete legacy.imageModelCatalogValidationId;
+  assert.match(resolveAndroidTransparentEligibility({
+    activeProfile: legacy,
+    apiMode: "images",
+    baseURL,
+    catalog,
+    imageModelID: "gpt-image-2.6",
+  }).reason, /能力证明/);
 });

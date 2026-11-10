@@ -53,6 +53,20 @@ private val probeModelIdPattern = Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{1,159}$")
 
 private const val maxImageModelCatalogIdLength = 128
 
+/**
+ * Keep this predicate in sync with the web catalog.  A prefix check is unsafe:
+ * it would also admit ids such as `gpt-image-20` and arbitrary provider paths.
+ */
+internal val gptImage2FamilyPattern = Regex(
+    "^gpt-image-2(?:\\.(\\d+))?(?:-[a-z0-9][a-z0-9._-]*)?$",
+    RegexOption.IGNORE_CASE,
+)
+private val nonImageModelHintPattern = Regex(
+    "(?:embedding|embed|audio|speech|moderation|rerank|transcri(?:be|ption)|tts|whisper)",
+    RegexOption.IGNORE_CASE,
+)
+private val imageModelNameHintPattern = Regex("(?:image|dall|imagen)", RegexOption.IGNORE_CASE)
+
 internal data class FHLImageModelCatalogEntry(
     val id: String,
     val description: String,
@@ -60,48 +74,218 @@ internal data class FHLImageModelCatalogEntry(
     val supportsGenerations: Boolean = true,
     val supportsEdits: Boolean = true,
     val supportsTransparency: Boolean,
+    val available: Boolean = true,
+    val disabledReason: String? = null,
 )
 
-private val supportedFHLImageModelCatalog = linkedMapOf(
-    "gpt-image-2" to FHLImageModelCatalogEntry(
-        id = "gpt-image-2",
-        description = "兼容原有 V2.0 工作方式，继续使用稳定流程。",
-        supportsTransparency = false,
-    ),
-    "gpt-image-2.5-flare" to FHLImageModelCatalogEntry(
-        id = "gpt-image-2.5-flare",
-        description = "速度优先，适合批量生成和快速迭代，支持透明 PNG。",
-        supportsTransparency = true,
-    ),
-    "gpt-image-2.5-sunburst" to FHLImageModelCatalogEntry(
-        id = "gpt-image-2.5-sunburst",
-        description = "高精度，适合精细编辑、复杂细节和透明 PNG。",
-        supportsTransparency = true,
-    ),
-)
+private const val fuzzyImage25AliasReason = "不可调用的模糊模型别名"
+private const val unsupportedAndroidImageModelReason = "当前 Android 实现暂不支持"
+private const val providerUnavailableReason = "Provider 标记为不可用"
+private const val providerImageCapabilityReason = "Provider 未声明图像生成能力"
+private const val providerGenerationReason = "Provider 不支持图像生成"
+
+private fun knownImageModelDescription(id: String): String = when (id.lowercase(Locale.US)) {
+    "gpt-image-2" -> "兼容原有 V2.0 工作方式，继续使用稳定流程。"
+    "gpt-image-2.5-flare" -> "速度优先，适合批量生成和快速迭代，支持透明 PNG。"
+    "gpt-image-2.5-sunburst" -> "高精度，适合精细编辑、复杂细节和透明 PNG。"
+    else -> "Provider 返回的图像模型"
+}
 
 private fun sanitizeImageModelCatalogId(raw: String): String {
     val id = raw.trim()
-    if (id.isBlank() || id.length > maxImageModelCatalogIdLength) return ""
-    if (id.any { it.code < 0x20 || it.code == 0x7F }) return ""
+    if (id.isBlank() || id.codePointCount(0, id.length) > maxImageModelCatalogIdLength) return ""
+    var offset = 0
+    while (offset < id.length) {
+        val codePoint = id.codePointAt(offset)
+        if (Character.getType(codePoint) == Character.CONTROL.toInt()) return ""
+        offset += Character.charCount(codePoint)
+    }
     return id
 }
 
 internal fun parseFHLImageModelCatalog(data: JSONArray): List<FHLImageModelCatalogEntry> {
-    val entries = mutableListOf<FHLImageModelCatalogEntry>()
-    val seen = linkedSetOf<String>()
+    val entries = linkedMapOf<String, FHLImageModelCatalogEntry>()
     for (index in 0 until data.length()) {
         val item = data.opt(index)
+        val objectItem = item as? JSONObject
         val rawId = when (item) {
             is String -> item
-            is JSONObject -> item.opt("id") as? String ?: ""
+            is JSONObject -> item.optString("id")
             else -> ""
         }
         val id = sanitizeImageModelCatalogId(rawId)
-        val descriptor = supportedFHLImageModelCatalog[id] ?: continue
-        if (seen.add(id)) entries += descriptor
+        if (id.isBlank()) continue
+        val family = gptImage2FamilyPattern.matches(id)
+        val explicitImageCapable = objectItem?.strictBoolean("imageCapable", "image_capable")
+        val explicitGenerations = objectItem?.strictBoolean("supportsGenerations", "supports_generations")
+        val explicitEdits = objectItem?.strictBoolean("supportsEdits", "supports_edits")
+        val explicitTransparency = objectItem?.strictBoolean("supportsTransparency", "supports_transparency")
+        val explicitAvailable = objectItem?.strictBoolean("available", "isAvailable", "is_available")
+        val explicitImageCapability = hasExplicitImageGenerationCapability(objectItem)
+            || explicitGenerations == true
+            || explicitEdits == true
+        val knownNonImage = knownNonImageModel(id, objectItem)
+        val declaresImageInput = declaresImageInput(objectItem)
+        val contradictoryMetadata = !explicitImageCapability && (knownNonImage || declaresImageInput)
+        // A malformed GPT Image-looking id without an explicit image endpoint
+        // is not a safe diagnostic candidate. Keep provider-specific image
+        // candidates visible only when the response explicitly describes an
+        // image-generation route.
+        if (!family && id.lowercase(Locale.US).startsWith("gpt-image-") && !explicitImageCapability) continue
+        // Keep non-GPT image candidates as visible diagnostics only. Text/audio/etc.
+        // models without an explicit image capability must never enter the catalog.
+        if (!family && (nonImageModelHintPattern.containsMatchIn(id) || knownNonImage)) continue
+        if (!family && declaresImageInput && !explicitImageCapability) continue
+        if (!family && !imageModelNameHintPattern.containsMatchIn(id) && !explicitImageCapability) continue
+
+        // Exact GPT Image ids remain visible for diagnosis, but contradictory
+        // text/input-only metadata must not inherit the family defaults.
+        val imageCapable = if (contradictoryMetadata) false else explicitImageCapable ?: true
+        val supportsGenerations = if (contradictoryMetadata) false else explicitGenerations ?: true
+        val supportsEdits = explicitEdits ?: true
+        val fuzzyAlias = id.equals("gpt-image-2.5", ignoreCase = true)
+        var available = (explicitAvailable != false) && imageCapable && supportsGenerations && family
+        var disabledReason: String? = when {
+            fuzzyAlias -> fuzzyImage25AliasReason
+            explicitAvailable == false -> providerUnavailableReason
+            !imageCapable -> providerImageCapabilityReason
+            !supportsGenerations -> providerGenerationReason
+            !family -> unsupportedAndroidImageModelReason
+            else -> null
+        }
+        if (fuzzyAlias) available = false
+        val minor = gptImage2Minor(id)
+        val supportsTransparency = available
+            && family
+            && minor != null
+            && minor >= 5
+            && !fuzzyAlias
+            && explicitTransparency != false
+        val candidate = FHLImageModelCatalogEntry(
+            id = id,
+            description = knownImageModelDescription(id),
+            imageCapable = imageCapable,
+            supportsGenerations = supportsGenerations,
+            supportsEdits = supportsEdits,
+            supportsTransparency = supportsTransparency,
+            available = available,
+            disabledReason = disabledReason,
+        )
+        val key = id.lowercase(Locale.US)
+        val previous = entries[key]
+        entries[key] = if (previous == null) candidate else mergeCatalogEntries(previous, candidate)
     }
-    return entries
+    return entries.values.toList()
+}
+
+private fun knownNonImageModel(id: String, item: JSONObject?): Boolean {
+    val lower = id.lowercase(Locale.US)
+    if (listOf("text-", "embedding", "text_embedding", "whisper", "audio", "speech", "transcribe", "transcription", "tts-", "moderation", "omni-moderation", "rerank")
+            .any(lower::startsWith)
+    ) return true
+    if (item == null) return false
+    for (key in listOf("type", "model_type", "object")) {
+        val value = (item.opt(key) as? String)?.trim()?.lowercase(Locale.US).orEmpty()
+        if (value in setOf("text", "text_model", "text-model", "language_model", "language-model", "chat")
+            || listOf("embedding", "moderation", "audio", "speech", "rerank").any(value::contains)
+        ) return true
+    }
+    return false
+}
+
+private fun hasExplicitImageGenerationCapability(item: JSONObject?): Boolean {
+    if (item == null) return false
+    for (key in listOf("type", "model_type")) {
+        if (imageTypeCapabilityValue(item.opt(key))) return true
+    }
+    for (key in listOf("output_modalities", "output_types", "output_type")) {
+        if (imageOutputCapabilityValue(item.opt(key))) return true
+    }
+    for (key in listOf("modality", "modalities", "capabilities", "endpoints", "supported_endpoints")) {
+        if (imageGenerationCapabilityValue(item.opt(key))) return true
+    }
+    return false
+}
+
+private fun declaresImageInput(item: JSONObject?): Boolean {
+    if (item == null) return false
+    return listOf("input_modality", "input_modalities", "input_types", "input_type")
+        .any { imageOutputCapabilityValue(item.opt(it)) }
+}
+
+private fun imageGenerationMarker(value: String): Boolean {
+    val text = value.lowercase(Locale.US)
+    return listOf(
+        "image_generation", "image-generation", "image generation",
+        "image_edit", "image-edit", "image editing", "images/generations", "images/edits",
+    ).any(text::contains)
+}
+
+private fun imageGenerationCapabilityValue(value: Any?): Boolean = when (value) {
+    is String -> imageGenerationMarker(value)
+    is JSONArray -> (0 until value.length()).any { imageGenerationCapabilityValue(value.opt(it)) }
+    is JSONObject -> value.keys().asSequence().any { key ->
+        val child = value.opt(key)
+        (imageGenerationMarker(key) && (child !is Boolean || child)) || imageGenerationCapabilityValue(child)
+    }
+    else -> false
+}
+
+private fun imageTypeCapabilityValue(value: Any?): Boolean {
+    if (imageGenerationCapabilityValue(value)) return true
+    val normalized = (value as? String)?.trim()?.lowercase(Locale.US).orEmpty()
+    return normalized in setOf("image", "image_model", "image-model")
+}
+
+private fun imageOutputCapabilityValue(value: Any?): Boolean = when (value) {
+    is String -> imageGenerationMarker(value) || value.trim().lowercase(Locale.US) in setOf("image", "images")
+    is JSONArray -> (0 until value.length()).any { imageOutputCapabilityValue(value.opt(it)) }
+    is JSONObject -> value.keys().asSequence().any { key ->
+        val child = value.opt(key)
+        ((key.equals("image", true) || key.equals("images", true)) && (child !is Boolean || child))
+            || imageOutputCapabilityValue(child)
+    }
+    else -> false
+}
+
+private fun JSONObject.strictBoolean(vararg keys: String): Boolean? {
+    for (key in keys) {
+        if (has(key) && !isNull(key)) return opt(key) as? Boolean
+        val capabilities = optJSONObject("capabilities")
+        if (capabilities != null && capabilities.has(key) && !capabilities.isNull(key)) {
+            return capabilities.opt(key) as? Boolean
+        }
+    }
+    return null
+}
+
+private fun gptImage2Minor(id: String): Int? {
+    val match = gptImage2FamilyPattern.matchEntire(id.trim()) ?: return 0
+    val raw = match.groupValues.getOrNull(1).orEmpty()
+    if (raw.isBlank()) return 0
+    return raw.toIntOrNull()?.takeIf { it >= 0 }
+}
+
+private fun mergeCatalogEntries(
+    left: FHLImageModelCatalogEntry,
+    right: FHLImageModelCatalogEntry,
+): FHLImageModelCatalogEntry {
+    val available = left.available && right.available
+    val reason = when {
+        left.disabledReason == fuzzyImage25AliasReason || right.disabledReason == fuzzyImage25AliasReason -> fuzzyImage25AliasReason
+        left.disabledReason != null -> left.disabledReason
+        right.disabledReason != null -> right.disabledReason
+        !available -> providerUnavailableReason
+        else -> null
+    }
+    return left.copy(
+        imageCapable = left.imageCapable && right.imageCapable,
+        supportsGenerations = left.supportsGenerations && right.supportsGenerations,
+        supportsEdits = left.supportsEdits && right.supportsEdits,
+        supportsTransparency = left.supportsTransparency && right.supportsTransparency,
+        available = available,
+        disabledReason = reason,
+    )
 }
 
 internal fun parseProbeModelIds(data: JSONArray): List<String> {
@@ -219,6 +403,22 @@ class AndroidImageStudioBridge(
                     val payload = args.optJSONObject(0) ?: throw IllegalArgumentException("缺少生图模型目录参数")
                     runListImageModels(requestId, payload)
                 }
+                "CommitImageModelValidationBatch" -> {
+                    val payload = args.optJSONObject(0) ?: throw IllegalArgumentException("缺少统一模型验证参数")
+                    commitImageModelValidationBatch(payload)
+                }
+                "InvalidateImageModelValidationProfiles" -> {
+                    val profileIds = args.optJSONArray(0)
+                        ?: throw IllegalArgumentException("缺少需要撤销模型验证的 Profile")
+                    invalidateImageModelValidationProfiles(profileIds)
+                    null
+                }
+                "InvalidateImageModelValidationBatches" -> {
+                    val profileIds = args.optJSONArray(0)
+                        ?: throw IllegalArgumentException("缺少需要撤销模型验证的 Profile")
+                    invalidateImageModelValidationProfiles(profileIds, batchesOnly = true)
+                    null
+                }
                 "SubmitAndroidJobs" -> {
                     val payload = args.optJSONObject(0) ?: throw IllegalArgumentException("缺少后台任务参数")
                     AndroidJobManager.submit(context, payload)
@@ -313,11 +513,13 @@ class AndroidImageStudioBridge(
     @JavascriptInterface
     fun setStoredApiKey(user: String, value: String) {
         credentialStore.setProfileCredential(user, value)
+        AndroidImageModelValidationRegistry.invalidateCredentialUser(context, user)
     }
 
     @JavascriptInterface
     fun deleteStoredApiKey(user: String) {
         credentialStore.deleteProfileCredential(user)
+        AndroidImageModelValidationRegistry.invalidateCredentialUser(context, user)
     }
 
     @JavascriptInterface
@@ -794,8 +996,14 @@ class AndroidImageStudioBridge(
         val apiKey = payload.optString("apiKey").trim()
         val proxyMode = payload.optString("proxyMode", "system")
         val proxyUrl = payload.optString("proxyURL", "")
+        val profileId = safeJobMetadataIdentifier(payload.optString("profileId"), "profileId")
+        val slotNumber = payload.optInt("slotNumber", 0)
+        val validationFetchedAt = payload.optLong("fetchedAt", 0L)
         if (apiKey.isBlank()) throw IllegalArgumentException("API Key 不能为空")
         if (provider.isBlank()) throw IllegalArgumentException("生图模型目录缺少 provider 标识")
+        if (profileId.isBlank() || slotNumber !in 1..10 || validationFetchedAt <= 0L) {
+            throw IllegalArgumentException("生图模型目录缺少有效的 Profile、槽位或验证时间。")
+        }
         if (apiKey.any { it.code < 0x20 || it.code == 0x7F }) {
             throw IllegalArgumentException("API Key 格式无效")
         }
@@ -832,6 +1040,15 @@ class AndroidImageStudioBridge(
                 val data = parsed.optJSONArray("data")
                     ?: throw IllegalStateException("生图模型目录响应缺少 data 数组")
                 val models = parseFHLImageModelCatalog(data)
+                val validationId = AndroidImageModelValidationRegistry.issueSlotReceipt(
+                    context = context,
+                    profileId = profileId,
+                    slotNumber = slotNumber,
+                    baseURL = baseUrl,
+                    provider = provider,
+                    fetchedAt = validationFetchedAt,
+                    models = models,
+                )
                 val modelJSON = JSONArray()
                 for (model in models) {
                     modelJSON.put(
@@ -841,7 +1058,11 @@ class AndroidImageStudioBridge(
                             .put("imageCapable", model.imageCapable)
                             .put("supportsGenerations", model.supportsGenerations)
                             .put("supportsEdits", model.supportsEdits)
-                            .put("supportsTransparency", model.supportsTransparency),
+                            .put("supportsTransparency", model.supportsTransparency)
+                            .put("available", model.available)
+                            .apply {
+                                model.disabledReason?.let { put("disabledReason", it) }
+                            },
                     )
                 }
                 resolve(
@@ -850,7 +1071,8 @@ class AndroidImageStudioBridge(
                         "modelCount" to models.size,
                         "provider" to provider,
                         "baseURL" to baseUrl,
-                        "fetchedAt" to System.currentTimeMillis(),
+                        "fetchedAt" to validationFetchedAt,
+                        "validationId" to validationId,
                         "models" to modelJSON,
                     ),
                 )
@@ -864,6 +1086,67 @@ class AndroidImageStudioBridge(
             }
         }
         throw EarlyResolve()
+    }
+
+    private fun commitImageModelValidationBatch(payload: JSONObject): Map<String, Any> {
+        val modelID = safeJobMetadataIdentifier(payload.optString("modelID"), "imageModelID")
+        val baseURL = normalizedSafeImageCatalogBaseURL(payload.optString("baseURL"))
+        val provider = safeImageProviderIdentifier(payload.optString("provider"))
+        val fetchedAt = payload.optLong("fetchedAt", 0L)
+        val capabilities = NativeImageModelCapabilities(
+            available = requiredBridgeBoolean(payload, "available"),
+            supportsGenerations = requiredBridgeBoolean(payload, "supportsGenerations"),
+            supportsEdits = requiredBridgeBoolean(payload, "supportsEdits"),
+            supportsTransparency = requiredBridgeBoolean(payload, "supportsTransparency"),
+        )
+        val targetArray = payload.optJSONArray("targets")
+            ?: throw IllegalArgumentException("统一生图模型验证缺少目标槽位。")
+        val targets = mutableListOf<Triple<String, Int, String>>()
+        for (index in 0 until targetArray.length()) {
+            val target = targetArray.optJSONObject(index)
+                ?: throw IllegalArgumentException("统一生图模型目标槽位无效。")
+            targets += Triple(
+                safeJobMetadataIdentifier(target.optString("profileId"), "profileId"),
+                target.optInt("slotNumber", 0),
+                safeJobMetadataIdentifier(target.optString("validationId"), "catalogValidationId"),
+            )
+        }
+        val validationId = AndroidImageModelValidationRegistry.issueBatchProof(
+            context = context,
+            modelID = modelID,
+            baseURL = baseURL,
+            provider = provider,
+            fetchedAt = fetchedAt,
+            capabilities = capabilities,
+            targets = targets,
+        )
+        return mapOf("validationId" to validationId)
+    }
+
+    private fun requiredBridgeBoolean(payload: JSONObject, field: String): Boolean {
+        return payload.opt(field) as? Boolean
+            ?: throw IllegalArgumentException("统一生图模型的 $field 能力无效。")
+    }
+
+    private fun invalidateImageModelValidationProfiles(
+        profileIds: JSONArray,
+        batchesOnly: Boolean = false,
+    ) {
+        val normalized = linkedSetOf<String>()
+        for (index in 0 until profileIds.length()) {
+            val raw = profileIds.opt(index) as? String
+                ?: throw IllegalArgumentException("需要撤销模型验证的 Profile 无效。")
+            val profileId = safeJobMetadataIdentifier(raw, "profileId")
+            if (profileId.isBlank()) throw IllegalArgumentException("需要撤销模型验证的 Profile 无效。")
+            normalized += profileId
+        }
+        if (normalized.isNotEmpty()) {
+            if (batchesOnly) {
+                AndroidImageModelValidationRegistry.invalidateBatchProofs(context, normalized)
+            } else {
+                AndroidImageModelValidationRegistry.invalidateProfiles(context, normalized)
+            }
+        }
     }
 
     private fun openHttpConnection(url: String, proxyMode: String, proxyUrl: String): HttpURLConnection {

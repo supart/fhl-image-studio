@@ -322,6 +322,7 @@ test("Android applies one exact image model to all FHL slots in one state update
     assert.equal(state.profiles[1].fhlImagesPoolKeyHint, second.fhlImagesPoolKeyHint);
     assert.equal(state.profiles[1].provider, second.provider);
     assert.equal(state.profiles[0].imageModelValidatedAt, 7000);
+    assert.equal(state.profiles[0].imageModelCatalogValidationId, undefined);
     assert.equal(state.profiles[1].imageModelValidatedAt, undefined);
     assert.equal(state.profiles[1].imageModelCatalogBaseUrl, undefined);
     assert.equal(state.profiles[1].imageModelCatalogProvider, undefined);
@@ -425,6 +426,7 @@ test("Android atomically applies one validated catalog snapshot to enabled pool 
     assert.equal(commitValidatedFHLPoolImageModelSelection(adapter, {
       catalog,
       imageModelID: "gpt-image-2.5-sunburst",
+      imageModelCatalogValidationId: "batch-test-7000",
       targetProfileIds: [first.id, second.id],
     }), 2);
     assert.equal(catalogWrites, 1);
@@ -444,6 +446,7 @@ test("Android atomically applies one validated catalog snapshot to enabled pool 
       assert.equal(profile.imageModelValidatedAt, 7000);
       assert.equal(profile.imageModelCatalogBaseUrl, "https://www.fhl.mom");
       assert.equal(profile.imageModelCatalogProvider, "fhl");
+      assert.equal(profile.imageModelCatalogValidationId, "batch-test-7000");
     }
     for (const profile of state.profiles.slice(2, 4)) {
       assert.equal(profile.imageModelValidatedAt, undefined);
@@ -517,7 +520,17 @@ test("Android unified pool validation rejects invalid targets before persistence
     const selection = {
       catalog,
       imageModelID: "gpt-image-2.5-flare",
+      imageModelCatalogValidationId: "batch-test-7000",
     };
+
+    assert.throws(
+      () => commitValidatedFHLPoolImageModelSelection(adapter, {
+        ...selection,
+        imageModelCatalogValidationId: "",
+        targetProfileIds: [first.id],
+      }),
+      /缺少原生目录验证证明/,
+    );
 
     assert.throws(
       () => commitValidatedFHLPoolImageModelSelection(adapter, {
@@ -570,7 +583,7 @@ test("Android unified pool validation rejects invalid targets before persistence
   }
 });
 
-test("changing a profile provider clears its image model validation", async () => {
+test("ordinary profile changes cannot carry forward or manufacture model validation", async () => {
   installAndroidRuntime();
   const server = await createServer({
     root: frontendRoot,
@@ -588,6 +601,11 @@ test("changing a profile provider clears its image model validation", async () =
       imageModelCatalogProvider: "fhl",
       provider: "fhl",
       fhlImagesPoolSlot: 1,
+      imageModelAvailable: true,
+      imageModelSupportsGenerations: true,
+      imageModelSupportsEdits: true,
+      imageModelSupportsTransparency: true,
+      imageModelCatalogValidationId: "batch-provider-old",
     });
     let state = makeState([validated], validated.id);
     const actions = createProfileActions({
@@ -597,13 +615,28 @@ test("changing a profile provider clears its image model validation", async () =
       },
     });
 
-    await actions.updateProfile(validated.id, { provider: "fhl-alternate" });
+    await actions.updateProfile(validated.id, {
+      provider: "fhl-alternate",
+      imageModelValidatedAt: 9000,
+      imageModelCatalogBaseUrl: "https://www.fhl.mom",
+      imageModelCatalogProvider: "fhl-alternate",
+      imageModelAvailable: true,
+      imageModelSupportsGenerations: true,
+      imageModelSupportsEdits: true,
+      imageModelSupportsTransparency: true,
+      imageModelCatalogValidationId: "forged-batch-proof",
+    });
     const updated = state.profiles[0];
     assert.equal(updated.provider, "fhl-alternate");
     assert.equal(updated.imageModelID, "gpt-image-2.5-flare");
     assert.equal(updated.imageModelValidatedAt, undefined);
     assert.equal(updated.imageModelCatalogBaseUrl, undefined);
     assert.equal(updated.imageModelCatalogProvider, undefined);
+    assert.equal(updated.imageModelAvailable, undefined);
+    assert.equal(updated.imageModelSupportsGenerations, undefined);
+    assert.equal(updated.imageModelSupportsEdits, undefined);
+    assert.equal(updated.imageModelSupportsTransparency, undefined);
+    assert.equal(updated.imageModelCatalogValidationId, undefined);
   } finally {
     await server.close();
     restoreRuntime();
@@ -629,6 +662,11 @@ test("re-enabling a disabled FHL slot requires fresh model validation", async ()
       imageModelValidatedAt: 7000,
       imageModelCatalogBaseUrl: "https://www.fhl.mom",
       imageModelCatalogProvider: "fhl",
+      imageModelAvailable: true,
+      imageModelSupportsGenerations: true,
+      imageModelSupportsEdits: true,
+      imageModelSupportsTransparency: true,
+      imageModelCatalogValidationId: "batch-disabled-old",
     });
     let state = makeState([disabled], disabled.id);
     const actions = createProfileActions({
@@ -651,6 +689,11 @@ test("re-enabling a disabled FHL slot requires fresh model validation", async ()
     assert.equal(updated.imageModelValidatedAt, undefined);
     assert.equal(updated.imageModelCatalogBaseUrl, undefined);
     assert.equal(updated.imageModelCatalogProvider, undefined);
+    assert.equal(updated.imageModelAvailable, undefined);
+    assert.equal(updated.imageModelSupportsGenerations, undefined);
+    assert.equal(updated.imageModelSupportsEdits, undefined);
+    assert.equal(updated.imageModelSupportsTransparency, undefined);
+    assert.equal(updated.imageModelCatalogValidationId, undefined);
   } finally {
     await server.close();
     restoreRuntime();

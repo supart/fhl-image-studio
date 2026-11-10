@@ -4,6 +4,7 @@ import {
   imageModelCatalogProvider,
   imageModelProviderForProfile,
   intersectFHLImageModelCatalogs,
+  normalizeImageModelCatalog,
   type StoredImageModelCatalog,
 } from "../../../lib/fhlImageModels";
 import {
@@ -20,8 +21,23 @@ type PreparedCredential = {
 
 export type PreparedFHLPoolImageModelConfig = {
   catalog: StoredImageModelCatalog;
+  /** Safe union used only for diagnostics/UI. Never persist this as validated catalog. */
+  availability: FHLPoolModelAvailability[];
   targetProfileIds: string[];
   targetSlotNumbers: number[];
+  validationIdsByProfileId: Record<string, string>;
+};
+
+export type FHLPoolModelAvailability = {
+  id: string;
+  available: boolean;
+  selectable: boolean;
+  supportsGenerations: boolean;
+  supportsEdits: boolean;
+  supportsTransparency: boolean;
+  availableSlotNumbers: number[];
+  missingSlotNumbers: number[];
+  disabledReason?: string;
 };
 
 export type FHLPoolModelValidationTarget = {
@@ -82,12 +98,72 @@ export type PrepareFHLPoolImageModelConfigInput = {
   fetchCatalog: (
     profile: UpstreamProfile,
     apiKey: string,
+    slotNumber: number,
+    sharedFetchedAt: number,
   ) => Promise<StoredImageModelCatalog>;
   sharedFetchedAt?: number;
 };
 
 function fixedSlotError(slotNumber: number, reason: string): Error {
   return new Error(`FHL${slotNumber} ${reason}`);
+}
+
+/**
+ * Build a conservative, non-persistent union for the ten-slot UI. A model is
+ * selectable only when every validated target slot returned it and every
+ * slot marked it callable. Missing slots and provider capability conflicts
+ * remain visible instead of silently disappearing from the UI.
+ */
+export function buildFHLPoolModelAvailability(
+  catalogs: readonly StoredImageModelCatalog[],
+  targetSlotNumbers: readonly number[],
+): FHLPoolModelAvailability[] {
+  const slotNumbers = targetSlotNumbers.map((value) => Math.trunc(Number(value))).filter((value) => value > 0);
+  const byModel = new Map<string, {
+    id: string;
+    entries: Array<{ slot: number; model: StoredImageModelCatalog["models"][number] }>;
+  }>();
+  catalogs.forEach((catalog, index) => {
+    const slot = slotNumbers[index] ?? index + 1;
+    for (const model of catalog.models) {
+      const key = model.id.trim().toLowerCase();
+      if (!key || byModel.has(key) && byModel.get(key)!.entries.some((entry) => entry.slot === slot)) continue;
+      const current = byModel.get(key) ?? { id: model.id, entries: [] };
+      current.entries.push({ slot, model });
+      byModel.set(key, current);
+    }
+  });
+  return Array.from(byModel.values())
+    .map(({ id, entries }) => {
+      const presentSlots = entries.map(({ slot }) => slot).sort((a, b) => a - b);
+      const missingSlots = slotNumbers.filter((slot) => !presentSlots.includes(slot));
+      const models = entries.map(({ model }) => model);
+      const supportsGenerations = missingSlots.length === 0 && models.every((model) => model.supportsGenerations === true);
+      const supportsEdits = missingSlots.length === 0 && models.every((model) => model.supportsEdits === true);
+      const supportsTransparency = missingSlots.length === 0 && models.every((model) => model.supportsTransparency === true);
+      const providerAvailable = models.every((model) => model.available !== false);
+      const selectable = missingSlots.length === 0 && providerAvailable && supportsGenerations;
+      let disabledReason = models.find((model) => model.disabledReason)?.disabledReason;
+      if (!selectable && missingSlots.length > 0) {
+        disabledReason = `并非所有已启用槽位共同可用（缺少 ${missingSlots.map((slot) => `FHL${slot}`).join("、")}）`;
+      } else if (!selectable && !disabledReason) {
+        disabledReason = supportsGenerations ? "Provider 或当前路由标记为不可用" : "Provider 不支持图像生成";
+      }
+      return {
+        id,
+        // `available` is the final pool-level truth: a partial-slot or
+        // generation-disabled entry is diagnostic-only, never callable.
+        available: selectable,
+        selectable,
+        supportsGenerations,
+        supportsEdits,
+        supportsTransparency,
+        availableSlotNumbers: presentSlots,
+        missingSlotNumbers: missingSlots,
+        ...(disabledReason ? { disabledReason } : {}),
+      };
+    })
+    .sort((left, right) => left.id.localeCompare(right.id));
 }
 
 /**
@@ -152,7 +228,16 @@ export async function prepareFHLPoolImageModelConfig({
     const catalogs: StoredImageModelCatalog[] = [];
     for (const credential of credentials) {
       try {
-        catalogs.push(await fetchCatalog(credential.profile, credential.apiKey));
+        const catalog = await fetchCatalog(
+          credential.profile,
+          credential.apiKey,
+          credential.slotNumber,
+          sharedFetchedAt,
+        );
+        if (!catalog.validationId?.trim()) {
+          throw new Error("原生模型目录未返回槽位验证证明。");
+        }
+        catalogs.push(catalog);
       } catch {
         throw fixedSlotError(credential.slotNumber, "模型目录验证失败，统一配置未生效。");
       } finally {
@@ -160,11 +245,24 @@ export async function prepareFHLPoolImageModelConfig({
       }
     }
 
-    const catalog = intersectFHLImageModelCatalogs(catalogs, sharedFetchedAt);
+    let catalog: StoredImageModelCatalog;
+    try {
+      catalog = intersectFHLImageModelCatalogs(catalogs, sharedFetchedAt);
+    } catch (error) {
+      // Keep the union available for diagnostics when there is no common
+      // model. Other structural failures (URL/provider mismatch) remain fatal.
+      if (!(error instanceof Error) || !error.message.includes("没有共同可用")) throw error;
+      const first = catalogs[0];
+      catalog = normalizeImageModelCatalog([], first.baseUrl, first.provider, sharedFetchedAt);
+    }
     return {
       catalog,
+      availability: buildFHLPoolModelAvailability(catalogs, credentials.map(({ slotNumber }) => slotNumber)),
       targetProfileIds: credentials.map(({ profile }) => profile.id),
       targetSlotNumbers: credentials.map(({ slotNumber }) => slotNumber),
+      validationIdsByProfileId: Object.fromEntries(credentials.map(({ profile }, index) => (
+        [profile.id, catalogs[index].validationId!]
+      ))),
     };
   } finally {
     for (const credential of credentials) credential.apiKey = "";

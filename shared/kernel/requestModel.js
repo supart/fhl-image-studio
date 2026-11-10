@@ -45,13 +45,36 @@ export function normalizeImageModel(modelID) {
   return String(modelID || "").trim() || DEFAULT_IMAGE_MODEL;
 }
 
+const GPT_IMAGE_2_FAMILY_PATTERN = /^gpt-image-2(?:\.(\d+))?(?:-[a-z0-9][a-z0-9._-]*)?$/i;
+
+function gptImage2FamilyMatch(modelID) {
+  // Model-family validation is strict. Payload normalization may still use the
+  // legacy default model, but an empty catalog/proof value must never inherit it.
+  const normalized = String(modelID ?? "").trim();
+  if (!normalized || Array.from(normalized).length > 128 || /\p{Cc}/u.test(normalized)) return null;
+  return GPT_IMAGE_2_FAMILY_PATTERN.exec(normalized);
+}
+
+export function gptImage2Minor(modelID) {
+  const match = gptImage2FamilyMatch(modelID);
+  if (!match?.[1]) return match ? 0 : null;
+  const minor = Number(match[1]);
+  return Number.isSafeInteger(minor) ? minor : null;
+}
+
+export function isGPTImage2FamilyModel(modelID) {
+  return !!gptImage2FamilyMatch(modelID);
+}
+
 export function isGPTImage2Model(modelID) {
-  return normalizeImageModel(modelID).toLowerCase() === "gpt-image-2";
+  const normalized = String(modelID ?? "").trim().toLowerCase();
+  return !!gptImage2FamilyMatch(normalized) && normalized !== "gpt-image-2.5";
 }
 
 export function isGPTImage25Model(modelID) {
-  const normalized = normalizeImageModel(modelID).toLowerCase();
-  return normalized === "gpt-image-2.5-flare" || normalized === "gpt-image-2.5-sunburst";
+  const normalized = String(modelID ?? "").trim().toLowerCase();
+  const minor = gptImage2Minor(normalized);
+  return minor !== null && minor >= 5 && normalized !== "gpt-image-2.5";
 }
 
 export function supportsNativeTransparency(modelID) {

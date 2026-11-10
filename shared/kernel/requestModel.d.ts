@@ -47,6 +47,8 @@ export function normalizeAPIMode(apiMode: string): "responses" | "images" | "api
 export function normalizeRequestPolicy(requestPolicy: string): RequestPolicy;
 export function normalizeTextModel(modelID: string): string;
 export function normalizeImageModel(modelID: string): string;
+export function gptImage2Minor(modelID: string): number | null;
+export function isGPTImage2FamilyModel(modelID: string): boolean;
 export function isGPTImage2Model(modelID: string): boolean;
 export function isGPTImage25Model(modelID: string): boolean;
 export function supportsNativeTransparency(modelID: string): boolean;

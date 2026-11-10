@@ -52,6 +52,49 @@ function frozenBackgroundMode(value: unknown): ImageBackgroundMode {
   return value === "transparent" ? "transparent" : "standard";
 }
 
+type FrozenImageModelMetadata = Pick<
+  JobGroupSnapshot,
+  "imageModelID" | "imageModelValidatedAt" | "imageModelCatalogBaseUrl"
+    | "imageModelCatalogProvider" | "imageModelAvailable"
+    | "imageModelSupportsGenerations" | "imageModelSupportsEdits"
+    | "imageModelSupportsTransparency" | "imageModelCatalogValidationId"
+>;
+
+const frozenModelMetadataKeys = [
+  "imageModelID",
+  "imageModelValidatedAt",
+  "imageModelCatalogBaseUrl",
+  "imageModelCatalogProvider",
+  "imageModelAvailable",
+  "imageModelSupportsGenerations",
+  "imageModelSupportsEdits",
+  "imageModelSupportsTransparency",
+  "imageModelCatalogValidationId",
+] as const satisfies readonly (keyof FrozenImageModelMetadata)[];
+
+function hasMetadataValue(value: unknown): boolean {
+  return value !== undefined && value !== null && value !== "";
+}
+
+/** A job slot may narrow missing group metadata, but two defined snapshots must
+ * never disagree. Conflicts are treated as an untrusted replay source. */
+export function jobSlotHasConflictingImageModelMetadata(
+  group: FrozenImageModelMetadata,
+  slot: FrozenImageModelMetadata,
+): boolean {
+  return frozenModelMetadataKeys.some((key) => {
+    const groupValue = group[key];
+    const slotValue = slot[key];
+    return hasMetadataValue(groupValue)
+      && hasMetadataValue(slotValue)
+      && groupValue !== slotValue;
+  });
+}
+
+function strictOptionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
 export function frozenReplayFromHistory(item: HistoryItem): FrozenSubmissionReplay | null {
   const apiProfileId = item.apiProfileId?.trim() || "";
   const provider = item.provider?.trim() || "";
@@ -69,6 +112,11 @@ export function frozenReplayFromHistory(item: HistoryItem): FrozenSubmissionRepl
     imageModelValidatedAt: item.imageModelValidatedAt,
     imageModelCatalogBaseUrl: item.imageModelCatalogBaseUrl,
     imageModelCatalogProvider: item.imageModelCatalogProvider,
+    imageModelAvailable: item.imageModelAvailable,
+    imageModelSupportsGenerations: item.imageModelSupportsGenerations,
+    imageModelSupportsEdits: item.imageModelSupportsEdits,
+    imageModelSupportsTransparency: item.imageModelSupportsTransparency,
+    imageModelCatalogValidationId: item.imageModelCatalogValidationId,
     mode: item.mode,
     prompt: item.prompt || "",
     size: item.size,
@@ -86,6 +134,7 @@ export function frozenReplayFromJobSlot(
   group: JobGroupSnapshot,
   slot: JobSlotSnapshot,
 ): FrozenSubmissionReplay | null {
+  if (jobSlotHasConflictingImageModelMetadata(group, slot)) return null;
   const apiProfileId = (slot.apiProfileId || group.apiProfileId || "").trim();
   const provider = (slot.provider || group.provider || "").trim();
   const imageModelID = (slot.imageModelID || group.imageModelID || "").trim();
@@ -102,6 +151,11 @@ export function frozenReplayFromJobSlot(
     imageModelValidatedAt: slot.imageModelValidatedAt ?? group.imageModelValidatedAt,
     imageModelCatalogBaseUrl: slot.imageModelCatalogBaseUrl || group.imageModelCatalogBaseUrl,
     imageModelCatalogProvider: slot.imageModelCatalogProvider || group.imageModelCatalogProvider,
+    imageModelAvailable: strictOptionalBoolean(slot.imageModelAvailable ?? group.imageModelAvailable),
+    imageModelSupportsGenerations: strictOptionalBoolean(slot.imageModelSupportsGenerations ?? group.imageModelSupportsGenerations),
+    imageModelSupportsEdits: strictOptionalBoolean(slot.imageModelSupportsEdits ?? group.imageModelSupportsEdits),
+    imageModelSupportsTransparency: strictOptionalBoolean(slot.imageModelSupportsTransparency ?? group.imageModelSupportsTransparency),
+    imageModelCatalogValidationId: slot.imageModelCatalogValidationId || group.imageModelCatalogValidationId,
     mode: group.mode,
     prompt: group.prompt || "",
     size: group.size,
@@ -136,6 +190,11 @@ export function frozenReplayFromLastPayload(
     imageModelValidatedAt: frozen.imageModelValidatedAt,
     imageModelCatalogBaseUrl: frozen.imageModelCatalogBaseUrl,
     imageModelCatalogProvider: frozen.imageModelCatalogProvider,
+    imageModelAvailable: frozen.imageModelAvailable,
+    imageModelSupportsGenerations: frozen.imageModelSupportsGenerations,
+    imageModelSupportsEdits: frozen.imageModelSupportsEdits,
+    imageModelSupportsTransparency: frozen.imageModelSupportsTransparency,
+    imageModelCatalogValidationId: frozen.imageModelCatalogValidationId,
     mode: frozen.mode === "edit" ? "edit" : "generate",
     prompt: frozen.prompt || "",
     size: frozen.size as SizeValue,

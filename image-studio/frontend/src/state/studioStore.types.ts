@@ -48,6 +48,11 @@ export interface FrozenSubmissionReplay {
   imageModelValidatedAt?: number;
   imageModelCatalogBaseUrl?: string;
   imageModelCatalogProvider?: string;
+  imageModelAvailable?: boolean;
+  imageModelSupportsGenerations?: boolean;
+  imageModelSupportsEdits?: boolean;
+  imageModelSupportsTransparency?: boolean;
+  imageModelCatalogValidationId?: string;
   mode: Mode;
   prompt: string;
   size: SizeValue;
@@ -129,6 +134,11 @@ export interface StudioState {
   proxyMode: ProxyMode;
   proxyURL: string;
   imageModelID: string;
+  imageModelAvailable?: boolean;
+  imageModelSupportsGenerations?: boolean;
+  imageModelSupportsEdits?: boolean;
+  imageModelSupportsTransparency?: boolean;
+  imageModelCatalogValidationId?: string;
   apiMode: APIMode;
   fhlTransportMode: FHLTransportMode;
   requestPolicy: RequestPolicy;
@@ -205,6 +215,11 @@ export interface StudioState {
     imageModelValidatedAt?: number;
     imageModelCatalogBaseUrl?: string;
     imageModelCatalogProvider?: string;
+    imageModelAvailable?: boolean;
+    imageModelSupportsGenerations?: boolean;
+    imageModelSupportsEdits?: boolean;
+    imageModelSupportsTransparency?: boolean;
+    imageModelCatalogValidationId?: string;
     provider?: string;
     concurrencyLimit?: number;
     continuousPoolEnabled?: boolean;

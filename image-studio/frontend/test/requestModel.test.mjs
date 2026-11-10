@@ -8,6 +8,8 @@ import {
   buildResponsesPayload,
   buildPromptReversePayload,
   describeProblem,
+  gptImage2Minor,
+  isGPTImage2FamilyModel,
   isGPTImage2Model,
   isGPTImage25Model,
   isRetryableRaw,
@@ -22,11 +24,29 @@ test("GPT Image 2.5 capabilities require exact product model IDs", () => {
   assert.equal(isGPTImage25Model("gpt-image-2.5-flare"), true);
   assert.equal(isGPTImage25Model("gpt-image-2.5-sunburst"), true);
   assert.equal(supportsNativeTransparency("gpt-image-2.5-flare"), true);
-  for (const ambiguous of ["gpt-image-2.5", "gpt-image-2.5-custom", "gpt-image-20"]) {
+  assert.equal(isGPTImage2Model("gpt-image-2.5-custom"), true);
+  assert.equal(isGPTImage25Model("gpt-image-2.5-custom"), true);
+  assert.equal(supportsNativeTransparency("gpt-image-2.5-custom"), true);
+  assert.equal(isGPTImage2FamilyModel("gpt-image-2.6-sunburst"), true);
+  assert.equal(isGPTImage2FamilyModel("gpt-image-2.7-future.v1"), true);
+  assert.equal(gptImage2Minor("gpt-image-2.7-future.v1"), 7);
+  assert.equal(supportsNativeTransparency("gpt-image-2.7-future.v1"), true);
+  for (const ambiguous of [
+    "",
+    "   ",
+    "gpt-image-2.5",
+    "gpt-image-20",
+    "gpt-image-2.foo-bar",
+    "gpt-image-2.6-\u0000spoof",
+    "gpt-image-2.6-\u0085spoof",
+    `gpt-image-2.6-${"x".repeat(129)}`,
+  ]) {
+    assert.equal(isGPTImage2FamilyModel(ambiguous), ambiguous === "gpt-image-2.5");
     assert.equal(isGPTImage2Model(ambiguous), false);
     assert.equal(isGPTImage25Model(ambiguous), false);
     assert.equal(supportsNativeTransparency(ambiguous), false);
   }
+  assert.equal(gptImage2Minor(""), null);
 });
 
 test("transparent Responses request appends its instruction once and forces PNG", () => {

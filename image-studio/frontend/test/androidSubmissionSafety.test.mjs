@@ -162,7 +162,10 @@ test("native submit rejects unsafe requests and returns the persisted idempotent
   assert.match(contractSource, /fhlImagesPoolSlot\?: number/);
   assert.match(nativeSource, /clientSubmissionId\.isBlank\(\)/);
   assert.match(nativeSource, /continuousGenerateTest && batchCount != 1/);
-  assert.match(nativeSource, /existing\.optString\("clientSubmissionId"\) == clientSubmissionId/);
+  assert.match(nativeSource, /findAndroidJobGroupByClientSubmissionId\(groups, clientSubmissionId\)/);
+  const duplicateLookup = nativeSource.indexOf("findAndroidJobGroupByClientSubmissionId(groups, clientSubmissionId)");
+  const proofValidation = nativeSource.indexOf("AndroidImageModelValidationRegistry.validateSubmission(");
+  assert.ok(duplicateLookup >= 0 && proofValidation > duplicateLookup);
   assert.match(nativeSource, /buildSubmitResponse\(existing, deduplicated = true\)/);
   assert.match(nativeSource, /\.put\("apiLabel", apiLabel\)/);
   assert.match(nativeSource, /\.put\("clientSubmissionId", clientSubmissionId\)/);

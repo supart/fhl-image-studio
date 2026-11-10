@@ -7,9 +7,10 @@
 ## 本次升级
 
 - 生图模型目录与文本模型目录完全隔离，使用当前 FHL Images 槽位的 Key、Base URL 和 provider 请求 `/v1/models`。
-- 只允许 provider 实际返回的三个精确生图模型：`gpt-image-2`、`gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`；不接受模糊的 `gpt-image-2.5`。
+- 生图目录升级为动态 GPT Image 2.x：接受 provider 返回且满足精确规则的未来 minor/后缀 ID，保留精确大小写；拒绝非法 ID、文本/Embedding/音频等非图像模型和仅图像输入模型。
+- 裸 `gpt-image-2.5` 仅作为不可调用诊断项显示；非 GPT Image 2.x 图像候选显示固定“不支持”原因，不能选择或提交。
 - 旧 V2.0.4 Profile 在重新获取目录并明确选择模型前不能提交 FHL 生图；Key、Base URL、provider 或模型变化会使验证失效。
-- 手机和平板主创作区新增“普通图像 / 透明 PNG”。原生透明仅对已验证的 Flare 或 Sunburst FHL Images/Responses 请求开放。
+- 手机和平板主创作区新增“普通图像 / 透明 PNG”。透明仅对已验证、可生成、minor 不低于 5、非裸 2.5 且 provider 明确允许透明的精确 GPT Image 2.x 开放。
 - 透明请求固定使用 PNG、`background=transparent` 和一次透明背景指令；普通模式保持 V2.0.4 请求格式。
 - Images edit 继续按原顺序重复 `image` multipart 字段，不改成 `image[]`。
 - 最终透明结果在成功历史、正式落盘和任务成功前校验 PNG 签名、可解码性、可见像素与真实 Alpha；失败码统一为 `invalid_transparent_output`。
@@ -25,6 +26,8 @@
 - FHL 十槽共同模型改为固定高度卡片：进入配置页后自动扫描凭据并验证目录，顶部不再暴露手动获取流程；卡片内保留低强调刷新与显式“保存统一模型”。
 - Keystore 扫描异常显示脱敏错误并可重试；只有全部目标槽当前模型均非空且一致时才预选，不自动切换模型或自动保存。
 - Android 画布：图生图运行时即使保留参考图也会显示单次等待预览层，收到流式预览后自动切换；连续缩放、双指缩放和拖拽不会再因旧回调回弹。
+- 十槽目录采用安全并集展示和共同可用交集提交：模型缺失的槽位以安全槽号显示原因，生成/编辑/透明能力对全部目标槽做 AND 合并；刷新失败保留上次成功列表和当前模型，但禁止本次保存。
+- 原生 `/v1/models` 为每个槽生成不透明 receipt；“保存统一模型”校验全部 receipt 后生成批次 proof。Profile、请求、任务、历史和冻结重放均携带能力快照与 proof，缺失、伪造或能力放大一律失败关闭。
 
 ## Android 兼容性
 
@@ -36,7 +39,7 @@
 
 ## 验证状态
 
-- 十槽统一模型配置修复已完成本地构建与 2K 模拟器验收；下面较早候选记录仅作历史对照，当前候选以本节最后一项为准。
+- 动态 GPT Image 2.x 升级已完成本地构建与 2K 模拟器安装验收；下面较早候选记录仅作历史对照，当前候选以本节最后一项为准。
 
 - V2.0.4 修改前基线：前端 `364/365`（唯一失败为旧 PowerShell 缺少 `Get-FileHash`）、Worker `5/5`、Android JVM `54/54`、`build:android` 与 `assembleDebug` 通过。
 - 启动/后台稳定性变更后的前端完整测试为 `401/402`；唯一失败仍是 V2.0.4 修改前基线已知的本机旧 PowerShell 缺少 `Get-FileHash`。TypeScript、`build:android`、Android JVM `63/63` 和强制 `assembleDebug` 通过；Worker 未受本批影响，未重复运行。
@@ -80,3 +83,12 @@
 - `codex_api36`（API 36，`1440x3200 @ 560 dpi`）完成该精确哈希的覆盖安装与 fresh screen；固定卡片自动验证 10 个活动槽，手动刷新恢复 ready，显式保存后确认 10 槽可共同调度。30 秒安装观察期为 0 点击、0 任务、0 上游 POST。
 - 设备证据已将传输端点和工作区内部 ID 脱敏，JSON 与 manifest 哈希复核通过；API Key、Keystore、原始响应和用户图片均未进入证据，租约已释放。
 - 本候选可发给其他设备安装测试，并与正式 V2.0.4 并存；它不等同于正式 Release 签名包，也不能用于验证正式版原地升级。
+
+### 动态 GPT Image 2.x 目录升级验证（2026-11-10）
+
+- 动态目录、缓存 v2、未来 2.x、模糊别名、非法/重复/非图像过滤、显式能力禁用、十槽安全并集与共同交集、透明资格和原生 proof 的聚焦测试均已纳入完整回归。
+- 完整前端 `440/440`、TypeScript、`npm run build:android`、Worker `5/5`、Android JVM `71/71`、androidTest 编译打包、强制 `assembleDebug`、`git diff --check` 和安全扫描通过。
+- 安全扫描覆盖 411 个工作树文件、515 个可达 Git Blob 和 925 个 APK 条目，问题数为 0；APK 为 `top.fangtangyuan.fhlstudio.android.debug / V2.0.5-debug / 1050005`，v2 Debug 签名有效。
+- API 36 的 `codex_api36` 以 `1440x3200 @ 560 dpi` 完成审核覆盖安装、包清单复核、启动和 fresh screen；10 个既有活动槽保留，观察期 0 点击、0 任务、0 上游 POST。
+- 本批没有进入会自动逐槽验证的凭据面板，真实目录 GET 和付费生图均为 0；没有读取、输入、复制、OCR、截图或记录 API Key。
+- 最终 Debug 外测文件、大小和 SHA-256 以忽略目录 `release-assets/V2.0.5-Android-Device-Test-Debug-20261110/` 中的哈希与说明为准；旧 `A72B2A3C...F6040F01` 不再是候选。

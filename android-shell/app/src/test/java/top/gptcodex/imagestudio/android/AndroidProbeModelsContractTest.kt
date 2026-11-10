@@ -21,7 +21,7 @@ class AndroidProbeModelsContractTest {
     }
 
     @Test
-    fun `image model catalog keeps only exact supported ids and fixed safe metadata`() {
+    fun `image model catalog keeps dynamic family ids and fixed safe metadata`() {
         val data = JSONArray()
             .put(JSONObject().put("id", "gpt-image-2"))
             .put("gpt-image-2")
@@ -34,12 +34,14 @@ class AndroidProbeModelsContractTest {
         val models = parseFHLImageModelCatalog(data)
 
         assertEquals(
-            listOf("gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"),
+            listOf("gpt-image-2", "gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"),
             models.map { it.id },
         )
         assertFalse(models.first().supportsTransparency)
-        assertTrue(models[1].supportsTransparency)
+        assertFalse(models[1].available)
+        assertEquals("不可调用的模糊模型别名", models[1].disabledReason)
         assertTrue(models[2].supportsTransparency)
+        assertTrue(models[3].supportsTransparency)
         assertTrue(models.all { it.imageCapable && it.supportsGenerations && it.supportsEdits })
         assertTrue(models.all { it.description.isNotBlank() })
     }

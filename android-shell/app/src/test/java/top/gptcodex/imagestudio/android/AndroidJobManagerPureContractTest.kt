@@ -96,6 +96,11 @@ class AndroidJobManagerPureContractTest {
             imageModelCatalogBaseUrl = "https://www.fhl.mom:443/v1",
             imageModelCatalogProvider = "fhl-secondary",
             provider = "FHL-SECONDARY",
+            imageModelAvailable = true,
+            imageModelSupportsGenerations = true,
+            imageModelSupportsEdits = true,
+            imageModelSupportsTransparency = false,
+            imageModelCatalogValidationId = "receipt-standard",
         )
         assertEquals("gpt-image-2", standard.imageModelID)
         assertEquals("https://www.fhl.mom", standard.imageModelCatalogBaseUrl)
@@ -112,9 +117,83 @@ class AndroidJobManagerPureContractTest {
             imageModelCatalogBaseUrl = "https://www.fhl.mom/v1",
             imageModelCatalogProvider = "fhl",
             provider = "fhl",
+            imageModelAvailable = true,
+            imageModelSupportsGenerations = true,
+            imageModelSupportsEdits = true,
+            imageModelSupportsTransparency = true,
+            imageModelCatalogValidationId = "receipt-transparent",
         )
         assertEquals("transparent", transparent.imageBackgroundMode)
         assertEquals("png", transparent.outputFormat)
+    }
+
+    @Test
+    fun `native dynamic model gate accepts future exact ids and rejects fuzzy or invalid ids`() {
+        assertTrue(isExactGPTImage2Model("gpt-image-2"))
+        assertTrue(isExactGPTImage2Model("gpt-image-2.6-sunburst"))
+        assertTrue(isExactGPTImage2Model("gpt-image-2.7-future.v1"))
+        assertFalse(isExactGPTImage2Model("gpt-image-20"))
+        assertFalse(isExactGPTImage2Model("gpt-image-2.5/../../other"))
+        assertTrue(isExactGPTImage2Model("gpt-image-2.5"))
+    }
+
+    @Test
+    fun `native model proof tuple is exact and capability widening fails closed`() {
+        val proven = NativeImageModelCapabilities(true, true, true, false)
+        fun mismatch(
+            profileId: String = "slot-1",
+            slotNumber: Int = 1,
+            modelID: String = "gpt-image-2.6",
+            baseURL: String = "https://www.fhl.mom",
+            provider: String = "fhl",
+            fetchedAt: Long = 7000L,
+            capabilities: NativeImageModelCapabilities = proven,
+        ) = nativeImageModelProofMismatch(
+            proofTargets = mapOf("slot-1" to 1),
+            proofModelID = "gpt-image-2.6",
+            proofBaseURL = "https://www.fhl.mom",
+            proofProvider = "fhl",
+            proofFetchedAt = 7000L,
+            proofCapabilities = proven,
+            submittedProfileId = profileId,
+            submittedSlotNumber = slotNumber,
+            submittedModelID = modelID,
+            submittedBaseURL = baseURL,
+            submittedProvider = provider,
+            submittedFetchedAt = fetchedAt,
+            submittedCapabilities = capabilities,
+        )
+
+        assertNull(mismatch())
+        assertTrue(mismatch(profileId = "slot-2")!!.contains("槽位"))
+        assertTrue(mismatch(slotNumber = 2)!!.contains("槽位"))
+        assertTrue(mismatch(modelID = "gpt-image-2.7")!!.contains("身份"))
+        assertTrue(mismatch(baseURL = "https://other.invalid")!!.contains("身份"))
+        assertTrue(mismatch(provider = "other")!!.contains("身份"))
+        assertTrue(mismatch(fetchedAt = 7001L)!!.contains("身份"))
+        assertTrue(
+            mismatch(capabilities = proven.copy(supportsTransparency = true))!!
+                .contains("能力快照"),
+        )
+        assertFalse(
+            nativeImageModelAggregateIsNoWiderThanSlot(
+                NativeImageModelCapabilities(true, true, true, true),
+                NativeImageModelCapabilities(true, true, true, false),
+            ),
+        )
+    }
+
+    @Test
+    fun `client submission lookup returns the original group before new validation`() {
+        val original = JSONObject()
+            .put("groupId", "group-1")
+            .put("clientSubmissionId", "submission-1")
+        val groups = JSONArray()
+            .put(JSONObject().put("groupId", "group-other").put("clientSubmissionId", "submission-other"))
+            .put(original)
+        assertEquals("group-1", findAndroidJobGroupByClientSubmissionId(groups, "submission-1")?.optString("groupId"))
+        assertNull(findAndroidJobGroupByClientSubmissionId(groups, "submission-missing"))
+        assertNull(findAndroidJobGroupByClientSubmissionId(groups, ""))
     }
 
     @Test
@@ -129,6 +208,11 @@ class AndroidJobManagerPureContractTest {
             catalogBaseURL: String = "https://www.fhl.mom",
             catalogProvider: String = "fhl",
             provider: String = "fhl",
+            available: Boolean = true,
+            supportsGenerations: Boolean = true,
+            supportsEdits: Boolean = true,
+            supportsTransparency: Boolean = true,
+            validationId: String = "receipt-test",
         ) = validateAndroidImageSubmissionMetadata(
             apiMode,
             baseURL,
@@ -139,6 +223,11 @@ class AndroidJobManagerPureContractTest {
             catalogBaseURL,
             catalogProvider,
             provider,
+            available,
+            supportsGenerations,
+            supportsEdits,
+            supportsTransparency,
+            validationId,
         )
 
         assertIllegalArgument { validate(apiMode = "apimart", baseURL = "https://api.apimart.ai") }

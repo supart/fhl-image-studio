@@ -16,6 +16,11 @@ const frozenMetadata = {
   imageModelValidatedAt: 1_796_000_000_123,
   imageModelCatalogBaseUrl: "https://www.fhl.mom",
   imageModelCatalogProvider: "fhl",
+  imageModelAvailable: true,
+  imageModelSupportsGenerations: true,
+  imageModelSupportsEdits: true,
+  imageModelSupportsTransparency: true,
+  imageModelCatalogValidationId: "catalog-proof-slot-3",
 };
 
 test("history replay preserves the final prompt, transparent output and reference order", () => {
@@ -44,6 +49,8 @@ test("history replay preserves the final prompt, transparent output and referenc
   assert.equal(replay.imageBackgroundMode, "transparent");
   assert.equal(replay.outputFormat, "png");
   assert.equal(replay.imageModelID, "gpt-image-2.5-sunburst");
+  assert.equal(replay.imageModelSupportsTransparency, true);
+  assert.equal(replay.imageModelCatalogValidationId, "catalog-proof-slot-3");
   assert.deepEqual(replay.sources.map((source) => source.path), [
     "C:\\input\\first.png",
     "C:\\input\\second.png",
@@ -88,6 +95,8 @@ test("job-slot replay uses the frozen slot identity and exact per-slot seed", ()
   assert.equal(replay.apiMode, "responses");
   assert.equal(replay.seed, 102);
   assert.equal(replay.prompt, "frozen group prompt");
+  assert.equal(replay.imageModelSupportsGenerations, true);
+  assert.equal(replay.imageModelCatalogValidationId, "catalog-proof-slot-3");
   assert.deepEqual(replay.sources.map((source) => source.path), ["one.png", "two.png", "three.png"]);
 });
 
@@ -125,6 +134,66 @@ test("last-payload replay ignores later UI state and retains its sanitized snaps
   assert.equal(replay.prompt, "frozen failed prompt");
   assert.equal(replay.apiProfileId, "fhl-slot-3");
   assert.equal(replay.imageModelValidatedAt, frozenMetadata.imageModelValidatedAt);
+  assert.equal(replay.imageModelSupportsEdits, true);
+  assert.equal(replay.imageModelCatalogValidationId, "catalog-proof-slot-3");
+});
+
+test("job-slot replay rejects conflicting group capability or proof metadata", () => {
+  const group = {
+    groupId: "group-conflict",
+    workspaceId: "workspace-1",
+    createdAt: 1,
+    mode: "generate",
+    apiMode: "images",
+    prompt: "conflict",
+    batchCount: 1,
+    size: "1024x1024",
+    quality: "medium",
+    outputFormat: "png",
+    slotIds: ["job-conflict"],
+    slots: [],
+    statusSummary: { queued: 0, running: 0, succeeded: 0, failed: 1, cancelled: 0, interrupted: 0 },
+    ...frozenMetadata,
+  };
+  const baseSlot = {
+    jobId: "job-conflict",
+    groupId: group.groupId,
+    workspaceId: group.workspaceId,
+    batchIndex: 0,
+    status: "failed",
+    createdAt: 1,
+    updatedAt: 2,
+    ...frozenMetadata,
+  };
+  assert.equal(frozenReplayFromJobSlot(group, {
+    ...baseSlot,
+    imageModelSupportsTransparency: false,
+  }), null);
+  assert.equal(frozenReplayFromJobSlot(group, {
+    ...baseSlot,
+    imageModelCatalogValidationId: "different-proof",
+  }), null);
+});
+
+test("legacy replay retains viewable metadata but cannot invent capability proof", () => {
+  const replay = frozenReplayFromHistory({
+    id: "legacy-capabilities",
+    createdAt: 1,
+    mode: "generate",
+    prompt: "legacy",
+    size: "1024x1024",
+    quality: "medium",
+    outputFormat: "png",
+    apiMode: "images",
+    ...Object.fromEntries(Object.entries(frozenMetadata).filter(([key]) => (
+      !key.startsWith("imageModelSupports")
+      && key !== "imageModelAvailable"
+      && key !== "imageModelCatalogValidationId"
+    ))),
+  });
+  assert.ok(replay);
+  assert.equal(replay.imageModelAvailable, undefined);
+  assert.equal(replay.imageModelCatalogValidationId, undefined);
 });
 
 test("legacy records without provider/model/profile metadata cannot masquerade as exact replay", () => {

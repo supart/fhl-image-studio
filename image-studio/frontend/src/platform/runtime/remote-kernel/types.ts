@@ -29,6 +29,11 @@ export type RemoteGeneratePayload = {
   imageModelValidatedAt?: number;
   imageModelCatalogBaseUrl?: string;
   imageModelCatalogProvider?: string;
+  imageModelAvailable?: boolean;
+  imageModelSupportsGenerations?: boolean;
+  imageModelSupportsEdits?: boolean;
+  imageModelSupportsTransparency?: boolean;
+  imageModelCatalogValidationId?: string;
   proxyMode?: string;
   proxyURL?: string;
   apiMode: string;

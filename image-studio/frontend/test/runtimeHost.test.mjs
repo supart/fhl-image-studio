@@ -636,6 +636,107 @@ test("runtimeHost parses browser model lists", async () => {
   });
 });
 
+test("runtimeHost normalizes image catalog metadata without retaining raw provider fields", async () => {
+  const providerPrivateReason = "tenant private capability policy ref 123";
+  await withPatchedGlobals(async () => {
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      data: [
+        { id: "gpt-image-2.6", type: "chat" },
+        { id: "text-image-encoder", type: "chat", input_modalities: ["image", "text"] },
+        { id: "chat-image-editor", type: "chat", endpoints: ["/v1/images/edits"] },
+        { id: "vision-input-only", input_modalities: ["image"] },
+        { id: "audio-image-mix", endpoints: ["/v1/images/generations"] },
+        { id: "gpt-5.5", type: "text" },
+        {
+          id: "gpt-image-2.7-private",
+          available: false,
+          disabledReason: providerPrivateReason,
+          capabilities: { supportsTransparency: false },
+        },
+      ],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    const result = await runtimeHost.listImageModelsFromUpstream(
+      "https://relay.example.com",
+      "sk-test-models",
+      "fhl",
+    );
+    assert.deepEqual(result.models.map((model) => model.id), [
+      "gpt-image-2.6",
+      "gpt-image-2.7-private",
+    ]);
+    assert.equal(result.modelCount, 2);
+    assert.equal(result.models[0].imageCapable, false);
+    assert.equal(result.models[0].supportsGenerations, false);
+    assert.equal(result.models[1].available, false);
+    assert.equal(result.models[1].supportsTransparency, false);
+    assert.equal(result.models[1].disabledReason, "Provider 标记为不可用");
+    assert.doesNotMatch(JSON.stringify(result), /tenant private|input_modalities|endpoints|capabilities/);
+  });
+});
+
+test("runtimeHost carries native catalog receipts and invalidates proofs without credentials", async () => {
+  const calls = [];
+  await withPatchedGlobals(async () => {
+    globalThis.window.AndroidImageStudio = {
+      invoke(requestId, method, payloadJson) {
+        const args = JSON.parse(payloadJson);
+        calls.push({ method, args });
+        queueMicrotask(() => {
+          if (method === "ListImageModels") {
+            window.__imageStudioNativeResolve?.(requestId, {
+              modelCount: 1,
+              baseURL: "https://www.fhl.mom",
+              provider: "fhl",
+              fetchedAt: 7000,
+              validationId: "catalog-native-1",
+              models: [{ id: "gpt-image-2.6", available: true, supportsGenerations: true }],
+            });
+          } else if (method === "CommitImageModelValidationBatch") {
+            window.__imageStudioNativeResolve?.(requestId, { validationId: "batch-native-1" });
+          } else {
+            window.__imageStudioNativeResolve?.(requestId, null);
+          }
+        });
+      },
+    };
+  }, async () => {
+    const runtimeHost = await loadRuntimeHost();
+    const catalog = await runtimeHost.listImageModelsFromUpstream(
+      "https://www.fhl.mom",
+      "sk-test-models",
+      "fhl",
+      "system",
+      "",
+      undefined,
+      { profileId: "slot-1", slotNumber: 1, fetchedAt: 7000 },
+    );
+    assert.equal(catalog.validationId, "catalog-native-1");
+    assert.equal(catalog.fetchedAt, 7000);
+    assert.equal(await runtimeHost.commitAndroidImageModelValidationBatch({
+      modelID: "gpt-image-2.6",
+      baseURL: "https://www.fhl.mom",
+      provider: "fhl",
+      fetchedAt: 7000,
+      available: true,
+      supportsGenerations: true,
+      supportsEdits: true,
+      supportsTransparency: true,
+      targets: [{ profileId: "slot-1", slotNumber: 1, validationId: "catalog-native-1" }],
+    }), "batch-native-1");
+    await runtimeHost.invalidateAndroidImageModelValidationBatches(["slot-1"]);
+    await runtimeHost.invalidateAndroidImageModelValidationProfiles(["slot-1"]);
+    assert.deepEqual(calls.map(({ method }) => method), [
+      "ListImageModels",
+      "CommitImageModelValidationBatch",
+      "InvalidateImageModelValidationBatches",
+      "InvalidateImageModelValidationProfiles",
+    ]);
+    assert.equal(JSON.stringify(calls.slice(1)).includes("sk-test-models"), false);
+  });
+});
+
 test("runtimeHost image model catalog errors never expose provider response bodies", async () => {
   const providerSecret = "provider-private-token-that-must-not-reach-ui";
   await withPatchedGlobals(async () => {

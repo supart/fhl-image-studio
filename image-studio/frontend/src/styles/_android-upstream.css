@@ -935,13 +935,13 @@ html[data-platform="android"] .android-fhl-pool-model-config {
   min-height: 190px;
   max-height: 190px;
   min-width: 0;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: 30px minmax(0, 1fr) minmax(0, 1fr) 36px;
   gap: 6px;
   overflow: hidden;
   border: 1px solid rgb(0 106 96 / 0.16);
   border-radius: 8px;
   background: rgb(0 106 96 / 0.05);
-  padding: 10px;
+  padding: 8px;
 }
 
 html[data-platform="android"] .android-fhl-pool-model-config-header {
@@ -1009,13 +1009,79 @@ html[data-platform="android"] .android-fhl-pool-model-save-hint {
 }
 
 html[data-platform="android"] .android-fhl-pool-model-controls {
-  display: grid;
+  display: block;
   min-width: 0;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
+  min-height: 0;
+  overflow: hidden;
 }
 
-html[data-platform="android"] .android-fhl-pool-model-controls select,
+html[data-platform="android"] .android-fhl-pool-model-list {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  gap: 4px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+html[data-platform="android"] .android-fhl-pool-model-option {
+  display: grid;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 26px;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) minmax(96px, 40%);
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  border: 1px solid rgb(0 106 96 / 0.14);
+  border-radius: 6px;
+  background: rgb(255 255 255 / 0.7);
+  color: rgb(39 39 42);
+  padding: 3px 8px;
+  text-align: left;
+}
+
+html[data-platform="android"] .android-fhl-pool-model-option.selected {
+  border-color: var(--accent);
+  background: rgb(0 106 96 / 0.1);
+}
+
+html[data-platform="android"] .android-fhl-pool-model-option.disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+html[data-platform="android"] .android-fhl-pool-model-option-id,
+html[data-platform="android"] .android-fhl-pool-model-option-reason {
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+
+html[data-platform="android"] .android-fhl-pool-model-option-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+html[data-platform="android"] .android-fhl-pool-model-option-reason {
+  color: rgb(82 82 91);
+  font-size: 10px;
+  text-align: right;
+}
+
+html[data-platform="android"] .android-fhl-pool-model-placeholder {
+  display: flex;
+  min-height: 26px;
+  align-items: center;
+  color: rgb(82 82 91);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
 html[data-platform="android"] .android-fhl-pool-model-controls button {
   box-sizing: border-box;
   min-width: 0;
@@ -1026,16 +1092,25 @@ html[data-platform="android"] .android-fhl-pool-model-controls button {
   white-space: nowrap;
 }
 
+html[data-platform="android"] .android-fhl-pool-model-controls .android-fhl-pool-model-option {
+  min-height: 26px;
+  height: auto;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
 html[data-platform="android"] .android-fhl-pool-model-actions {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
 }
 
 html[data-platform="android"] .android-fhl-pool-model-actions button {
   box-sizing: border-box;
-  min-height: 40px;
+  min-height: 32px;
   width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1046,6 +1121,13 @@ html[data-platform="android"] .android-fhl-pool-model-actions button.primary {
   border-color: var(--accent);
   background: var(--accent);
   color: white;
+}
+
+html[data-platform="android"] .android-fhl-pool-model-actions .android-fhl-pool-model-save-hint {
+  max-height: 28px;
+  overflow-y: auto;
+  font-size: 9px;
+  line-height: 1.25;
 }
 
 html[data-platform="android"] .android-fhl-slot-list {
@@ -1460,6 +1542,22 @@ html.dark[data-platform="android"] .android-fhl-pool-model-refresh {
   color: rgb(153 246 228);
 }
 
+html.dark[data-platform="android"] .android-fhl-pool-model-option {
+  border-color: rgb(255 255 255 / 0.1);
+  background: rgb(24 24 27 / 0.75);
+  color: rgb(244 244 245);
+}
+
+html.dark[data-platform="android"] .android-fhl-pool-model-option.selected {
+  border-color: rgb(123 218 207 / 0.45);
+  background: rgb(20 83 75 / 0.3);
+}
+
+html.dark[data-platform="android"] .android-fhl-pool-model-option-reason,
+html.dark[data-platform="android"] .android-fhl-pool-model-placeholder {
+  color: rgb(212 212 216);
+}
+
 html.dark[data-platform="android"] .android-fhl-slot-secret input,
 html.dark[data-platform="android"] .android-fhl-slot-secret button,
 html.dark[data-platform="android"] .android-fhl-bulk-secret-input {
@@ -1499,18 +1597,27 @@ html.dark[data-platform="android"] .android-fhl-bulk-actions {
     min-width: 0;
   }
 
-  html[data-platform="android"] .android-fhl-pool-model-controls {
-    grid-template-columns: 1fr;
-  }
-
   html[data-platform="android"] .android-fhl-pool-model-config {
     height: 236px;
     min-height: 236px;
     max-height: 236px;
   }
 
+  html[data-platform="android"] .android-fhl-pool-model-option {
+    grid-template-columns: 1fr;
+    gap: 1px;
+  }
+
+  html[data-platform="android"] .android-fhl-pool-model-option-reason {
+    text-align: left;
+  }
+
   html[data-platform="android"] .android-fhl-pool-model-actions {
     grid-template-columns: 1fr;
+  }
+
+  html[data-platform="android"] .android-fhl-pool-model-actions .android-fhl-pool-model-save-hint {
+    display: none;
   }
 
   html[data-platform="android"] .android-fhl-slot-actions {

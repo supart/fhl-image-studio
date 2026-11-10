@@ -18,6 +18,11 @@ export type GenerateOptionsLike = {
   imageModelValidatedAt?: number;
   imageModelCatalogBaseUrl?: string;
   imageModelCatalogProvider?: string;
+  imageModelAvailable?: boolean;
+  imageModelSupportsGenerations?: boolean;
+  imageModelSupportsEdits?: boolean;
+  imageModelSupportsTransparency?: boolean;
+  imageModelCatalogValidationId?: string;
   proxyMode?: string;
   proxyURL?: string;
   apiMode: string;
@@ -113,6 +118,8 @@ export type ImageModelDescriptorLike = {
   supportsGenerations?: boolean;
   supportsEdits?: boolean;
   supportsTransparency?: boolean;
+  available?: boolean;
+  disabledReason?: string;
 };
 
 export type ListImageModelsOptionsLike = {
@@ -121,14 +128,33 @@ export type ListImageModelsOptionsLike = {
   provider?: string;
   proxyMode?: string;
   proxyURL?: string;
+  profileId?: string;
+  slotNumber?: number;
+  fetchedAt?: number;
 };
 
 export type ListImageModelsResultLike = {
   modelCount?: number;
   provider?: string;
   baseURL?: string;
+  fetchedAt?: number;
+  validationId?: string;
   models?: ImageModelDescriptorLike[];
 };
+
+export type CommitImageModelValidationBatchLike = {
+  modelID: string;
+  baseURL: string;
+  provider: string;
+  fetchedAt: number;
+  available: boolean;
+  supportsGenerations: boolean;
+  supportsEdits: boolean;
+  supportsTransparency: boolean;
+  targets: Array<{ profileId: string; slotNumber: number; validationId: string }>;
+};
+
+export type CommitImageModelValidationBatchResultLike = { validationId?: string };
 
 export type JobStartedLike = { jobId: string };
 export type ImportedImageLike = {

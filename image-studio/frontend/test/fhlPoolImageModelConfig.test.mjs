@@ -12,6 +12,7 @@ const server = await createServer({
 });
 const {
   buildFHLPoolModelValidationSignature,
+  buildFHLPoolModelAvailability,
   prepareFHLPoolImageModelConfig,
   selectConsistentFHLPoolImageModel,
 } = await server.ssrLoadModule(
@@ -43,7 +44,10 @@ function makePoolProfile(id, slot, patch = {}) {
 }
 
 function catalog(models, fetchedAt) {
-  return normalizeImageModelCatalog(models, "https://www.fhl.mom", "fhl", fetchedAt);
+  return {
+    ...normalizeImageModelCatalog(models, "https://www.fhl.mom", "fhl", fetchedAt),
+    validationId: `catalog-receipt-${fetchedAt ?? "now"}`,
+  };
 }
 
 test("validation signature is stable, ordered, and never includes credential contents", () => {
@@ -290,4 +294,43 @@ test("base URL and provider mismatches fail closed before catalog requests", asy
     (error) => error?.message === "已配置且启用的 FHL Images 槽位必须使用同一 Base URL 和 provider。",
   );
   assert.equal(fetchCount, 0);
+});
+
+test("pool model availability exposes a safe union while keeping only the common intersection selectable", () => {
+  const first = catalog([
+    { id: "gpt-image-2.6-flare", supportsTransparency: true },
+    { id: "gpt-image-2.7", supportsTransparency: true },
+    { id: "gpt-image-2.5", available: false, disabledReason: "不可调用的模糊模型别名" },
+  ], 1000);
+  const second = catalog([
+    { id: "gpt-image-2.6-flare", supportsTransparency: false },
+    { id: "gpt-image-2.5", available: false, disabledReason: "不可调用的模糊模型别名" },
+  ], 1000);
+  const availability = buildFHLPoolModelAvailability([first, second], [1, 4]);
+  const flare = availability.find((model) => model.id === "gpt-image-2.6-flare");
+  const future = availability.find((model) => model.id === "gpt-image-2.7");
+  const alias = availability.find((model) => model.id === "gpt-image-2.5");
+  assert.equal(flare?.selectable, true);
+  assert.equal(flare?.supportsTransparency, false);
+  assert.equal(future?.selectable, false);
+  assert.deepEqual(future?.missingSlotNumbers, [4]);
+  assert.match(future?.disabledReason ?? "", /FHL4/);
+  assert.equal(alias?.selectable, false);
+  assert.match(alias?.disabledReason ?? "", /模糊模型别名/);
+});
+
+test("no common model keeps a diagnostic union and returns an empty commit catalog", async () => {
+  const first = makePoolProfile("slot-1", 1);
+  const second = makePoolProfile("slot-2", 2);
+  const prepared = await prepareFHLPoolImageModelConfig({
+    profiles: [first, second],
+    readCredential: async () => "sk-fixture-placeholder-valid-12345678",
+    fetchCatalog: async (profile) => catalog([
+      { id: profile.id === first.id ? "gpt-image-2.6-flare" : "gpt-image-2.7" },
+    ], 1000),
+    sharedFetchedAt: 3000,
+  });
+  assert.deepEqual(prepared.catalog.models, []);
+  assert.equal(prepared.availability.length, 2);
+  assert.ok(prepared.availability.every((model) => !model.selectable));
 });

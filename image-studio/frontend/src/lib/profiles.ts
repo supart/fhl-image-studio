@@ -389,6 +389,17 @@ export function tryParseProfile(raw: unknown): UpstreamProfile | null {
     && o.imageModelCatalogProvider.trim()
     ? imageModelCatalogProvider(o.imageModelCatalogProvider)
     : undefined;
+  const optionalBoolean = (key: string): boolean | undefined => (
+    typeof o[key] === "boolean" ? o[key] as boolean : undefined
+  );
+  const imageModelAvailable = optionalBoolean("imageModelAvailable");
+  const imageModelSupportsGenerations = optionalBoolean("imageModelSupportsGenerations");
+  const imageModelSupportsEdits = optionalBoolean("imageModelSupportsEdits");
+  const imageModelSupportsTransparency = optionalBoolean("imageModelSupportsTransparency");
+  const imageModelCatalogValidationId = typeof o.imageModelCatalogValidationId === "string"
+    && /^[A-Za-z0-9._:-]{8,128}$/.test(o.imageModelCatalogValidationId.trim())
+    ? o.imageModelCatalogValidationId.trim()
+    : undefined;
   const rawConcurrencyLimit = typeof o.concurrencyLimit === "number" && o.concurrencyLimit >= 0
     ? Math.floor(o.concurrencyLimit) : 0;
   const storedFHLPoolSlot = isOfficialFHLProfile({ apiMode, baseURL })
@@ -418,6 +429,11 @@ export function tryParseProfile(raw: unknown): UpstreamProfile | null {
     imageModelValidatedAt,
     imageModelCatalogBaseUrl: storedImageModelCatalogBaseUrl || undefined,
     imageModelCatalogProvider: storedImageModelCatalogProvider || undefined,
+    imageModelAvailable,
+    imageModelSupportsGenerations,
+    imageModelSupportsEdits,
+    imageModelSupportsTransparency,
+    imageModelCatalogValidationId,
     concurrencyLimit,
     continuousPoolEnabled,
     fhlImagesPoolSlot,
@@ -486,5 +502,10 @@ export function duplicateProfile(p: UpstreamProfile): UpstreamProfile {
     imageModelValidatedAt: undefined,
     imageModelCatalogBaseUrl: undefined,
     imageModelCatalogProvider: undefined,
+    imageModelAvailable: undefined,
+    imageModelSupportsGenerations: undefined,
+    imageModelSupportsEdits: undefined,
+    imageModelSupportsTransparency: undefined,
+    imageModelCatalogValidationId: undefined,
   };
 }

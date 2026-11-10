@@ -27,8 +27,9 @@
 - 文生图、图生图、多参考图、画布编辑、历史回用、保存原图和系统分享。
 - FHL Responses 文本配置可从 `/v1/models` 获取模型列表，反推提示词和提示词优化共用用户保存的文本模型。
 - FHL Images 多参考图使用重复的 `image` 字段，并新增 `4:3`、`3:4` 比例。
-- 生图模型目录只允许 provider 实际返回的 `gpt-image-2`、`gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`；旧 Profile 需重新获取目录并明确选择。
-- 手机和平板主创作区支持普通图像与透明 PNG；Flare/Sunburst 透明请求锁定 PNG，最终结果必须包含真实 Alpha。
+- 生图模型目录动态接收 provider 返回的精确 GPT Image 2.x ID，并保留未来 minor/后缀；非法 ID、非图像模型、仅图像输入模型和不可调用的裸 `gpt-image-2.5` 均失败关闭。
+- 十槽面板展示安全并集，但只有所有已启用且有凭据的槽位共同存在、共同允许生成的模型才能保存；能力按全部目标槽保守合并。
+- 手机和平板主创作区支持普通图像与透明 PNG；透明要求精确 GPT Image 2.x、minor 不低于 5、provider 明确允许、有效原生目录证明和 PNG 输出，最终结果必须包含真实 Alpha。
 - provider、精确模型、验证目录、API 模式、背景、格式、prompt 和参考图顺序冻结到任务、历史与重试，不从当前 UI 偷换来源。
 
 ## 首次使用
@@ -36,7 +37,7 @@
 1. 取得经审核的 APK 后安装并打开应用；当前 V2.0.5 开发分支尚未发布正式 APK。
 2. 点击“一键配置”，进入“FHL API 10槽”。
 3. 逐槽配置，或使用“批量配置10个API”粘贴；应用不会提供或自动下载任何Key。
-4. 保存并测试已填写槽位，获取生图模型目录并明确选择一个 provider 已提供的精确模型。
+4. 保存并测试已填写槽位；十槽面板会自动验证目录，用户只需选择全部活动槽位共同可用的精确模型并点击“保存统一模型”。
 5. 用小任务确认服务可用；默认使用 Images API，只有上游规则需要时再从顶部切换 Responses API。
 
 ## 从源码构建
@@ -63,9 +64,9 @@ $env:IMAGE_STUDIO_BUILD_ID='android-v2.0.5-release'
 ## 验证与限制
 
 - V2.0.4 修改前基线已复核：前端完整测试 `364/365`（唯一失败为旧 Windows PowerShell 缺少 `Get-FileHash`）、Worker `5/5`、Android JVM `54/54`、`npm run build:android` 和 `:app:assembleDebug` 通过。
-- V2.0.5 当前阶段最终回归：前端 `426/426`、TypeScript、`npm run build:android`、Android JVM `64/64`、强制 `assembleDebug` 和安全扫描均通过；Worker 未受本批影响，未重复执行。
-- 当前外测 Debug APK：`V2.0.5-debug / 1050005`，包名 `top.fangtangyuan.fhlstudio.android.debug`，大小 `14,785,860` 字节，SHA-256 `A72B2A3CBFC85886DBC2DCDA8AF13C32FFB203F5757D5E72EA7B4057F6040F01`。它使用 Android Debug 证书，可与正式包并存，不是正式发布包。
-- `codex_api36` 已由 `ty-android-mcp` 验证为 API 36、`1440x3200 @ 560 dpi`；最新 APK 已保留数据覆盖安装并通过 fresh screen。FHL 十槽固定模型卡片自动验证 10 个活动槽，手动刷新恢复 `ready`，显式保存后确认共同调度；安装观察期无生成点击、任务或上游 POST。
+- 动态 GPT Image 2.x 升级回归：前端 `440/440`、TypeScript、`npm run build:android`、Worker `5/5`、Android JVM `71/71`、androidTest 编译打包、强制 `assembleDebug` 和安全扫描均通过。
+- 当前外测产物为 `V2.0.5-debug / 1050005`、包名 `top.fangtangyuan.fhlstudio.android.debug`，使用 Android Debug 证书，可与正式包并存，不是正式发布包；最终文件大小和 SHA-256 记录在本机忽略的设备测试交付目录。
+- `codex_api36` 已由 `ty-android-mcp` 验证为 API 36、`1440x3200 @ 560 dpi`；审核覆盖安装、包清单、`MainActivity` 和 fresh screen 通过，安装观察期为 0 点击、0 任务、0 上游 POST。本批未进入带凭据的自动验证面板，因此没有新增真实目录请求。
 - 真实 API Images 验收的已通过项和 Responses provider 503 停止记录见 `RELEASE_NOTES_V2.0.5_ANDROID.md`；本次固定面板验收未触发付费生图。所有凭据操作均由用户手动完成，自动化不读取或记录 Key。
 - Responses生图通道保留，但验证期间官方上游曾返回HTTP 503；共享测试账户也可能受到429限流。
 - 本版本未执行216次正式真实API发布门禁。请先小规模验证自己的服务配额，不要将限流结果当作本地调度失败。

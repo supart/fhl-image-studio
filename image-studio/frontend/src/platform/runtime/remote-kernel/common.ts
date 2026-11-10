@@ -13,6 +13,7 @@ import {
   normalizeAPIMode as normalizeSharedAPIMode,
   normalizeBaseURL as normalizeSharedBaseURL,
   normalizeImageModel as normalizeSharedImageModel,
+  isGPTImage2Model as isGPTImage2ModelShared,
   normalizeTextModel as normalizeSharedTextModel,
 } from "../../../../../../shared/kernel/requestModel.js";
 import type { KernelImageSource, RemoteGeneratePayload } from "./types.ts";
@@ -209,7 +210,7 @@ export function normalizeImageModel(modelID: string): string {
 }
 
 export function isGPTImage2Model(modelID: string): boolean {
-  return normalizeImageModel(modelID).toLowerCase().startsWith("gpt-image-2");
+  return isGPTImage2ModelShared(modelID);
 }
 
 export function normalizeAPIKeyForHeader(apiKey: string): string {
