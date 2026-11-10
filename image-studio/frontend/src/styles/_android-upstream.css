@@ -929,6 +929,7 @@ html[data-platform="android"] .android-fhl-pool-summary-actions button {
 }
 
 html[data-platform="android"] .android-fhl-pool-model-config {
+  position: relative;
   display: grid;
   box-sizing: border-box;
   height: 190px;
@@ -937,11 +938,15 @@ html[data-platform="android"] .android-fhl-pool-model-config {
   min-width: 0;
   grid-template-rows: 30px minmax(0, 1fr) minmax(0, 1fr) 36px;
   gap: 6px;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid rgb(0 106 96 / 0.16);
   border-radius: 8px;
   background: rgb(0 106 96 / 0.05);
   padding: 8px;
+}
+
+html[data-platform="android"] .android-fhl-pool-model-config[data-model-picker-open="true"] {
+  z-index: 10;
 }
 
 html[data-platform="android"] .android-fhl-pool-model-config-header {
@@ -1009,18 +1014,57 @@ html[data-platform="android"] .android-fhl-pool-model-save-hint {
 }
 
 html[data-platform="android"] .android-fhl-pool-model-controls {
+  position: relative;
+  z-index: 2;
   display: block;
   min-width: 0;
   min-height: 0;
+  overflow: visible;
+}
+
+html[data-platform="android"] .android-fhl-pool-model-trigger {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  box-sizing: border-box;
+  min-height: 40px;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid rgb(0 106 96 / 0.18);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.78);
+  padding: 0 10px;
+  color: rgb(39 39 42);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: left;
+}
+
+html[data-platform="android"] .android-fhl-pool-model-trigger-label {
+  min-width: 0;
   overflow: hidden;
+  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 html[data-platform="android"] .android-fhl-pool-model-list {
   display: grid;
+  position: absolute;
+  z-index: 20;
+  inset: calc(100% + 4px) 0 auto;
+  box-sizing: border-box;
   min-width: 0;
   min-height: 0;
-  height: 100%;
+  max-height: 112px;
   gap: 4px;
+  border: 1px solid rgb(0 106 96 / 0.2);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.98);
+  box-shadow: 0 8px 22px rgb(15 23 42 / 0.2);
+  padding: 5px;
   overflow-y: auto;
   scrollbar-width: thin;
 }
@@ -1540,6 +1584,13 @@ html.dark[data-platform="android"] .android-fhl-pool-model-refresh {
   border-color: rgb(123 218 207 / 0.18);
   background: rgb(123 218 207 / 0.08);
   color: rgb(153 246 228);
+}
+
+html.dark[data-platform="android"] .android-fhl-pool-model-trigger,
+html.dark[data-platform="android"] .android-fhl-pool-model-list {
+  border-color: rgb(123 218 207 / 0.2);
+  background: rgb(24 24 27 / 0.98);
+  color: rgb(244 244 245);
 }
 
 html.dark[data-platform="android"] .android-fhl-pool-model-option {

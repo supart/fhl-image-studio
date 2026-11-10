@@ -159,6 +159,7 @@ export function AndroidFHLImagesPoolConfig({
   const [modelConfigBusy, setModelConfigBusy] = useState(false);
   const [modelSnapshot, setModelSnapshot] = useState<UnifiedModelSnapshot | null>(null);
   const [selectedImageModelID, setSelectedImageModelID] = useState("");
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [credentialScanStatus, setCredentialScanStatus] = useState<CredentialScanStatus>("idle");
   const [credentialScanEpoch, setCredentialScanEpoch] = useState(0);
   const [credentialScanRevision, setCredentialScanRevision] = useState(0);
@@ -171,6 +172,7 @@ export function AndroidFHLImagesPoolConfig({
   const autoValidationSignature = useRef("");
   const validationSignatureRef = useRef("");
   const suppressCredentialRescan = useRef(false);
+  const modelPickerRef = useRef<HTMLDivElement>(null);
   const bulkPasteDialogRef = useRef<AndroidBulkAPIKeyPasteDialogHandle>(null);
 
   const mappedProfiles = useMemo(
@@ -233,6 +235,7 @@ export function AndroidFHLImagesPoolConfig({
     setModelConfigBusy(false);
     setModelSnapshot(null);
     setSelectedImageModelID("");
+    setModelPickerOpen(false);
     setModelErrorMessage(null);
     setModelSuccessMessage(null);
     setModelConfigGeneration(0);
@@ -269,6 +272,7 @@ export function AndroidFHLImagesPoolConfig({
     setModelConfigBusy(false);
     setModelSnapshot(null);
     setSelectedImageModelID("");
+    setModelPickerOpen(false);
     setModelErrorMessage(null);
     setModelSuccessMessage(null);
     autoValidationSignature.current = "";
@@ -306,6 +310,7 @@ export function AndroidFHLImagesPoolConfig({
     setModelConfigBusy(false);
     setModelSnapshot(null);
     setSelectedImageModelID("");
+    setModelPickerOpen(false);
     setModelErrorMessage(null);
     setModelSuccessMessage(null);
     setModelConfigGeneration((value) => value + 1);
@@ -666,6 +671,7 @@ export function AndroidFHLImagesPoolConfig({
     modelAbortController.current = controller;
     const credentialRevision = currentCredentialMutationRevision();
     setModelConfigBusy(true);
+    setModelPickerOpen(false);
     // Keep the last successful snapshot visible while a refresh is running.
     // A failed refresh must not erase a validated directory or the user's
     // current selection; the error state disables saving until a new success.
@@ -855,6 +861,43 @@ export function AndroidFHLImagesPoolConfig({
             ? "正在验证活动槽位的共同模型…"
             : "请选择全部活动槽位共同可用的精确生图模型。");
   const modelSelectionLocked = modelPanelState !== "ready";
+  const modelPickerDisabled = busy
+    || modelPanelState !== "ready"
+    || pendingCount > 0
+    || credentialScanStatus !== "ready"
+    || activeCredentialTargetCount === 0
+    || !modelSnapshot?.availability.length;
+  const hasSelectableModel = modelSnapshot?.availability.some((model) => model.selectable) === true;
+  const modelPickerLabel = selectedImageModelID
+    || (modelSnapshot
+      ? hasSelectableModel ? "请选择共同模型" : "没有共同可用的模型"
+      : "验证完成后选择共同模型");
+
+  useEffect(() => {
+    if (!active || modelPanelState !== "ready") setModelPickerOpen(false);
+  }, [active, modelPanelState]);
+
+  useEffect(() => {
+    if (!active || !modelPickerOpen) return undefined;
+    const handlePointerDown = (event: PointerEvent) => {
+      const root = modelPickerRef.current;
+      if (root && event.target instanceof Node && !root.contains(event.target)) {
+        setModelPickerOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setModelPickerOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [active, modelPickerOpen]);
 
   useEffect(() => {
     if (!active || credentialScanStatus !== "ready") return;
@@ -910,6 +953,7 @@ export function AndroidFHLImagesPoolConfig({
         data-testid="android-fhl-unified-model-panel"
         data-model-state={modelPanelState}
         data-model-selection-locked={modelPanelState !== "ready"}
+        data-model-picker-open={modelPickerOpen}
         aria-busy={modelConfigBusy}
       >
         <div className="android-fhl-pool-model-config-header">
@@ -937,46 +981,66 @@ export function AndroidFHLImagesPoolConfig({
         >
           {modelPanelStatus}
         </div>
-        <div className="android-fhl-pool-model-controls">
-          <div
-            id="android-fhl-unified-image-model"
-            className="android-fhl-pool-model-list"
-            role="listbox"
-            aria-label="统一生图模型"
-            aria-busy={modelConfigBusy}
+        <div className="android-fhl-pool-model-controls" ref={modelPickerRef}>
+          <button
+            type="button"
+            className="focus-ring android-fhl-pool-model-trigger"
+            onClick={() => setModelPickerOpen((open) => !open)}
+            disabled={modelPickerDisabled}
+            aria-haspopup="listbox"
+            aria-expanded={modelPickerOpen}
+            aria-controls="android-fhl-unified-image-model"
+            data-testid="android-fhl-unified-model-trigger"
           >
-            {modelSnapshot?.availability.length ? modelSnapshot.availability.map((model) => {
-              const selectable = model.selectable && !modelSelectionLocked && !busy;
-              const selected = selectedImageModelID.toLowerCase() === model.id.toLowerCase();
-              return (
-                <button
-                  key={model.id}
-                  type="button"
-                  className={`focus-ring android-fhl-pool-model-option ${selected ? "selected" : ""} ${model.selectable ? "" : "disabled"} ${modelSelectionLocked ? "locked" : ""}`}
-                  onClick={() => { if (selectable) setSelectedImageModelID(model.id); }}
-                  onKeyDown={(event) => {
-                    if (!selectable && (event.key === "Enter" || event.key === " ")) {
-                      event.preventDefault();
-                    }
-                  }}
-                  tabIndex={0}
-                  role="option"
-                  aria-selected={selected}
-                  aria-disabled={!selectable}
-                  data-model-id={model.id}
-                >
-                  <span className="android-fhl-pool-model-option-id">{model.id}</span>
-                  <span className="android-fhl-pool-model-option-reason">
-                    {model.selectable ? "全部活动槽位共同可用" : (model.disabledReason || "当前不可用")}
-                  </span>
-                </button>
-              );
-            }) : (
-              <div className="android-fhl-pool-model-placeholder" role="status">
-                {modelPanelState === "ready" ? "没有共同可用的精确生图模型" : "验证完成后选择共同模型"}
-              </div>
-            )}
-          </div>
+            <span className="android-fhl-pool-model-trigger-label">{modelPickerLabel}</span>
+            {modelPickerOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+          {modelPickerOpen && !modelPickerDisabled ? (
+            <div
+              id="android-fhl-unified-image-model"
+              className="android-fhl-pool-model-list"
+              role="listbox"
+              aria-label="统一生图模型"
+              aria-busy={modelConfigBusy}
+              data-testid="android-fhl-unified-model-list"
+            >
+              {modelSnapshot?.availability.length ? modelSnapshot.availability.map((model) => {
+                const selectable = model.selectable && !modelSelectionLocked && !busy;
+                const selected = selectedImageModelID.toLowerCase() === model.id.toLowerCase();
+                return (
+                  <button
+                    key={model.id}
+                    type="button"
+                    className={`focus-ring android-fhl-pool-model-option ${selected ? "selected" : ""} ${model.selectable ? "" : "disabled"} ${modelSelectionLocked ? "locked" : ""}`}
+                    onClick={() => {
+                      if (!selectable) return;
+                      setSelectedImageModelID(model.id);
+                      setModelPickerOpen(false);
+                    }}
+                    onKeyDown={(event) => {
+                      if (!selectable && (event.key === "Enter" || event.key === " ")) {
+                        event.preventDefault();
+                      }
+                    }}
+                    tabIndex={0}
+                    role="option"
+                    aria-selected={selected}
+                    aria-disabled={!selectable}
+                    data-model-id={model.id}
+                  >
+                    <span className="android-fhl-pool-model-option-id">{model.id}</span>
+                    <span className="android-fhl-pool-model-option-reason">
+                      {model.selectable ? "全部活动槽位共同可用" : (model.disabledReason || "当前不可用")}
+                    </span>
+                  </button>
+                );
+              }) : (
+                <div className="android-fhl-pool-model-placeholder" role="status">
+                  {modelPanelState === "ready" ? "没有共同可用的精确生图模型" : "验证完成后选择共同模型"}
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
         <div className="android-fhl-pool-model-actions">
           <button

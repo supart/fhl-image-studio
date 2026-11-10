@@ -360,13 +360,21 @@ test("Android FHL unified model panel is fixed and auto-validates the enabled po
   assert.match(panelBlock, /保存统一模型/);
   assert.match(panelBlock, /验证完成后选择共同模型/);
   assert.match(panelBlock, /modelPanelState !== "ready"/);
+  assert.match(panelBlock, /data-testid="android-fhl-unified-model-trigger"/);
+  assert.match(panelBlock, /aria-haspopup="listbox"/);
+  assert.match(panelBlock, /aria-expanded=\{modelPickerOpen\}/);
+  assert.match(panelBlock, /aria-controls="android-fhl-unified-image-model"/);
+  assert.match(panelBlock, /\{modelPickerOpen && !modelPickerDisabled \?/);
+  assert.match(panelBlock, /onClick=\{\(\) => setModelPickerOpen\(\(open\) => !open\)\}/);
+  assert.match(panelBlock, /setSelectedImageModelID\(model\.id\);\s*setModelPickerOpen\(false\);/);
   assert.match(panelBlock, /role="listbox"/);
+  assert.match(panelBlock, /data-testid="android-fhl-unified-model-list"/);
   assert.match(panelBlock, /role="option"/);
   assert.match(panelBlock, /aria-disabled={!selectable}/);
   assert.match(panelBlock, /tabIndex={0}/);
   assert.match(panelBlock, /className={`focus-ring android-fhl-pool-model-option/);
   assert.match(panelBlock, /if \(!selectable && \(event\.key === "Enter" \|\| event\.key === " "\)\)/);
-  assert.match(panelBlock, /onClick=\{\(\) => \{ if \(selectable\) setSelectedImageModelID\(model\.id\); \}\}/);
+  assert.match(panelBlock, /if \(!selectable\) return;[\s\S]*setSelectedImageModelID\(model\.id\);[\s\S]*setModelPickerOpen\(false\);/);
   assert.doesNotMatch(panelBlock, /\n\s+disabled=\{!selectable\}/);
   assert.match(panelBlock, /android-fhl-pool-model-option-id">\{model\.id\}/);
   assert.match(panelBlock, /model\.disabledReason \|\| "当前不可用"/);
@@ -381,6 +389,9 @@ test("Android FHL unified model panel is fixed and auto-validates the enabled po
   assert.match(fhlPoolConfig, /catalog: modelSnapshot\.catalog/);
   assert.match(fhlPoolConfig, /currentCredentialMutationRevision\(\)/);
   assert.match(fhlPoolConfig, /buildFHLPoolModelValidationSignature/);
+  assert.match(fhlPoolConfig, /event\.key === "Escape"[\s\S]*setModelPickerOpen\(false\)/);
+  assert.match(fhlPoolConfig, /addEventListener\("pointerdown", handlePointerDown, true\)/);
+  assert.match(fhlPoolConfig, /modelPickerRef\.current/);
   assert.match(fhlPoolConfig, /credentialScanStatus/);
   assert.match(fhlPoolConfig, /credentialScanEpoch/);
   assert.match(fhlPoolConfig, /type CredentialScanStatus = [^;]*"error"/);
@@ -393,9 +404,11 @@ test("Android FHL unified model panel is fixed and auto-validates the enabled po
   assert.match(fhlPoolConfig, /只更新已配置且启用的槽位；空槽和停用槽不会参与目录请求/);
 
   assert.match(upstreamCss, /\.android-fhl-pool-model-config[\s\S]*height: 190px/);
-  assert.match(upstreamCss, /\.android-fhl-pool-model-config[\s\S]*overflow: hidden/);
+  assert.match(upstreamCss, /\.android-fhl-pool-model-config\s*\{[\s\S]*overflow: visible/);
+  assert.match(upstreamCss, /\.android-fhl-pool-model-config\[data-model-picker-open="true"\][\s\S]*z-index: 10/);
   assert.match(upstreamCss, /\.android-fhl-pool-model-status[\s\S]*overflow-y: auto/);
-  assert.match(upstreamCss, /\.android-fhl-pool-model-list[\s\S]*overflow-y: auto/);
+  assert.match(upstreamCss, /\.android-fhl-pool-model-list\s*\{[\s\S]*position: absolute[\s\S]*max-height: 112px[\s\S]*overflow-y: auto/);
+  assert.match(upstreamCss, /\.android-fhl-pool-model-trigger[\s\S]*min-height: 40px/);
   assert.match(upstreamCss, /\.android-fhl-pool-model-option-id[\s\S]*overflow-wrap: anywhere/);
   assert.match(upstreamCss, /@media \(max-width: 380px\)[\s\S]*\.android-fhl-pool-model-config[\s\S]*height: 236px/);
   assert.match(upstreamCss, /\.android-fhl-pool-model-actions[\s\S]*grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\)/);
