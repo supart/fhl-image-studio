@@ -183,12 +183,12 @@ try {
     $versionCode = Invoke-CheckedText $ApkAnalyzerPath @('manifest', 'version-code', $ApkPath)
     $minSdk = Invoke-CheckedText $ApkAnalyzerPath @('manifest', 'min-sdk', $ApkPath)
     $targetSdk = Invoke-CheckedText $ApkAnalyzerPath @('manifest', 'target-sdk', $ApkPath)
-    $manifest = Invoke-CheckedText $ApkAnalyzerPath @('manifest', 'print', $ApkPath)
+    $debuggable = Invoke-CheckedText $ApkAnalyzerPath @('manifest', 'debuggable', $ApkPath)
     if ($applicationId -ne $packageName -or $versionName -ne $ExpectedVersionName -or $versionCode -ne [string]$ExpectedVersionCode) {
         Fail 'apk_identity_mismatch'
     }
     if ($minSdk -ne '28' -or $targetSdk -ne '34') { Fail 'apk_sdk_contract_mismatch' }
-    if ($manifest -notmatch 'android:debuggable="false"') { Fail 'apk_debuggable_or_unproven' }
+    if ($debuggable -cne 'false') { Fail 'apk_debuggable_or_unproven' }
     if ((Invoke-AdbText @('get-state')) -ne 'device') { Fail 'emulator_not_available' }
     $installed = ((Invoke-AdbText @('shell', 'pm', 'list', 'packages', $packageName)) -split '\r?\n') -contains ('package:' + $packageName)
     if ($Scenario -eq 'Fresh') {

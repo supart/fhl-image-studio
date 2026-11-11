@@ -148,7 +148,7 @@ jobs:
           test "$("$APKANALYZER" manifest version-code "$APK")" = "1050005"
           test "$("$APKANALYZER" manifest min-sdk "$APK")" = "28"
           test "$("$APKANALYZER" manifest target-sdk "$APK")" = "34"
-          "$APKANALYZER" manifest print "$APK" | grep -q 'android:debuggable="false"'
+          test "$("$APKANALYZER" manifest debuggable "$APK")" = "false"
 
       - name: Package review artifacts
         shell: bash

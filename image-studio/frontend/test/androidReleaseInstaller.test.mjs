@@ -37,7 +37,8 @@ test("formal installer rejects unsafe inputs before any ADB invocation", { skip:
   fs.writeFileSync(adb, `@echo off\r\necho called>"${marker}"\r\nexit /b 73\r\n`);
   const writeSigner = (digest = certificate, v2 = true) => fs.writeFileSync(signer, `@echo off\r\necho Signer #1 certificate SHA-256 digest: ${digest.toLowerCase()}\r\necho Verified using v2 scheme ^(APK Signature Scheme v2^): ${v2}\r\n`);
   writeSigner();
-  fs.writeFileSync(analyzer, `@echo off\r\nif "%~2"=="application-id" echo top.fangtangyuan.fhlstudio.android\r\nif "%~2"=="version-name" echo V2.0.5\r\nif "%~2"=="version-code" echo 1050005\r\nif "%~2"=="min-sdk" echo 27\r\nif "%~2"=="target-sdk" echo 34\r\nif "%~2"=="print" echo android:debuggable="false"\r\n`);
+  const writeAnalyzer = ({ minSdk = 28, debuggable = "false" } = {}) => fs.writeFileSync(analyzer, `@echo off\r\nif "%~2"=="application-id" echo top.fangtangyuan.fhlstudio.android\r\nif "%~2"=="version-name" echo V2.0.5\r\nif "%~2"=="version-code" echo 1050005\r\nif "%~2"=="min-sdk" echo ${minSdk}\r\nif "%~2"=="target-sdk" echo 34\r\n${debuggable ? `if "%~2"=="debuggable" echo ${debuggable}\r\n` : ""}exit /b 0\r\n`);
+  writeAnalyzer();
   const quote = (value) => `'${String(value).replaceAll("'", "''")}'`;
   const defaults = {
     ApkPath: apk,
@@ -86,6 +87,11 @@ test("formal installer rejects unsafe inputs before any ADB invocation", { skip:
     writeSigner(certificate, false);
     check({}, "apk_v2_signature_missing");
     writeSigner();
+    writeAnalyzer({ debuggable: "true" });
+    check({}, "apk_debuggable_or_unproven");
+    writeAnalyzer({ debuggable: "" });
+    check({}, "apk_debuggable_or_unproven");
+    writeAnalyzer({ minSdk: 27 });
     check({}, "apk_sdk_contract_mismatch");
   } finally {
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
